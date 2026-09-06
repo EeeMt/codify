@@ -897,6 +897,7 @@ const en = {
     steeringStatusDelivered: 'Delivered',
     steeringStatusRejected: 'Rejected',
     steeringStatusOutcomeUnknown: 'Outcome unknown',
+    steeringEventQueueUpdated: 'Control queue updated',
     steeringGateStarting: 'Starting',
     steeringGateAccepting: 'Accepting commands',
     steeringGateClosing: 'Draining',

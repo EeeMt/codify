@@ -60,6 +60,7 @@
         <li v-for="cmd in history" :key="cmd.command_id" class="steering-panel__history-item">
           <span class="steering-panel__history-type">{{ cmd.type === 'steer' ? t('taskView.steeringSteer') : t('taskView.steeringFollowUp') }}</span>
           <span class="steering-panel__history-sequence">#{{ cmd.sequence_no }}</span>
+          <span v-if="cmd.text" class="steering-panel__history-text">{{ cmd.text }}</span>
           <span class="steering-panel__history-status" :data-testid="`steering-command-${cmd.status}`">{{ commandStatusLabel(cmd.status) }}</span>
           <time class="steering-panel__history-time">{{ commandTime(cmd) }}</time>
           <span v-if="cmd.rejection_message" class="steering-panel__history-rejection">{{ cmd.rejection_message }}</span>
@@ -378,6 +379,12 @@ async function send(): Promise<void> {
   color: #18a058;
   white-space: nowrap;
   font-weight: 500;
+}
+
+.steering-panel__history-text {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+  color: rgba(30, 41, 59, 0.88);
 }
 
 .steering-panel__history-sequence,

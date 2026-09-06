@@ -210,7 +210,7 @@ async def _insert_v2_attempt(db, *, task_id, control_state="accepting"):
     ).scalar_one()
 
 async def _seed_task_with_commands(
-    maker, *, control_state="accepting", count=2, create_commands=True
+    maker, *, control_state="accepting", count=2, create_commands=True, texts=None
 ):
     async with maker() as db:
         issue_id = await _insert_issue(db)
@@ -225,7 +225,7 @@ async def _seed_task_with_commands(
                     task_id=task_id,
                     command_id=cid,
                     command_type="steer",
-                    payload={"text": f"msg-{i}"},
+                    payload={"text": texts[i] if texts and i < len(texts) else f"msg-{i}"},
                     created_by="pump-test",
                 )
                 assert seeded.created, f"seed failed: {seeded.outcome}"
@@ -274,6 +274,40 @@ async def test_pump_delivers_head_command(maker):
         assert result.commands_processed == 1
         await db.commit()
         assert await _row_status(db, command_ids[0]) == "delivered"
+
+
+async def test_pump_projects_sanitized_command_text_to_event_log(maker):
+    """The delivered audit event carries scrubbed command text, not a verbatim
+    credential, matching the command-history API (plan §5.3)."""
+    task_id, _, command_ids = await _seed_task_with_commands(
+        maker, count=1, texts=["use glpat-abcdef0123456789abcdef token"]
+    )
+    async with maker() as db:
+        result = await run_pump_cycle(
+            db, task_id=task_id, owner=_owner(), transport=_ack_transport
+        )
+        assert result.commands_processed == 1
+        await db.commit()
+        rows = (
+            await db.execute(
+                sa.text(
+                    "SELECT log_metadata FROM task_logs "
+                    "WHERE task_id = :t AND log_type = 'control_event' "
+                    "ORDER BY id"
+                ),
+                {"t": task_id},
+            )
+        ).scalars().all()
+
+    assert rows, "expected a control_event audit row"
+    meta = json.loads(rows[0])
+    assert meta["type"] == "control.command.delivered"
+    assert meta["command_id"] == command_ids[0]
+    assert meta["sequence_no"] == 1
+    assert meta["command_type"] == "steer"
+    assert meta["text"] == "use [GITLAB_TOKEN] token"
+    assert "glpat-" not in meta["text"]
+    assert meta["delivered_at"]
 
 
 async def test_pump_records_monotonic_native_delivery_timestamps(maker):

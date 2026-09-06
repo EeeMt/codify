@@ -499,6 +499,23 @@ async def _record_control_event(
     )
 
 
+def _sanitized_command_text(command: TaskHarnessCommand) -> str | None:
+    """Sanitize the persisted command text for audit projection (plan §5.3).
+
+    The persisted payload is the corroborated copy of what the user
+    submitted; it is scrubbed with the shared credential pattern matcher so
+    the event stream carries the same text the command-history API returns.
+    A missing/malformed payload yields None so a corrupted row can never
+    crash the pump.
+    """
+    from app.core.worker import sanitize_sensitive_data
+
+    payload = command.payload
+    if not isinstance(payload, dict) or not isinstance(payload.get("text"), str):
+        return None
+    return sanitize_sensitive_data(payload["text"])
+
+
 async def _drop_lease(
     db: AsyncSession, *, task_id: int, attempt: TaskHarnessAttempt, owner: str
 ) -> None:
@@ -559,7 +576,11 @@ async def _recover_dispatching_head(db: AsyncSession, *, command: TaskHarnessCom
 
 
 async def _record_unknown_outcome(db: AsyncSession, command: TaskHarnessCommand) -> None:
-    """Audit ambiguity without retaining command text or transport errors."""
+    """Audit ambiguity without transport error text.
+
+    The user-submitted command text is projected sanitized, matching the
+    other control events; the diagnostic reason is deliberately not retained.
+    """
     await _record_control_event(
         db,
         task_id=command.task_id,
@@ -568,6 +589,8 @@ async def _record_unknown_outcome(db: AsyncSession, command: TaskHarnessCommand)
             "command_id": command.command_id,
             "payload_digest": command.payload_digest,
             "sequence_no": command.sequence_no,
+            "command_type": command.command_type,
+            "text": _sanitized_command_text(command),
             "code": "delivery_outcome_unknown",
         },
     )
@@ -713,6 +736,8 @@ async def dispatch_one_command(
                 "command_id": command.command_id,
                 "payload_digest": command.payload_digest,
                 "sequence_no": command.sequence_no,
+                "command_type": command.command_type,
+                "text": _sanitized_command_text(command),
                 "delivered_at": delivered_at.isoformat(),
             },
         )
@@ -737,6 +762,8 @@ async def dispatch_one_command(
                 "command_id": command.command_id,
                 "payload_digest": command.payload_digest,
                 "sequence_no": command.sequence_no,
+                "command_type": command.command_type,
+                "text": _sanitized_command_text(command),
                 "rejection_code": code,
                 "rejection_message": message,
             },

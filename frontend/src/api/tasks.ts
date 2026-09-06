@@ -695,6 +695,7 @@ export interface HarnessCommand {
   sequence_no: number
   type: 'steer' | 'follow_up'
   status: 'queued' | 'dispatching' | 'delivered' | 'rejected' | 'outcome_unknown'
+  text?: string
   created_at: string
   dispatch_started_at: string | null
   native_ack_at: string | null

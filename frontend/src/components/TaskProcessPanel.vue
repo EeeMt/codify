@@ -76,6 +76,10 @@
                   <div v-else-if="isCompactRow(row)" class="context-compact-divider">
                     <span class="context-compact-label">{{ t('taskView.contextCompacted') }}</span>
                   </div>
+                  <TaskProcessControlEventRow
+                    v-else-if="isControlEventRow(row)"
+                    :row="asControlEventRow(row)"
+                  />
                 </div>
               </template>
             </div>
@@ -142,7 +146,8 @@ import TaskProcessSystemInitBanner from './task-process/TaskProcessSystemInitBan
 import TaskProcessRawPane from './task-process/TaskProcessRawPane.vue'
 import TaskProcessTextRow from './task-process/TaskProcessTextRow.vue'
 import TaskProcessToolRow from './task-process/TaskProcessToolRow.vue'
-import { normalizeTaskProcessRows, parseSystemInitEntry, isTextRow, isToolRow, isCompactRow, type NormalizedTextEventRow, type NormalizedToolEventRow, type NormalizedTaskProcessRow, type ParsedTextEntry } from './task-process/taskProcessUtils'
+import TaskProcessControlEventRow from './task-process/TaskProcessControlEventRow.vue'
+import { normalizeTaskProcessRows, parseSystemInitEntry, isTextRow, isToolRow, isCompactRow, isControlEventRow, type NormalizedTextEventRow, type NormalizedToolEventRow, type NormalizedControlEventRow, type NormalizedTaskProcessRow, type ParsedTextEntry } from './task-process/taskProcessUtils'
 import { useTaskPayloadExpansion } from './task-process/useTaskPayloadExpansion'
 import { parseUtcDate } from '../utils/datetime'
 
@@ -204,6 +209,7 @@ const processRows = computed(() => normalizeTaskProcessRows(props.taskLogs))
 // so we use explicit cast helpers that are safe because rendering is guarded by the matching v-if.
 function asTextRow(row: NormalizedTaskProcessRow): NormalizedTextEventRow { return row as NormalizedTextEventRow }
 function asToolRow(row: NormalizedTaskProcessRow): NormalizedToolEventRow { return row as NormalizedToolEventRow }
+function asControlEventRow(row: NormalizedTaskProcessRow): NormalizedControlEventRow { return row as NormalizedControlEventRow }
 const systemInitEntry = computed(() => parseSystemInitEntry(props.taskLogs))
 const runtimeInfoEntry = computed(() => {
   if (systemInitEntry.value) return systemInitEntry.value

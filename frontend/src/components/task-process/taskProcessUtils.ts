@@ -95,14 +95,47 @@ export interface NormalizedCompactRow {
   event: TaskLog
 }
 
-export type NormalizedTaskProcessRow = NormalizedTextEventRow | NormalizedToolEventRow | NormalizedCompactRow
+export interface ParsedControlEntry {
+  eventType: string
+  commandId: string | null
+  sequenceNo: number | null
+  commandType: 'steer' | 'follow_up' | null
+  text: string
+  rejectionMessage: string | null
+}
+
+export interface NormalizedControlEventRow {
+  kind: 'control_event'
+  event: TaskLog
+  controlEntry: ParsedControlEntry
+}
+
+export type NormalizedTaskProcessRow = NormalizedTextEventRow | NormalizedToolEventRow | NormalizedCompactRow | NormalizedControlEventRow
 
 export interface SkillUsageStat {
   name: string
   count: number
 }
 
-const STRUCTURED_TYPES = new Set(['thinking', 'assistant_text', 'tool_call', 'context_compact'])
+const STRUCTURED_TYPES = new Set([
+  'thinking',
+  'assistant_text',
+  'tool_call',
+  'context_compact',
+  'control_event',
+])
+
+const CONTROL_EVENT_STATUS_KEYS: Record<string, string> = {
+  'control.command.delivered': 'taskView.steeringStatusDelivered',
+  'control.command.rejected': 'taskView.steeringStatusRejected',
+  'control.command.outcome_unknown': 'taskView.steeringStatusOutcomeUnknown',
+  'control.queue.updated': 'taskView.steeringEventQueueUpdated',
+}
+
+export function controlEventStatusKey(eventType: string): string | null {
+  const key = CONTROL_EVENT_STATUS_KEYS[eventType]
+  return key ?? null
+}
 
 function parseJsonMetadata(metadata: unknown): unknown {
   if (typeof metadata !== 'string') return metadata
@@ -394,6 +427,33 @@ export function parseSystemInitEntry(taskLogs: TaskLog[]) {
   }
 }
 
+export function parseControlEntry(metadata: unknown): ParsedControlEntry {
+  const parsed = parseJsonMetadata(metadata)
+  const obj = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : {}
+  const eventType = typeof obj.type === 'string' && obj.type.startsWith('control.')
+    ? obj.type
+    : ''
+  const text = typeof obj.text === 'string' ? obj.text : ''
+  return {
+    eventType,
+    commandId: typeof obj.command_id === 'string' ? obj.command_id : null,
+    sequenceNo: typeof obj.sequence_no === 'number' ? obj.sequence_no : null,
+    commandType: obj.command_type === 'steer' || obj.command_type === 'follow_up'
+      ? obj.command_type
+      : null,
+    text,
+    rejectionMessage: typeof obj.rejection_message === 'string' && obj.rejection_message
+      ? obj.rejection_message
+      : null,
+  }
+}
+
+export function isControlEventRow(row: NormalizedTaskProcessRow): row is NormalizedControlEventRow {
+  return row.kind === 'control_event'
+}
+
 export function normalizeTaskProcessRows(taskLogs: TaskLog[]): NormalizedTaskProcessRow[] {
   const directEvents = taskLogs.filter((l) => STRUCTURED_TYPES.has(l.log_type ?? ''))
 
@@ -406,6 +466,8 @@ export function normalizeTaskProcessRows(taskLogs: TaskLog[]): NormalizedTaskPro
       rows.push({ kind: 'tool_call', event, toolCall: parseToolCall(event) })
     } else if (event.log_type === 'context_compact') {
       rows.push({ kind: 'context_compact', event })
+    } else if (event.log_type === 'control_event') {
+      rows.push({ kind: 'control_event', event, controlEntry: parseControlEntry(event.metadata) })
     }
   }
   return rows

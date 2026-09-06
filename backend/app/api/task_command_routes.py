@@ -100,6 +100,23 @@ def _public_rejection(rejection_code: str | None) -> tuple[str | None, str | Non
     return PUBLIC_FALLBACK_REJECTION_CODE, PUBLIC_FALLBACK_REJECTION_MESSAGE
 
 
+def _command_payload_text(cmd: TaskHarnessCommand) -> str:
+    """Return the sanitized command text for public projection.
+
+    Command text is user-authored input on a par with the task prompt: it is
+    projected through the same credential scrubber as every other
+    product-visible text (plan §5.3: sanitized before projection), never
+    verbatim.  An unreadable payload fails closed exactly like an unknown
+    type/status so a viewer never sees partial or misattributed history.
+    """
+    from app.core.worker import sanitize_sensitive_data
+
+    payload = cmd.payload
+    if not isinstance(payload, dict) or not isinstance(payload.get("text"), str):
+        raise ProjectionError()
+    return sanitize_sensitive_data(payload["text"])
+
+
 def _command_dict(cmd: TaskHarnessCommand) -> dict:
     if not isinstance(cmd.command_type, str) or cmd.command_type not in PUBLIC_COMMAND_TYPES:
         raise ProjectionError()
@@ -116,6 +133,7 @@ def _command_dict(cmd: TaskHarnessCommand) -> dict:
         "sequence_no": cmd.sequence_no,
         "type": cmd.command_type,
         "status": cmd.status,
+        "text": _command_payload_text(cmd),
         "created_at": cmd.created_at.isoformat() if cmd.created_at else None,
         "dispatch_started_at": cmd.dispatch_started_at.isoformat() if cmd.dispatch_started_at else None,
         "native_ack_at": cmd.native_ack_at.isoformat() if cmd.native_ack_at else None,

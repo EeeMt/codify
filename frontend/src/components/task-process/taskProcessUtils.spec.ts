@@ -4,7 +4,7 @@ import { mount } from '@vue/test-utils'
 import type { TaskLog } from '../../api'
 import TaskProcessPanel from '../TaskProcessPanel.vue'
 import TaskProcessToolRow from './TaskProcessToolRow.vue'
-import { formatInput, getInputSummary, normalizeTaskProcessRows, parseTextEntry, summarizeSkillUsage } from './taskProcessUtils'
+import { formatInput, getInputSummary, normalizeTaskProcessRows, parseControlEntry, parseTextEntry, summarizeSkillUsage } from './taskProcessUtils'
 
 vi.mock('vue-i18n', () => ({
   createI18n: () => ({ global: { locale: { value: 'zh-CN' } } }),
@@ -82,6 +82,7 @@ vi.mock('@vicons/ionicons5', () => {
     ArrowDownCircleOutline: icon,
     BulbOutline: icon,
     ChatboxOutline: icon,
+    ChatbubbleEllipsesOutline: icon,
     TerminalOutline: icon,
     CreateOutline: icon,
     DocumentTextOutline: icon,
@@ -128,6 +129,50 @@ describe('taskProcessUtils', () => {
     expect(rows).toHaveLength(1)
     expect(rows.map((row) => row.kind)).toEqual(['tool_call'])
     expect(rows[0].toolCall.name).toBe('Bash')
+  })
+
+  it('normalizes control_event logs into control rows with parsed identity', () => {
+    const log = createTaskLog({
+      id: 42,
+      log_type: 'control_event',
+      metadata: JSON.stringify({
+        type: 'control.command.delivered',
+        command_id: 'cmd-1',
+        sequence_no: 7,
+        command_type: 'steer',
+        text: '先修复并发问题',
+        delivered_at: '2026-08-21T10:00:01Z',
+      }),
+    })
+    const rows = normalizeTaskProcessRows([log])
+    expect(rows).toHaveLength(1)
+    expect(rows[0].kind).toBe('control_event')
+    const entry = rows[0].controlEntry
+    expect(entry.eventType).toBe('control.command.delivered')
+    expect(entry.commandId).toBe('cmd-1')
+    expect(entry.sequenceNo).toBe(7)
+    expect(entry.commandType).toBe('steer')
+    expect(entry.text).toBe('先修复并发问题')
+    expect(entry.rejectionMessage).toBeNull()
+  })
+
+  it('control rows interleave with other rows in timestamp order', () => {
+    const logs: TaskLog[] = [
+      createTaskLog({ id: 1, log_type: 'assistant_text', created_at: '2026-05-04T10:00:00Z', metadata: JSON.stringify({ payload_id: null, preview: 'before', truncated: false }) }),
+      createTaskLog({ id: 2, log_type: 'control_event', created_at: '2026-05-04T10:00:01Z', metadata: JSON.stringify({ type: 'control.command.rejected', command_id: 'cmd-9', sequence_no: 1, command_type: 'steer', text: 'stop', rejection_code: 'gate', rejection_message: 'gate closed' }) }),
+      createTaskLog({ id: 3, log_type: 'assistant_text', created_at: '2026-05-04T10:00:02Z', metadata: JSON.stringify({ payload_id: null, preview: 'after', truncated: false }) }),
+    ]
+    const rows = normalizeTaskProcessRows(logs)
+    expect(rows.map(r => r.kind)).toEqual(['assistant_text', 'control_event', 'assistant_text'])
+    expect(rows[1].controlEntry.rejectionMessage).toBe('gate closed')
+  })
+
+  it('parses malformed control metadata into an empty event type', () => {
+    expect(parseControlEntry(null).eventType).toBe('')
+    expect(parseControlEntry('not-json').eventType).toBe('')
+    expect(parseControlEntry({ type: 'irrelevant' }).eventType).toBe('')
+    expect(parseControlEntry({ type: 'control.queue.updated', queue: [] }).eventType).toBe('control.queue.updated')
+    expect(parseControlEntry({ type: 'control.command.delivered' }).text).toBe('')
   })
 
   it('formats Edit input using old_string and new_string keys', () => {

@@ -883,6 +883,7 @@ const zhCN = {
     steeringStatusDelivered: '已送达',
     steeringStatusRejected: '已拒绝',
     steeringStatusOutcomeUnknown: '结果未知',
+    steeringEventQueueUpdated: '控制队列已更新',
     steeringGateStarting: '启动中',
     steeringGateAccepting: '可接收命令',
     steeringGateClosing: '排空中',

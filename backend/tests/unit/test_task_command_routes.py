@@ -666,6 +666,84 @@ class TaskCommandRoutesTest(unittest.TestCase):
             self.assertEqual(response.status_code, expected_status)
             self.assertEqual(access_check.await_count, 1 if expected_status == 201 else 0)
 
+    def test_command_text_is_sanitized_before_projection(self):
+        command = _command("c-secret")
+        command.payload = {"text": "use glpat-abcdef0123456789abcdef token"}
+        with (
+            patch(
+                "app.api.task_command_routes.get_task_with_access_check",
+                new=AsyncMock(return_value=MagicMock()),
+            ),
+            patch(
+                "app.api.task_command_routes._load_command",
+                new=AsyncMock(return_value=command),
+            ),
+        ):
+            resp = self.client.get(f"/api/tasks/7/commands/{VALID_ULID}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["text"], "use [GITLAB_TOKEN] token")
+        self.assertNotIn("glpat-", resp.text)
+
+    def test_command_text_projects_verbatim_when_no_credential_shapes(self):
+        command = _command("c-plain")
+        command.payload = {"text": "先修复并发问题"}
+        with (
+            patch(
+                "app.api.task_command_routes.get_task_with_access_check",
+                new=AsyncMock(return_value=MagicMock()),
+            ),
+            patch(
+                "app.api.task_command_routes._load_command",
+                new=AsyncMock(return_value=command),
+            ),
+        ):
+            resp = self.client.get(f"/api/tasks/7/commands/{VALID_ULID}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["text"], "先修复并发问题")
+
+    def test_malformed_payload_fails_closed_without_echoing_value(self):
+        for payload in ("not-a-dict", {"text": 42}, {"other": "x"}):
+            command = _command(f"c-payload-{len(payload)}")
+            command.payload = payload
+            with (
+                self.subTest(payload=payload),
+                patch(
+                    "app.api.task_command_routes.get_task_with_access_check",
+                    new=AsyncMock(return_value=MagicMock()),
+                ),
+                patch(
+                    "app.api.task_command_routes._load_command",
+                    new=AsyncMock(return_value=command),
+                ),
+            ):
+                resp = self.client.get(f"/api/tasks/7/commands/{VALID_ULID}")
+            self.assertEqual(resp.status_code, 500)
+            self.assertEqual(
+                resp.json()["detail"],
+                {
+                    "code": "command_projection_unavailable",
+                    "message": "Command history is temporarily unavailable.",
+                },
+            )
+            self.assertNotIn("not-a-dict", resp.text)
+
+    def test_malformed_payload_in_list_fails_closed_without_partial_history(self):
+        commands = [_command("c-1"), _command("c-2")]
+        commands[1].payload = {"text": None}
+        with (
+            patch(
+                "app.api.task_command_routes.get_task_with_access_check",
+                new=AsyncMock(return_value=MagicMock()),
+            ),
+            patch(
+                "app.api.task_command_routes.list_commands",
+                new=AsyncMock(return_value=commands),
+            ),
+        ):
+            resp = self.client.get("/api/tasks/7/commands")
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.json()["detail"]["code"], "command_projection_unavailable")
+
     def test_get_commands_returns_ordered_list(self):
         cmds = [_command("c-1", sequence_no=1), _command("c-2", sequence_no=2)]
         with (
@@ -707,6 +785,7 @@ class TaskCommandRoutesTest(unittest.TestCase):
                 "sequence_no",
                 "type",
                 "status",
+                "text",
                 "created_at",
                 "dispatch_started_at",
                 "native_ack_at",

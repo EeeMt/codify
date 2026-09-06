@@ -77,35 +77,35 @@ describe('TaskSteeringPanel', () => {
     expect(w.find('[data-testid="steering-panel"]').exists()).toBe(true)
   })
 
-  it('renders the complete command lifecycle without rendering command text', async () => {
+  it('renders the complete command lifecycle with command text', async () => {
     vi.mocked(listHarnessCommands).mockResolvedValueOnce([
       {
         command_id: 'queued', sequence_no: 1, type: 'steer',
-        status: 'queued', created_at: '2026-08-23T00:00:00Z',
+        status: 'queued', text: 'stop here', created_at: '2026-08-23T00:00:00Z',
         dispatch_started_at: null, native_ack_at: null, outcome_unknown_at: null,
         delivered_at: null, rejected_at: null, rejection_code: null, rejection_message: null,
       },
       {
         command_id: 'dispatching', sequence_no: 2, type: 'steer',
-        status: 'dispatching', created_at: '2026-08-23T00:00:00Z',
+        status: 'dispatching', text: 'check tests', created_at: '2026-08-23T00:00:00Z',
         dispatch_started_at: '2026-08-23T00:00:01Z', native_ack_at: null, outcome_unknown_at: null,
         delivered_at: null, rejected_at: null, rejection_code: null, rejection_message: null,
       },
       {
         command_id: 'delivered', sequence_no: 3, type: 'follow_up',
-        status: 'delivered', created_at: '2026-08-23T00:00:00Z',
+        status: 'delivered', text: 'add docs', created_at: '2026-08-23T00:00:00Z',
         dispatch_started_at: null, native_ack_at: '2026-08-23T00:00:02Z', outcome_unknown_at: null,
         delivered_at: '2026-08-23T00:00:02Z', rejected_at: null, rejection_code: null, rejection_message: null,
       },
       {
         command_id: 'rejected', sequence_no: 4, type: 'steer',
-        status: 'rejected', created_at: '2026-08-23T00:00:00Z',
+        status: 'rejected', text: 'do not commit', created_at: '2026-08-23T00:00:00Z',
         dispatch_started_at: null, native_ack_at: null, outcome_unknown_at: null,
         delivered_at: null, rejected_at: '2026-08-23T00:00:03Z', rejection_code: 'closed', rejection_message: 'gate closed',
       },
       {
         command_id: 'unknown', sequence_no: 5, type: 'steer',
-        status: 'outcome_unknown', created_at: '2026-08-23T00:00:00Z',
+        status: 'outcome_unknown', text: 'retry deploy', created_at: '2026-08-23T00:00:00Z',
         dispatch_started_at: null, native_ack_at: null, outcome_unknown_at: '2026-08-23T00:00:04Z',
         delivered_at: null, rejected_at: null, rejection_code: 'unknown', rejection_message: 'native acknowledgement lost',
       },
@@ -115,7 +115,29 @@ describe('TaskSteeringPanel', () => {
     for (const status of ['queued', 'dispatching', 'delivered', 'rejected', 'outcome_unknown']) {
       expect(w.find(`[data-testid="steering-command-${status}"]`).exists()).toBe(true)
     }
-    expect(w.text()).not.toContain('command secret')
+    const history = w.find('[data-testid="steering-history"]')
+    expect(history.text()).toContain('stop here')
+    expect(history.text()).toContain('check tests')
+    expect(history.text()).toContain('add docs')
+    expect(history.text()).toContain('do not commit')
+    expect(history.text()).toContain('retry deploy')
+  })
+
+  it('renders the server-sanitized command text in history', async () => {
+    // Sanitization is a server-side projection responsibility (command API
+    // returns scrubbed text); the panel renders what the API returns, the
+    // same trust boundary as the task prompt.
+    vi.mocked(listHarnessCommands).mockResolvedValueOnce([
+      {
+        command_id: 'secret', sequence_no: 1, type: 'steer', status: 'queued',
+        text: 'use [GITLAB_TOKEN] token', created_at: '2026-08-23T00:00:00Z',
+        dispatch_started_at: null, native_ack_at: null, outcome_unknown_at: null,
+        delivered_at: null, rejected_at: null, rejection_code: null, rejection_message: null,
+      } as any,
+    ])
+    const w = mountPanel({})
+    await flushPromises()
+    expect(w.find('[data-testid="steering-history"]').text()).toContain('[GITLAB_TOKEN]')
   })
 
   it.each([
