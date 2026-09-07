@@ -17,9 +17,9 @@
 | R2：四 Harness hard-cut conformance | **完成，受影响场景重开** | 历史 8 个适用 Harness×protocol 行及 lifecycle/command/recovery 已闭合；`c089b67a`、`7fd0939c` 及 `5d2fad8e` 修改 reasoning lifecycle、共享 delivery 隔离边界和 Codex App Server transport，仍须在同一 candidate 上重验受影响组合 |
 | R3：正式 20-scenario benchmark | **完成** | Pi/OpenCode 20/20 formal pair 与 Pi 非劣性门槛已通过；当前变化未升级 CLI 或修改 model endpoint protocol，但切换了 Codex control transport，故不整体重跑 benchmark、改由 R2/R4 重验 Codex；真实验收若发现 terminal、质量或性能回归再按影响重开 |
 | R4.1：可信 Kit 启动边界 | **完成** | content-addressed 安装、管理员完整 Verify、Task 热路径轻量校验与 warm-start 已有 L2–L4 证据 |
-| R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 composition 已推进到 source `ae223cb1`、Profile 4、Backend/Scheduler/NGINX、Worker Kit 0.6.15；Pi 修复后的真实 Task #477 绑定新 Bundle 201，历史 Bundle 198–200 保持不可变；镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
-| R4.3：正式交互验收 | **部分 evidence，未签署** | #464–#488 已有真实 Task/Canonical 证据；#472/#474/#475/#477 已补齐 Pi、Claude、OpenCode、Pi Chat 的运行中页面“正在思考”先于同一行完成时序；#478 补齐 Pi 活动思考取消后的刷新/重连终态兜底；#481 排除了 OpenCode 思考完成后的工具阶段取消，仍缺活动思考取消；#482/#483/#484 在当前 Bundle 上复核 Responses 但均被真实 Provider 404/403 阻断；#485–#487 关闭 Claude 正常 delivery，#488 关闭 Claude 受控远端 divergence 的 fail-closed 边界；仍缺 Codex 成功行、两条可用 Responses 行、长思考和四 Harness 全覆盖；用户暂缓的真实移动设备验收不作为本轮技术执行项 |
-| R4.4：运维与真实 Task 验收 | **部分 evidence，未签署** | #468/#469/#471 已完成 Pi/OpenCode/Claude delivery 并有 canonical remote SHA；Pi Chat 的旧 404 已由 `ae223cb1` + Bundle 201 的 #477 正常成功回归关闭，#478 已验证 Pi 取消终态兜底；#482/#483 证明当前 OpenCode/Pi Responses Provider 返回免费模型 404，#484 证明 Provider 4 返回地区 403，均不能改用付费 slug 或绕过上游策略；#485–#487 证明 Claude Bundle 203 正常 delivery，#488 证明并发分叉时拒绝覆盖远端；但 Codex #461–#463 仍在 Provider 响应前失败，Responses、OpenCode 取消和长思考仍未闭合 |
+| R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 composition 已推进到 source `4f42b9d7`、Profile 4 generation 93、Backend/Scheduler/NGINX、Worker Kit 0.6.15 和 Bundle 204；#490–#498 已绑定新 Bundle，历史 Bundle 198–203 保持不可变；镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
+| R4.3：正式交互验收 | **部分 evidence，未签署** | #464–#498 已有真实 Task/Canonical 证据；#472/#474/#475/#477 已补齐 Pi、Claude、OpenCode、Pi Chat 的运行中页面“正在思考”先于同一行完成时序；#478 补齐 Pi 活动思考取消后的刷新/重连终态兜底；#481、#494–#498 排除了思考完成后、页面滞后或 native reasoning 收尾竞态的取消，仍缺 OpenCode 活动 reasoning 取消；#482/#483/#484 在当前 Bundle 上复核 Responses 但均被真实 Provider 404/403 阻断；#485–#487 关闭 Claude 正常 delivery，#488 关闭 Claude 受控远端 divergence 的 fail-closed 边界；仍缺 Codex 成功行、两条可用 Responses 行、长思考和四 Harness 全覆盖；用户暂缓的真实移动设备验收不作为本轮技术执行项 |
+| R4.4：运维与真实 Task 验收 | **部分 evidence，未签署** | #468/#469/#471 已完成 Pi/OpenCode/Claude delivery 并有 canonical remote SHA；Pi Chat 的旧 404 已由 Pi endpoint 修复 + Bundle 201 的 #477 正常成功回归关闭，#478 已验证 Pi 取消终态兜底；#482/#483 证明当前 OpenCode/Pi Responses Provider 返回免费模型 404，#484 证明 Provider 4 返回地区 403，均不能改用付费 slug 或绕过上游策略；#485–#487 证明 Claude Bundle 203 正常 delivery，#488 证明并发分叉时拒绝覆盖远端；#490–#498 确认 Bundle 204 的 finalization、native abort、archive 和 cancelled terminal 收敛，但 Codex #461–#463 仍在 Provider 响应前失败，Responses、OpenCode 活动取消和长思考仍未闭合 |
 | R4.5：安全与发布审计 | **阻塞于 owner 输入** | 最小权限、轮换、migration 078、签名发布包、retention、维护窗口与独立 P0/P1 审阅尚未签署 |
 | R4.6：hard-cut go/no-go | **未执行** | R4.2–R4.5 全部闭合后才能形成独立 `GO` 或 `NO-GO` |
 | R5：L6 `v2_only` hard cut | **未执行** | 仅在 R4.6 `GO` 且获得单独执行批准后进入维护窗口 |
@@ -58,7 +58,7 @@ evidence。
 Pi/OpenCode/Claude Task 结果详见 [Codex App Server bridge evidence](../evidence/2026-09-08-open-harness-v2-codex-app-server-bridge.md)
 和 [Current Bundle real-task matrix](../evidence/2026-09-08-open-harness-v2-current-bundle-real-task-matrix.md)。
 
-Profile 4 在创建 #497 前重新 Verify 为 generation `93`、四 Harness 状态“已就绪”。Bundle 204
+Profile 4 在创建 #498 前重新 Verify 为 generation `93`、四 Harness 状态“已就绪”。Bundle 204
 digest 为 `10cfd1acfb5674f14fdc0586a3b84da0be99f6dc28b75fea51e2f8d531260f3b`，其中 OpenCode
 adapter digest 为 `d16e15d140a7bcee005b71d2fee7c25c7aab4517ac078eb914fcdcffc379b085`，共享
 `worker-entrypoint/bootstrap.sh` digest 为 `f7d0bbfcdae1fb336584a88cb468c421d4c7979496ca3b007e1e79236c2662cf`。#477 使用
@@ -72,7 +72,7 @@ adapter digest 为 `d326e5c4f0bc2eedcbc4d835ef17c804d1b07b959be5a6af9384309d5024
 `4f22bb5db5e00fdbab820c4d1a5ada8da212555049b7a26c27730d88430a167e`）。Responses 任务
 均在 reasoning 前被现有 Provider 以 404/403 拒绝。
 
-远端 Backend、Scheduler、NGINX 健康，当前没有 `pending`、`queued` 或 `running` Task。Task #490–#497
+远端 Backend、Scheduler、NGINX 健康，当前没有 `pending`、`queued` 或 `running` Task。Task #490–#498
 已完成终态收尾。当前根盘约 93% 使用率、剩余约 4.4GB；本轮没有再次清理，未触碰活动容器、服务、
 volume 或不确定归属的 image。远端 app image 没有 OCI
 `org.opencontainers.image.revision` label，且 source commit 尚未推送，因此当前 composition
@@ -104,7 +104,7 @@ volume 或不确定归属的 image。远端 app image 没有 OCI
 
 ## 4. 唯一下一工作包：R4-RC1
 
-R4-RC1 已在开发 Host 形成当前 source/Kit composition，并执行 #461–#497 真实 Provider Task；
+R4-RC1 已在开发 Host 形成当前 source/Kit composition，并执行 #461–#498 真实 Provider Task；
 其中三 Harness reasoning 与三条 Git delivery 已闭合部分证据，但固定的 8 个合法 Harness×protocol
 退出条件尚未满足。完成前不追加无关 smoke，不刷新历史 benchmark，不进入 owner 签署。
 
@@ -184,10 +184,11 @@ receipt。#473/#479/#480 的 OpenCode 页面观察分别落在终态或自然完
 正常完成并关闭 Pi Chat 的成功/页面时序子项，#478 补充了活动思考取消后的刷新/重连终态兜底，
 但没有 canonical interrupted receipt；OpenCode Chat #475/#479/#480 只覆盖正常完成，#481
 只覆盖思考完成后的工具阶段取消，未覆盖
-思考期间取消；Pi #464/#472 的取消均发生在活动 tool/诊断而非 reasoning block。#490–#497 在新
+思考期间取消；Pi #464/#472 的取消均发生在活动 tool/诊断而非 reasoning block。#490–#498 在新
 finalization Bundle 204 上确认了 OpenCode 正常完成、native abort、archive 和 cancelled terminal
-收敛，但 #491/#494–#497 没有 canonical `reasoning_summary.interrupted`，且 #497 的页面活动
-状态晚于 canonical reasoning completed；不能关闭 OpenCode Chat 思考期间取消/刷新重连项。可用 Responses
+收敛，但 #491/#494–#498 没有 canonical `reasoning_summary.interrupted`；#497 的页面活动状态晚于
+canonical reasoning completed，#498 则是取消请求后 183ms 内 natural reasoning completed；不能关闭
+OpenCode Chat 思考期间取消/刷新重连项。可用 Responses
 协议行（#482/#483 为上游 404，#484 为地区 403）、Codex 成功响应、OpenCode Chat 取消/刷新
 重连和四 Harness 长思考仍未证明。因此 R4-RC1 保持开放，
 R4.3/R4.4 不签署。
