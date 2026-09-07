@@ -216,7 +216,7 @@ def _catalog_entries() -> list[dict]:
             "key": "codex",
             "display_name": "Codex",
             "support_tier": "default",
-            "control_transport": {"kind": "cli_jsonl", "protocol": "codex-jsonl"},
+            "control_transport": {"kind": "rpc_stdio", "protocol": "codex-app-server-v2"},
             "model_protocols": ["openai_responses"],
             "capabilities": {},
             "options_schema": "codex/v1",

@@ -307,8 +307,8 @@ def _v2_manifest(**adapter_overrides):
             options_schema=None,
         ),
         "codex": _v2_adapter(
-            control_kind="cli_jsonl",
-            control_protocol="codex-jsonl",
+            control_kind="rpc_stdio",
+            control_protocol="codex-app-server-v2",
             protocols=("openai_responses",),
             capabilities={
                 "resume": True,

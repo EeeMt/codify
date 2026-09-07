@@ -102,8 +102,8 @@ def _frozen_v2_manifest(files=None, **adapter_overrides):
         ),
         "codex": _adapter(
             key="codex",
-            control_kind="cli_jsonl",
-            protocol="codex-jsonl",
+            control_kind="rpc_stdio",
+            protocol="codex-app-server-v2",
             protocols=["openai_responses"],
             directory="harness/adapters/codex",
             capabilities={

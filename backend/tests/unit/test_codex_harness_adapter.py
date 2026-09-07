@@ -472,8 +472,8 @@ def test_codex_turn_failed_after_completion_is_the_terminal(tmp_path):
 # ── V2 contract migration (Phase 4): the adapter honours CODIFY_RUNTIME_CONTRACT_VERSION ──
 
 CODEX_V2_TRANSPORT = {
-    "CODIFY_HARNESS_CONTROL_TRANSPORT_KIND": "cli_jsonl",
-    "CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL": "codex-jsonl",
+    "CODIFY_HARNESS_CONTROL_TRANSPORT_KIND": "rpc_stdio",
+    "CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL": "codex-app-server-v2",
     "CODIFY_HARNESS_MODEL_PROTOCOLS": "openai_responses",
 }
 
@@ -521,7 +521,7 @@ def test_codex_v2_contract_emits_v2_envelope_and_result(tmp_path):
         normalized = validate_event_v2(event)
         assert normalized["schema"] == CANONICAL_EVENT_SCHEMA_V2
         harness = normalized["harness"]
-        assert harness["control_transport"] == {"kind": "cli_jsonl", "protocol": "codex-jsonl"}
+        assert harness["control_transport"] == {"kind": "rpc_stdio", "protocol": "codex-app-server-v2"}
         assert harness["model_protocols"] == ["openai_responses"]
 
     # Session / usage / model mapping is preserved in V2 mode (scope: retain
@@ -542,8 +542,8 @@ def test_codex_v2_contract_emits_v2_envelope_and_result(tmp_path):
     assert result["schema"] == CANONICAL_RESULT_SCHEMA_V2
     assert result["harness"]["key"] == "codex"
     assert result["harness"]["control_transport"] == {
-        "kind": "cli_jsonl",
-        "protocol": "codex-jsonl",
+        "kind": "rpc_stdio",
+        "protocol": "codex-app-server-v2",
     }
     assert result["harness"]["model_protocols"] == ["openai_responses"]
     assert result["session_id"] == "6ad6e4f5-6205-8e2a-9b3c-1a2b3c4d5e6f"
@@ -657,6 +657,116 @@ def test_codex_duplicate_reasoning_snapshots_emit_once(tmp_path):
         if e["type"] == "diagnostic" and e["payload"].get("code") == "reasoning_completed_without_start"
     ]
     assert orphan == []
+
+
+def test_codex_app_server_reasoning_items_map_to_lifecycle(tmp_path):
+    runtime_dir = tmp_path / "app-server"
+    runtime_dir.mkdir()
+    _emit_v2(runtime_dir, "run.started")
+    _translate_raw_stream_v2(
+        runtime_dir,
+        [
+            {
+                "id": 1,
+                "result": {"thread": {"id": "thread-app", "sessionId": "session-app"}},
+            },
+            {
+                "method": "thread/started",
+                "params": {
+                    "thread": {"id": "thread-app", "sessionId": "session-app"}
+                },
+            },
+            {
+                "method": "turn/started",
+                "params": {"threadId": "thread-app", "turn": {"id": "turn-app"}},
+            },
+            {
+                "method": "item/started",
+                "params": {
+                    "threadId": "thread-app",
+                    "turnId": "turn-app",
+                    "item": {
+                        "id": "item-app-reason",
+                        "type": "reasoning",
+                        "summary": [],
+                        "content": [],
+                    },
+                },
+            },
+            {
+                "method": "item/completed",
+                "params": {
+                    "threadId": "thread-app",
+                    "turnId": "turn-app",
+                    "item": {
+                        "id": "item-app-reason",
+                        "type": "reasoning",
+                        "summary": [],
+                        "content": [],
+                    },
+                },
+            },
+            {
+                "method": "item/completed",
+                "params": {
+                    "threadId": "thread-app",
+                    "turnId": "turn-app",
+                    "item": {
+                        "id": "item-app-message",
+                        "type": "agentMessage",
+                        "text": "done",
+                    },
+                },
+            },
+            {
+                "method": "thread/tokenUsage/updated",
+                "params": {
+                    "threadId": "thread-app",
+                    "turnId": "turn-app",
+                    "tokenUsage": {
+                        "last": {
+                            "inputTokens": 10,
+                            "cachedInputTokens": 2,
+                            "outputTokens": 4,
+                            "reasoningOutputTokens": 3,
+                            "totalTokens": 17,
+                        },
+                        "total": {
+                            "inputTokens": 10,
+                            "cachedInputTokens": 2,
+                            "outputTokens": 4,
+                            "reasoningOutputTokens": 3,
+                            "totalTokens": 17,
+                        },
+                    },
+                },
+            },
+            {
+                "method": "turn/completed",
+                "params": {
+                    "threadId": "thread-app",
+                    "turn": {"id": "turn-app", "status": "completed", "items": []},
+                },
+            },
+        ],
+    )
+    events = _events(runtime_dir)
+    started = [event for event in events if event["type"] == "reasoning_summary.started"]
+    completed = [event for event in events if event["type"] == "reasoning_summary.completed"]
+    assert len(started) == 1
+    assert len(completed) == 1
+    assert started[0]["payload"] == {
+        "reasoning_id": "codex-reason-thread-app-item-app-reason"
+    }
+    assert completed[0]["payload"] == {
+        "reasoning_id": "codex-reason-thread-app-item-app-reason",
+        "client": "codex",
+    }
+    assert events[-2]["type"] == "usage.final"
+    assert events[-2]["payload"]["usage"]["reasoning_tokens"] == 3
+    result = json.loads((runtime_dir / "harness-result.json").read_text(encoding="utf-8"))
+    assert result["session_id"] == "session-app"
+    assert result["result"] == "done"
 
 
 def test_codex_turn_failed_interrupts_open_reasoning(tmp_path):

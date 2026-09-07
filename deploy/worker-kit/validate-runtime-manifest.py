@@ -25,7 +25,7 @@ PROTOCOL_MATRIX = {
         {"anthropic_messages", "openai_responses", "openai_chat_completions"},
     ),
     "claude": (("cli_stream_json", "claude-json"), {"anthropic_messages"}),
-    "codex": (("cli_jsonl", "codex-jsonl"), {"openai_responses"}),
+    "codex": (("rpc_stdio", "codex-app-server-v2"), {"openai_responses"}),
 }
 UPPER = {
     "pi": {"resume": True, "task_skills": True, "usage_tokens": True, "steering": True, "follow_up": True},

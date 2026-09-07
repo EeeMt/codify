@@ -36,7 +36,7 @@ MATRIX = {
         "control": False,
     },
     "claude": {"transport": "cli_stream_json", "protocols": {"anthropic_messages"}, "control": False},
-    "codex": {"transport": "cli_jsonl", "protocols": {"openai_responses"}, "control": False},
+    "codex": {"transport": "rpc_stdio", "protocols": {"openai_responses"}, "control": False},
 }
 
 
@@ -63,7 +63,13 @@ def test_v2_fixture_validates_and_replays_offline(path: Path):
     for event in events:
         normalized = validate_event_v2(event)
         assert normalized["schema"] == CANONICAL_EVENT_SCHEMA_V2
-        assert normalized["harness"]["control_transport"]["kind"] == expected["transport"]
+        transport_kind = normalized["harness"]["control_transport"]["kind"]
+        allowed_transport_kinds = {expected["transport"]}
+        if harness == "codex":
+            # Existing archived fixtures predate the App Server transport; the
+            # current manifest is rpc_stdio, while old evidence remains valid.
+            allowed_transport_kinds.add("cli_jsonl")
+        assert transport_kind in allowed_transport_kinds
         assert set(normalized["harness"]["model_protocols"]) == expected["protocols"]
     replay = replay_events(events)
     assert replay.harness_key == harness

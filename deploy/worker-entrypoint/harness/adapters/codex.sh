@@ -2,6 +2,7 @@
 # Codex adapter for the Codify harness contract.
 
 CODIFY_CODEX_TRANSLATOR="${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/adapters/codex_events.py"
+CODIFY_CODEX_BRIDGE="${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/adapters/codex_bridge.py"
 
 codify_codex_bin() {
     # Frozen single source: the backend-injected CODIFY_HARNESS_CLI_BIN (Kit
@@ -107,11 +108,12 @@ codex_adapter_prepare_config() {
     fi
     mkdir -p "${CODEX_HOME}"
     chown -R "${CODIFY_RUN_UID:-1000}:${CODIFY_RUN_GID:-1000}" "${CODEX_HOME}" 2>/dev/null || true
-    # Export the codex transport/model identity so events.py forms the
-    # correct V2 harness envelope (cli_jsonl / codex-jsonl / openai_responses).
+    # Export the Codex App Server transport/model identity so events.py forms
+    # the correct V2 harness envelope (rpc_stdio / codex-app-server-v2 /
+    # openai_responses).
     # Harmless under V1 (events.py ignores them). No-op when already injected.
-    export CODIFY_HARNESS_CONTROL_TRANSPORT_KIND="${CODIFY_HARNESS_CONTROL_TRANSPORT_KIND:-cli_jsonl}"
-    export CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL="${CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL:-codex-jsonl}"
+    export CODIFY_HARNESS_CONTROL_TRANSPORT_KIND="${CODIFY_HARNESS_CONTROL_TRANSPORT_KIND:-rpc_stdio}"
+    export CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL="${CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL:-codex-app-server-v2}"
     export CODIFY_HARNESS_MODEL_PROTOCOLS="${CODIFY_HARNESS_MODEL_PROTOCOLS:-openai_responses}"
     # Point codex at the frozen Snapshot endpoint/model (codex does not honour
     # OPENAI_BASE_URL for the Responses API, so write an explicit config).
@@ -202,6 +204,7 @@ codex_adapter_run() {
     chmod 644 "${raw_file}"
     CODIFY_CODEX_RUN_AS="${CODIFY_RUN_AS:-}" \
     CODIFY_CODEX_BIN="$(codify_codex_bin)" \
+    CODIFY_CODEX_BRIDGE="${CODIFY_CODEX_BRIDGE}" \
     CODIFY_CODEX_RAW_EVENT_JSONL="${raw_file}" \
     CODIFY_CODEX_EVENT_TRANSLATOR="${CODIFY_CODEX_TRANSLATOR}" \
     CODIFY_CANONICAL_EVENT_WRITER="${CODIFY_CANONICAL_EVENT_WRITER}" \

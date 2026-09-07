@@ -408,6 +408,7 @@ _ADAPTER_DIGEST_FILES = (
     "deploy/worker-entrypoint/harness/adapters/claude.sh",
     "deploy/worker-entrypoint/harness/adapters/claude_events.py",
     "deploy/worker-entrypoint/harness/adapters/codex.sh",
+    "deploy/worker-entrypoint/harness/adapters/codex_bridge.py",
     "deploy/worker-entrypoint/harness/adapters/codex_events.py",
     "deploy/worker-entrypoint/harness/adapters/sanitize.py",
     "deploy/worker-entrypoint/legacy/codex-run.sh",

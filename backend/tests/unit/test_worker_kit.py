@@ -130,7 +130,7 @@ def _runtime_verifier_fixture(tmp_path: Path, *, schema: str = "codify.worker.ru
     for key in inventory:
         kind, protocol = {
             "claude": ("cli_stream_json", "claude-json"),
-            "codex": ("cli_jsonl", "codex-jsonl"),
+            "codex": ("rpc_stdio", "codex-app-server-v2"),
             "pi": ("rpc_stdio", "pi-rpc"),
             "opencode": ("server_http", "opencode-server"),
         }[key]

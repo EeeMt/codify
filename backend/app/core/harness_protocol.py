@@ -642,7 +642,7 @@ HARNESS_PROTOCOL_MATRIX = {
         frozenset({"anthropic_messages", "openai_responses", "openai_chat_completions"}),
     ),
     "claude": (("cli_stream_json", "claude-json"), frozenset({"anthropic_messages"})),
-    "codex": (("cli_jsonl", "codex-jsonl"), frozenset({"openai_responses"})),
+    "codex": (("rpc_stdio", "codex-app-server-v2"), frozenset({"openai_responses"})),
 }
 HARNESS_CAPABILITY_KEYS = frozenset(
     {"resume", "task_skills", "usage_tokens", "steering", "follow_up"}
