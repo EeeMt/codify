@@ -7,8 +7,9 @@
 本记录补充 [Codex App Server bridge evidence](2026-09-08-open-harness-v2-codex-app-server-bridge.md)，
 记录历史 source/Kit composition 下的 Pi、OpenCode、Claude 真实任务，以及 Pi OpenAI endpoint
 修复后新 Bundle 的真实回归。事件来自远端 `task_harness_event_receipts`，raw/archive 只记录元数据，
-不复制原始内容。历史 Bundle 保持不可变，修复后的 Task 使用独立 Bundle 201/202；#482/#483
-又在这两个当前 Bundle 上复核了 `openai_responses` 的真实 Provider 失败边界。
+不复制原始内容。历史 Bundle 保持不可变，修复后的 Task 使用独立 Bundle 201/202/203；#482/#483/#484
+又在当前 Bundle 上复核了 `openai_responses` 的真实 Provider 失败边界，#485–#488 补齐了
+Claude 的正常交付与受控远端分叉保护。
 
 ## 1. Exact composition
 
@@ -31,6 +32,7 @@
 | 200 | Claude | `e77660b1253779c3e5402b6140a4d54822cb96118cfe870887742fe3030c06ea` |
 | 201 | Pi（`ae223cb1` 修复后） | `d2e9acdddcb3470e39d3c65eb45176462022154584ab54eef701311e4b173dfa` |
 | 202 | OpenCode（同一 Kit/Backend composition） | `415d0ba667afb4e6b81a7e9ab919e2a25104da5d7115df38ea8bdfaf4f230226` |
+| 203 | Claude（同一 Kit/Backend composition） | `4f22bb5db5e00fdbab820c4d1a5ada8da212555049b7a26c27730d88430a167e` |
 
 上述 manifest 均保留四 Harness；实际 Task snapshot 分别绑定对应 Harness 的 adapter/CLI：
 Pi `2.1.1/0.84.2`、OpenCode `2.1.0/1.18.19`、Claude `1.1.0/2.1.153`。Bundle 201 的 Pi
@@ -62,6 +64,11 @@ Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image
 | #481 | OpenCode / 5 / `mimo-v2.5` | 202 | cancelled；2/2 reasoning，`run.failed` | 取消请求晚于第二段 reasoning 完成约 7.3s，实际发生在工具/诊断阶段；刷新终态稳定，不能计入活动思考取消；0 changes |
 | #482 | OpenCode / 9 / `z-ai/glm-5.2:free` | 202 | failed；0 reasoning，`run.failed` | `openai_responses` 返回 404：免费模型需使用付费 slug；attempt 正常关闭，0 changes |
 | #483 | Pi / 12 / `minimax/minimax-m3:free` | 201 | failed；0 reasoning，`run.failed` | `openai_responses` 返回 404：免费模型需使用付费 slug；attempt 正常关闭，0 changes |
+| #484 | OpenCode / 4 / `gpt-5.6-luna` | 202 | failed；0 reasoning，`run.failed` | `openai_responses` 返回 403：地区不支持；attempt 正常关闭，0 changes |
+| #485 | Claude / 3 / `minimax-m2.7` | 203 | completed；5/5 reasoning，`run.completed` | +12/-0；Worker `pushed`，remote SHA `160bcf4c3f72dbc65470c6169d1edb4e64b83724`，MR !102 |
+| #486 | Claude / 3 / `minimax-m2.7` | 203 | completed；6/6 reasoning，`run.completed` | +1/-0；Worker `pushed`，remote SHA `c50547ffed83619b8e0dc6ac99b5d642da7081c2` |
+| #487 | Claude / 3 / `minimax-m2.7` | 203 | completed；7/7 reasoning，`run.completed` | +1/-0；Worker `pushed`，remote SHA `cb8a20a09a562283f2f97ded57e9e97ae9ccbf2a` |
+| #488 | Claude / 3 / `minimax-m2.7` | 203 | failed；6/6 reasoning，`run.failed` | 并发空提交推进远端后，delivery 以 `remote_diverged` fail-closed；0 changes、无 remote-confirmed Worker SHA |
 
 上述 Task 的 attempt 均为 `codify.worker.event/v2`，transport 与 adapter identity 来自真实
 `run.started` receipt，而非手工 fixture。#468/#469/#471 的 `worker.finalization` 均报告
@@ -92,6 +99,11 @@ Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image
 | #481 | 4 / 2,627 | 16,830 bytes | `run.failed` / cancelled |
 | #482 | 5 / 2,612 | 5,003 bytes | `run.failed` |
 | #483 | 3 / 2,616 | 3,752 bytes | `run.failed` |
+| #484 | 4 / 2,618 | 4,564 bytes | `run.failed` |
+| #485 | 12 / 17,655 | 17,581 bytes | `run.completed` |
+| #486 | 11 / 20,117 | 17,927 bytes | `run.completed` |
+| #487 | 15 / 26,887 | 24,180 bytes | `run.completed` |
+| #488 | 13 / 23,197 | 22,299 bytes | `run.failed` |
 
 所有任务结束后，相关 Worker 容器均已清理；Backend/Scheduler 保持健康。#472 的 attempt 为
 `task-472-attempt-1-9ef92102943b`，`codify.worker.event/v2`、Pi adapter `2.1.1`、CLI
@@ -199,6 +211,51 @@ receipt。Canonical 仅有 `agent_settled`、`diagnostic`、`harness.failed`、`
 Responses 请求已越过 Worker 启动阶段，但被真实 Provider 在模型响应前拒绝；不能计入 Pi
 Responses 的 reasoning 验收，也不能把付费 slug 当作现有 Provider 能力。
 
+Task #484 的 attempt 为 `task-484-attempt-1-ecc5c0374656`，OpenCode adapter `2.1.0`、CLI
+`1.18.19`，`last_seq=8`，终态为 `run.failed`、control `closed`。任务使用当前 Bundle 202 和
+Provider 4 `opencode-luna`（`gpt-5.6-luna`）；真实页面显示执行中后失败，远端错误来自
+`https://opencode.ai/zen/go/v1/responses`，为 `unsupported_country_region_territory` 403，
+没有 reasoning receipt。Canonical 仅有 `diagnostic` 3、`run.started`、`harness.failed`、
+`run.failed`、`usage.final` 和 `worker.finalization`，raw 为 4 chunks / 2,618 bytes，archive
+为 4,564 bytes，0 changes。该任务确认 Provider 4 的 Responses 请求路径可被当前 OpenCode
+Bundle 调用，但上游地域策略在模型响应前拒绝；它不能计入 OpenCode Responses 验收，也不能通过
+替换 Provider 配置绕过既有边界。
+
+Task #485 的 attempt 为 `task-485-attempt-1-c3f518566122`，Claude adapter `1.1.0`、CLI
+`2.1.153`，`last_seq=36`，终态为 `run.completed`、control `closed`，包含 5 个 reasoning
+start/end 与 4 对工具事件。任务使用 Bundle 203（digest
+`4f22bb5db5e00fdbab820c4d1a5ada8da212555049b7a26c27730d88430a167e`）和 Provider 3
+`opencode-minimax`（`minimax-m2.7`），产生 +12/-0；`worker.finalization` 的 delivery
+报告 `push.status=pushed`、remote SHA `160bcf4c3f72dbc65470c6169d1edb4e64b83724`，真实页面
+随后显示 MR !102。raw 为 12 chunks / 17,655 bytes，archive 为 17,581 bytes。
+
+Task #486 的 attempt 为 `task-486-attempt-1-c1abbca70b20`，Claude adapter `1.1.0`、CLI
+`2.1.153`，`last_seq=41`，终态为 `run.completed`、control `closed`，包含 6 个 reasoning
+start/end 与 6 对工具事件。它使用同一 Bundle 203/Provider 3，产生 +1/-0；
+`worker.finalization` 报告 `push.status=pushed`、remote SHA
+`c50547ffed83619b8e0dc6ac99b5d642da7081c2`。raw 为 11 chunks / 20,117 bytes，archive 为
+17,927 bytes；它是正常 Claude delivery 证据，不是远端分叉证据。
+
+Task #487 的 attempt 为 `task-487-attempt-1-cc740d9a116c`，Claude adapter `1.1.0`、CLI
+`2.1.153`，`last_seq=63`，终态为 `run.completed`、control `closed`，包含 7 个 reasoning
+start/end 与 13 对工具事件。它使用同一 Bundle 203/Provider 3，产生 +1/-0；
+`worker.finalization` 报告 `push.status=pushed`、remote SHA
+`cb8a20a09a562283f2f97ded57e9e97ae9ccbf2a`。raw 为 15 chunks / 26,887 bytes，archive 为
+24,180 bytes；延长提示词仍只作为正常完成与交付回归，不宣称 30 秒单一长思考。
+
+Task #488 的 attempt 为 `task-488-attempt-1-027660f6d209`，Claude adapter `1.1.0`、CLI
+`2.1.153`，`last_seq=58`，先收到 `harness.completed`，随后以 `delivery.failed`、
+`run.failed` 终止，control `closed`；包含 6 个 reasoning start/end 与 11 对工具事件。
+任务使用 Bundle 203/Provider 3。受控探针在 Worker 运行期间向 `codify/issue-131` 推送空提交，
+把远端从任务开始的 `cb8a20a09a562283f2f97ded57e9e97ae9ccbf2a` 推进到
+`c34f7ff5add4a188b1fb8ed020d8d10ae7b3a246`；Worker 本地 head 为
+`726d21ae40f2a8e9c82955c57ed150fd9664ebb7`。Git delivery 的非敏感 metadata 记录
+`push.status=failed`、`push.error.code=remote_diverged`，并返回“remote task branch and local
+head have diverged; refusing to overwrite the remote branch”；Task 的 `commit_sha` 为空、
+0 changes，未产生 Worker 的 remote-confirmed SHA 或 Ready 交付。raw 为 13 chunks / 23,197
+bytes，archive 为 22,299 bytes。该真实 Host 任务关闭 Claude 受控远端 divergence 的
+fail-closed 验收边界。
+
 ## 4. 验收边界
 
 本轮关闭了以下当前 composition 的 L4 子项：
@@ -211,6 +268,8 @@ Responses 的 reasoning 验收，也不能把付费 slug 当作现有 Provider �
 - Pi Task #478 补齐了活动思考期间取消与刷新/重连的用户态终态；该次使用了 TaskLog 终态兜底，
   没有 canonical `reasoning_summary.interrupted` receipt；
 - Claude Task #474 有真实运行中页面时序：开始占位先于同一行完成，终态无代码变更；
+- Claude Task #485/#486/#487 补齐了当前 Bundle 203 的真实正常 reasoning 与 Git delivery，
+  #488 又以并发远端分叉证明 delivery fail-closed，拒绝覆盖远端分支且不产生成功交付；
 - OpenCode Task #475 与 Pi Task #477 分别在 Bundle 199/201 上关闭了 Chat 正常成功和运行中
   页面时序子项；Pi #476/#470 的 404 仍作为修复前失败边界保留，没有改 Provider 配置或伪造成功。
 
@@ -219,8 +278,10 @@ Responses 的 reasoning 验收，也不能把付费 slug 当作现有 Provider �
 - Codex 尚无真实模型响应，因此没有 App Server reasoning/空完成/取消/最终结果回归；付费
   slug 仍需明确授权；
 - Pi/OpenCode 的 `openai_responses` 仍未完成：#482/#483 在当前 Bundle 202/201 上均由真实
-  OpenRouter 免费模型 404 阻断，不能改用付费 slug 伪造能力；OpenCode Chat 的思考期间取消/
-  刷新重连、Claude 受控远端 divergence、Codex 成功响应仍未完成。#478 的 Pi 取消已覆盖终态
+  OpenRouter 免费模型 404 阻断，#484 在 Bundle 202 上由 Provider 4 地区 403 阻断；不能改用
+  付费 slug 或绕过上游地区策略伪造能力；OpenCode Chat 的思考期间取消/
+  刷新重连、Codex 成功响应仍未完成。#488 已关闭 Claude 受控远端 divergence 的
+  fail-closed 边界。#478 的 Pi 取消已覆盖终态
   兜底，但没有 canonical interrupted receipt；#475/#477/#479/#480 是正常完成，#481 是思考完成
   后的取消，单个思考块耗时也很短，不能替代第 8 节长思考要求；
 - R4.5 owner closure、R4.6 独立 GO/NO-GO 和 R5/L6 仍未执行。
