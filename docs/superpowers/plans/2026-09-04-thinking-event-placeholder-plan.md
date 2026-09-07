@@ -2,7 +2,10 @@
 
 日期：2026-09-04
 
-状态：Pi 与公共展示链路已实现；四 Harness 完整覆盖待实施、待验收。本文修订原方案，在现有实现上补齐 Claude、Codex、OpenCode，并修正公共链路中的单思考块假设。
+状态：rev2 实现已提交于 `c089b67a`；本轮 Worker delivery 隔离修复提交于 `7fd0939c`。在开发
+Host generation 84 上已完成一轮真实 Provider 调试，但第 8 节八组合与实时占位时序仍未完成。Codex
+`exec --json` 未产生可作为 reasoning start 的 canonical 事件；Chat 取消任务也没有 reasoning
+interrupted 证据，不能据此宣称四 Harness 整体完成。
 
 ## 1. 目标与完成边界
 
@@ -22,7 +25,8 @@
 
 ## 2. 当前实现基线与缺口
 
-已核对实现提交 `03a7ae2c` 和当前源码。该提交落地了 Pi 开始事件、占位投影、SSE 更新、重连合并和前端计时；以下是需要继续完成的工作，不再重复按“全部尚未实现”规划。
+以下表格记录 rev2 实施前的输入基线。`c089b67a` 已落地表中 L2 代码工作；完成状态仍以第 8、9 节的
+新 Bundle、真实 Task 与页面验收为准，不能用该提交或单测反向改写为已验收。
 
 | 范围 | 当前事实 | 本次工作 |
 |---|---|---|
@@ -256,16 +260,18 @@ A 完成后冻结选择，不让“还需验证信号”成为跳过某个 Harne
 
 | Harness | 模型协议 | 本功能验收 |
 |---|---|---|
-| Claude | `anthropic_messages` | 待完成 |
-| Codex | `openai_responses` | 待完成 |
-| Pi | `anthropic_messages` | 在修订后的公共链路上重新验收 |
-| Pi | `openai_responses` | 在修订后的公共链路上重新验收 |
-| Pi | `openai_chat_completions` | 在修订后的公共链路上重新验收 |
-| OpenCode | `anthropic_messages` | 待完成 |
-| OpenCode | `openai_responses` | 待完成 |
-| OpenCode | `openai_chat_completions` | 待完成 |
+| Claude | `anthropic_messages` | #454/#459 有 start/end 结构但均以 `protocol_error` 失败；未完成 |
+| Codex | `openai_responses` | #451 zero-change；无 canonical reasoning start/end，未完成 |
+| Pi | `anthropic_messages` | #452 真实完成、4/4 reasoning、delivery push；实时占位先于完成的页面时序仍未完成 |
+| Pi | `openai_responses` | #450 完成但 0/0/0 reasoning；未完成 |
+| Pi | `openai_chat_completions` | #456 取消但 0/0/0 reasoning；无 interrupted thinking 证据，未完成 |
+| OpenCode | `anthropic_messages` | #457 真实完成、6/6 reasoning、delivery push；实时占位先于完成的页面时序仍未完成 |
+| OpenCode | `openai_responses` | #453 完成但 0/0/0 reasoning；未完成 |
+| OpenCode | `openai_chat_completions` | #458 取消但 0/0/0 reasoning；无 interrupted thinking 证据，未完成 |
 
 每行使用该组合下支持思考的真实模型。记录 CLI、Kit、Bundle、Provider 协议及模型身份、原生事件接收时间、canonical 序号/ID、TaskLog ID 和浏览器证据。至少每个 Harness 的一条真实运行还要覆盖取消与刷新/重连，纯状态卡片也属于正式验收对象。
+
+本轮 Task、archive 结构摘要、远端交付和截图见 [R4-RC1 remote debug evidence](../evidence/2026-09-08-open-harness-v2-r4-rc1-remote-debug.md)。截图均为任务终态页面，不能替代运行中“开始占位早于完成”的时序证据。
 
 源代码单元测试覆盖全部边缘序列；浏览器交互回归可以共用组件测试，但每个 Harness 的真实页面映射不能由 Pi 的成功代替。尚无原生信号或尚无可运行 Provider 的行保持未完成，整个四 Harness 覆盖不得关闭。
 
