@@ -17,9 +17,9 @@
 | R2：四 Harness hard-cut conformance | **完成，受影响场景重开** | 历史 8 个适用 Harness×protocol 行及 lifecycle/command/recovery 已闭合；`c089b67a`、`7fd0939c` 及 `5d2fad8e` 修改 reasoning lifecycle、共享 delivery 隔离边界和 Codex App Server transport，仍须在同一 candidate 上重验受影响组合 |
 | R3：正式 20-scenario benchmark | **完成** | Pi/OpenCode 20/20 formal pair 与 Pi 非劣性门槛已通过；当前变化未升级 CLI 或修改 model endpoint protocol，但切换了 Codex control transport，故不整体重跑 benchmark、改由 R2/R4 重验 Codex；真实验收若发现 terminal、质量或性能回归再按影响重开 |
 | R4.1：可信 Kit 启动边界 | **完成** | content-addressed 安装、管理员完整 Verify、Task 热路径轻量校验与 warm-start 已有 L2–L4 证据 |
-| R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 composition 为 source `5d2fad8e`、Profile 4、Backend/Scheduler/NGINX、Runtime Bundle 197 与 Worker Kit 0.6.15；已完成管理员 Verify 和真实 Codex Task，但镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
-| R4.3：正式交互验收 | **部分 evidence，未签署** | #451/#452/#453/#454/#456–#459 已有真实 Task detail 页面；截图是终态页面，尚未证明运行中占位先于完成或四 Harness 全覆盖；用户暂缓的真实移动设备验收不作为本轮技术执行项 |
-| R4.4：运维与真实 Task 验收 | **部分 evidence，未签署** | 本轮新增 App Server Bridge 部署和 #461–#463 Provider 边界证据，但三条 Codex Task 均在上游模型响应前失败；Codex reasoning start、Chat interrupted thinking、Claude 成功闭合和 OpenCode 复杂 reconciliation 仍未闭合 |
+| R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 composition 为 source `5d2fad8e`、Profile 4、Backend/Scheduler/NGINX、任务绑定 Bundle 198–200 与 Worker Kit 0.6.15；已完成管理员 Verify 和多条真实 Task，但镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
+| R4.3：正式交互验收 | **部分 evidence，未签署** | #464–#471 已有当前 Bundle 的真实 Task/Canonical 证据，其中 Pi/OpenCode/Claude 有 reasoning start/end；仍缺运行中页面时序、Codex 成功行、可用 Chat/Responses 行和四 Harness 全覆盖；用户暂缓的真实移动设备验收不作为本轮技术执行项 |
+| R4.4：运维与真实 Task 验收 | **部分 evidence，未签署** | #468/#469/#471 已完成 Pi/OpenCode/Claude delivery 并有 canonical remote SHA；Codex #461–#463 仍在 Provider 响应前失败，Pi Chat #470 为真实 404，Claude 受控远端 divergence 和其他协议行仍未闭合 |
 | R4.5：安全与发布审计 | **阻塞于 owner 输入** | 最小权限、轮换、migration 078、签名发布包、retention、维护窗口与独立 P0/P1 审阅尚未签署 |
 | R4.6：hard-cut go/no-go | **未执行** | R4.2–R4.5 全部闭合后才能形成独立 `GO` 或 `NO-GO` |
 | R5：L6 `v2_only` hard cut | **未执行** | 仅在 R4.6 `GO` 且获得单独执行批准后进入维护窗口 |
@@ -52,7 +52,7 @@ composition 上重验 Codex reasoning、session、usage、最终结果和共享 
 `v2-canary-0.6.11-four-harness`，Backend image 为
 `sha256:7673b0b07afcaeb4f7c250bd531f23da825a765d43706c41007069b1931d875a`，NGINX image 为
 `sha256:ba50f6296e92e426dd445740d7214c6c54aaddd2a79d58d1513a4741379c6e43`，Runtime Bundle 为
-`197`，Worker Kit 为 `0.6.15`、manifest SHA 为
+`198–200`（Codex 失败探针使用 `197`），Worker Kit 为 `0.6.15`、manifest SHA 为
 `506dbc2c61fbc03144c45fdffcd9a0e264781fe4038ad0ed13b38112580b831b`；Profile Verify 和真实
 Codex Task 结果详见 [Codex App Server bridge evidence](../evidence/2026-09-08-open-harness-v2-codex-app-server-bridge.md)。
 
@@ -79,6 +79,7 @@ BuildKit cache，未触碰 `quirky_allen` 等活动容器、服务或 volume。�
 - [four-Harness thinking native probes](../evidence/2026-09-06-four-harness-thinking-probes.md)
 - [R4-RC1 remote debug evidence](../evidence/2026-09-08-open-harness-v2-r4-rc1-remote-debug.md)
 - [Codex App Server bridge evidence](../evidence/2026-09-08-open-harness-v2-codex-app-server-bridge.md)
+- [Current Bundle real-task matrix](../evidence/2026-09-08-open-harness-v2-current-bundle-real-task-matrix.md)
 - [Worker Kit validation boundary](../specs/2026-09-03-worker-kit-validation-boundary-design.md)
 - [V2 schema and benchmark contract](../../architecture/open-harness-v2-schemas.md)
 - [dual-canary and production rollout Runbook](../../runbooks/multi-harness-rollout.md)
@@ -87,9 +88,9 @@ BuildKit cache，未触碰 `quirky_allen` 等活动容器、服务或 volume。�
 
 ## 4. 唯一下一工作包：R4-RC1
 
-R4-RC1 已在开发 Host 形成一次 generation 84 candidate，并执行一轮真实 Provider Task；但固定的 8
-个合法 Harness×protocol 退出条件尚未满足。完成前不追加无关 smoke，不刷新历史 benchmark，不进入
-owner 签署。
+R4-RC1 已在开发 Host 形成当前 source/Kit composition，并执行 #461–#471 真实 Provider Task；
+其中三 Harness reasoning 与三条 Git delivery 已闭合部分证据，但固定的 8 个合法 Harness×protocol
+退出条件尚未满足。完成前不追加无关 smoke，不刷新历史 benchmark，不进入 owner 签署。
 
 ### A. 冻结源码与变更范围
 
@@ -130,6 +131,8 @@ Git delivery 验收，不再另开第二轮 Task。
 本轮已执行的 Task 映射、archive 序号、reasoning 计数、远端 refs 和浏览器页面见独立 evidence。
 #461/#462/#463 使用新 Codex App Server transport，但均因 Provider 上游模型不可用或地区限制
 在 reasoning 之前失败；它们只能证明真实 transport/失败边界，不能计入 Codex 行的成功验收。
+#464–#471 的当前 Bundle 矩阵补充了 Pi/OpenCode/Claude 的真实 reasoning、delivery 和 Provider
+边界；#468/#469/#471 的 `worker.finalization` 均报告精确 remote SHA。
 #450/#452/#453/#457 提供了部分成功交付/生命周期 evidence；#451、#456、#458、#454、#459 和
 #449 分别暴露了 zero-change 无 reasoning、无 reasoning 的取消、Claude normalization failure 及
 复杂 reconciliation timeout 边界。#455 的 Provider 404 不计入验收。
@@ -146,9 +149,9 @@ Git delivery 验收，不再另开第二轮 Task。
 - 完成后停止技术执行，转入 R4.5 owner closure，不再追加普通 smoke。
 
 本轮退出条件仍未满足：Codex App Server 已部署但没有 canonical reasoning start/end，#461–#463
-均未获得模型响应；两个 Chat 取消没有 reasoning
-interrupted 证明，Claude 没有成功闭合路径，OpenCode 复杂 delivery Task 超时；成功 Task 的终态
-截图也没有证明实时占位先于完成。因此 R4-RC1 保持开放但停止普通 smoke，R4.3/R4.4 不签署。
+均未获得模型响应；Pi Chat #470 在 Provider 404 前失败，Pi #464 的取消发生在活动 tool 而非
+reasoning block；Claude 的受控远端 divergence、可用 Responses/Chat 协议行和成功 Task 的实时
+浏览器时序仍未证明。因此 R4-RC1 保持开放，R4.3/R4.4 不签署。
 
 ## 5. R4.5 owner closure
 
