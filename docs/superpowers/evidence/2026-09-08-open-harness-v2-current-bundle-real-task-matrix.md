@@ -7,7 +7,8 @@
 本记录补充 [Codex App Server bridge evidence](2026-09-08-open-harness-v2-codex-app-server-bridge.md)，
 记录历史 source/Kit composition 下的 Pi、OpenCode、Claude 真实任务，以及 Pi OpenAI endpoint
 修复后新 Bundle 的真实回归。事件来自远端 `task_harness_event_receipts`，raw/archive 只记录元数据，
-不复制原始内容。历史 Bundle 保持不可变，修复后的 Task 使用独立 Bundle 201/202。
+不复制原始内容。历史 Bundle 保持不可变，修复后的 Task 使用独立 Bundle 201/202；#482/#483
+又在这两个当前 Bundle 上复核了 `openai_responses` 的真实 Provider 失败边界。
 
 ## 1. Exact composition
 
@@ -59,6 +60,8 @@ Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image
 | #479 | OpenCode / 5 / `mimo-v2.5` | 202 | completed；4/4 reasoning，`run.completed` | 当前 Bundle 正常 Chat 回归；页面观察未抓到活动思考或取消；0 changes |
 | #480 | OpenCode / 5 / `mimo-v2.5` | 202 | completed；2/2 reasoning，`run.completed` | 第二次取消探针自然完成；未发生取消，不能计入 OpenCode Chat 取消/刷新验收；0 changes |
 | #481 | OpenCode / 5 / `mimo-v2.5` | 202 | cancelled；2/2 reasoning，`run.failed` | 取消请求晚于第二段 reasoning 完成约 7.3s，实际发生在工具/诊断阶段；刷新终态稳定，不能计入活动思考取消；0 changes |
+| #482 | OpenCode / 9 / `z-ai/glm-5.2:free` | 202 | failed；0 reasoning，`run.failed` | `openai_responses` 返回 404：免费模型需使用付费 slug；attempt 正常关闭，0 changes |
+| #483 | Pi / 12 / `minimax/minimax-m3:free` | 201 | failed；0 reasoning，`run.failed` | `openai_responses` 返回 404：免费模型需使用付费 slug；attempt 正常关闭，0 changes |
 
 上述 Task 的 attempt 均为 `codify.worker.event/v2`，transport 与 adapter identity 来自真实
 `run.started` receipt，而非手工 fixture。#468/#469/#471 的 `worker.finalization` 均报告
@@ -87,6 +90,8 @@ Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image
 | #479 | 6 / 2,878 | 21,045 bytes | `run.completed` |
 | #480 | 5 / 2,878 | 20,339 bytes | `run.completed` |
 | #481 | 4 / 2,627 | 16,830 bytes | `run.failed` / cancelled |
+| #482 | 5 / 2,612 | 5,003 bytes | `run.failed` |
+| #483 | 3 / 2,616 | 3,752 bytes | `run.failed` |
 
 所有任务结束后，相关 Worker 容器均已清理；Backend/Scheduler 保持健康。#472 的 attempt 为
 `task-472-attempt-1-9ef92102943b`，`codify.worker.event/v2`、Pi adapter `2.1.1`、CLI
@@ -175,6 +180,25 @@ Task #481 的 attempt 为 `task-481-attempt-1-6cef0bbbeab9`，OpenCode adapter `
 Chat 的活动思考取消/刷新验收项。任务绑定 Bundle 202，raw 为 4 chunks / 2,627 bytes，
 archive 为 16,830 bytes，0 changes。
 
+Task #482 的 attempt 为 `task-482-attempt-1-0ffce61f4284`，OpenCode adapter `2.1.0`、CLI
+`1.18.19`，`last_seq=8`，终态为 `run.failed`、control `closed`。任务使用当前 Bundle 202
+和 Provider 9 `openrouter-glm52-responses`；真实页面显示失败，远端错误为 OpenRouter 404，
+明确提示 `z-ai/glm-5.2:free` 不可用且付费版本为 `z-ai/glm-5.2`，没有 reasoning receipt。
+Canonical 仅有 `diagnostic` 3、`run.started`、`harness.failed`、`run.failed`、`usage.final` 和
+`worker.finalization`，raw 为 5 chunks / 2,612 bytes，archive 为 5,003 bytes，0 changes。
+不得在未获授权时把 Provider slug 改为付费版本；该任务证明当前 OpenCode Responses Provider
+边界，而不是 OpenCode Adapter 生命周期完成。
+
+Task #483 的 attempt 为 `task-483-attempt-1-372a15140d61`，Pi adapter `2.1.1`、CLI `0.84.2`，
+`last_seq=9`，终态为 `run.failed`、control `closed`。任务使用当前修复后的 Bundle 201 和
+Provider 12 `openrouter-minimax-responses`；真实页面显示失败，远端错误为 OpenRouter 404，
+明确提示 `minimax/minimax-m3:free` 不可用且付费版本为 `minimax/minimax-m3`，没有 reasoning
+receipt。Canonical 仅有 `agent_settled`、`diagnostic`、`harness.failed`、`model.resolved`、
+`run.failed`、`run.started`、`usage.final`、`usage.updated` 和 `worker.finalization`，raw 为
+3 chunks / 2,616 bytes，archive 为 3,752 bytes，0 changes。该任务确认 Pi 当前 Bundle 的
+Responses 请求已越过 Worker 启动阶段，但被真实 Provider 在模型响应前拒绝；不能计入 Pi
+Responses 的 reasoning 验收，也不能把付费 slug 当作现有 Provider 能力。
+
 ## 4. 验收边界
 
 本轮关闭了以下当前 composition 的 L4 子项：
@@ -194,10 +218,11 @@ archive 为 16,830 bytes，0 changes。
 
 - Codex 尚无真实模型响应，因此没有 App Server reasoning/空完成/取消/最终结果回归；付费
   slug 仍需明确授权；
-- Pi/OpenCode 的 `openai_responses`、OpenCode Chat 的思考期间取消/刷新重连、Claude 受控远端
-  divergence、Codex 成功响应仍未完成；#478 的 Pi 取消已覆盖终态兜底，但没有 canonical
-  interrupted receipt；#475/#477/#479/#480 是正常完成，#481 是思考完成后的取消，单个思考块
-  耗时也很短，不能替代第 8 节长思考要求；
+- Pi/OpenCode 的 `openai_responses` 仍未完成：#482/#483 在当前 Bundle 202/201 上均由真实
+  OpenRouter 免费模型 404 阻断，不能改用付费 slug 伪造能力；OpenCode Chat 的思考期间取消/
+  刷新重连、Claude 受控远端 divergence、Codex 成功响应仍未完成。#478 的 Pi 取消已覆盖终态
+  兜底，但没有 canonical interrupted receipt；#475/#477/#479/#480 是正常完成，#481 是思考完成
+  后的取消，单个思考块耗时也很短，不能替代第 8 节长思考要求；
 - R4.5 owner closure、R4.6 独立 GO/NO-GO 和 R5/L6 仍未执行。
 
 因此本记录是当前 exact composition 的真实推进证据，不是四 Harness 8 行全部通过或 release
