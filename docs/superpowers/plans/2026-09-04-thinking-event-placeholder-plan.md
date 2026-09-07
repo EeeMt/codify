@@ -3,12 +3,14 @@
 日期：2026-09-04
 
 状态：rev2 实现已提交于 `c089b67a`；Worker delivery 隔离修复提交于 `7fd0939c`；Codex
-App Server Bridge 已提交于 `5d2fad8e`。开发 Host 的 Profile 4 已安装并 Verify Kit 0.6.15。
-当前 Bundle 上 #464–#474 已验证 Pi/OpenCode/Claude 的真实 reasoning，#468/#469/#471 完成
-canonical Git delivery；#472 还在运行中页面捕获了 Pi 的思考占位先于同一行完成。Codex
-#461–#463 和 Pi Chat #470 仍在 Provider 边界失败；#473 的 OpenCode 页面采集落在终态，不能
-计入运行中时序；#474 已补齐 Claude 的运行中页面时序。第 8 节八组合、Codex reasoning start/end、
-其余 Harness 的实时占位时序和长思考要求仍未完成；不能据此宣称四 Harness 整体完成。
+App Server Bridge 已提交于 `5d2fad8e`；Pi OpenAI endpoint root 修复提交于
+`ae223cb1`。开发 Host 的 Profile 4 已安装并 Verify Kit 0.6.15，修复后重新 Verify 为
+generation 92。#464–#477 已验证 Pi/OpenCode/Claude 的真实 reasoning，#468/#469/#471 完成
+canonical Git delivery；#472/#474/#475/#477 已在运行中页面捕获思考占位先于同一行完成。
+Codex #461–#463 仍在 Provider 边界失败；Pi Chat 的 #470/#476 是修复前 Bundle 失败，#477
+在新 Bundle 201 上正常完成；#473 的 OpenCode 页面采集落在终态，不能计入运行中时序。第 8 节
+八组合、Codex reasoning start/end、思考期间取消/刷新重连和长思考要求仍未完成；不能据此宣称
+四 Harness 整体完成。
 
 ## 1. 目标与完成边界
 
@@ -270,18 +272,19 @@ A 完成后冻结选择，不让“还需验证信号”成为跳过某个 Harne
 | Codex | `openai_responses` | #461–#463 已走 `rpc_stdio/codex-app-server-v2`，分别因 free model 404 或地区 403 在 reasoning 前失败；无 canonical reasoning start/end，未完成 |
 | Pi | `anthropic_messages` | #467 正常完成 1/1 reasoning；#468 完成 6/6 reasoning 并由 Worker push；#472 在 Pi/deepseek-v4-flash 上补齐运行中页面“正在思考 · 1s”先于同一行完成，但不是长思考或思考期间取消 |
 | Pi | `openai_responses` | #450 完成但 0/0/0 reasoning；现有 Responses Provider 仍不可用，未完成 |
-| Pi | `openai_chat_completions` | #470 Provider 5 返回 404 HTML；#456 历史取消也无 reasoning，未完成 |
+| Pi | `openai_chat_completions` | #470/#476 在修复前 Bundle 返回 404 HTML；#477 使用 Bundle 201 正常完成 24/24 reasoning 并捕获运行中页面时序，但尚未覆盖思考期间取消/刷新重连 |
 | OpenCode | `anthropic_messages` | #465 正常完成 1/1 reasoning；#469 完成 9/9 reasoning 并补交 dirty file；#473 完成 2/2 reasoning 且终态页面正常，但运行中页面时序仍未完成 |
 | OpenCode | `openai_responses` | #453 完成但 0/0/0 reasoning；现有 Responses Provider 仍不可用，未完成 |
-| OpenCode | `openai_chat_completions` | #458 历史取消但 0/0/0 reasoning；当前 Chat Provider 未形成成功响应，未完成 |
+| OpenCode | `openai_chat_completions` | #458 历史取消但 0/0/0 reasoning；#475 使用 Provider 5 正常完成 3/3 reasoning 并捕获运行中页面时序，但尚未覆盖思考期间取消/刷新重连 |
 
 每行使用该组合下支持思考的真实模型。记录 CLI、Kit、Bundle、Provider 协议及模型身份、原生事件接收时间、canonical 序号/ID、TaskLog ID 和浏览器证据。至少每个 Harness 的一条真实运行还要覆盖取消与刷新/重连，纯状态卡片也属于正式验收对象。
 
 本轮 Task、archive 结构摘要、远端交付和页面边界见 [R4-RC1 remote debug evidence](../evidence/2026-09-08-open-harness-v2-r4-rc1-remote-debug.md)、
 [Codex App Server bridge evidence](../evidence/2026-09-08-open-harness-v2-codex-app-server-bridge.md) 及
 [current Bundle real-task matrix](../evidence/2026-09-08-open-harness-v2-current-bundle-real-task-matrix.md)。除 #472 的实时
-页面观察外，其余页面检查均为终态；#472/#474 分别证明 Pi/Claude 页面时序，#473 的 OpenCode
-页面采集落在完成后，三者都不替代其余 Harness 或 30 秒长思考证据。
+页面观察外，其余页面检查均为终态；#472/#474/#475/#477 分别补充 Pi、Claude、OpenCode 和
+Pi Chat 的页面时序，#473 的 OpenCode 页面采集落在完成后；这些短思考成功都不替代其余
+Harness、思考期间取消或 30 秒长思考证据。
 
 源代码单元测试覆盖全部边缘序列；浏览器交互回归可以共用组件测试，但每个 Harness 的真实页面映射不能由 Pi 的成功代替。尚无原生信号或尚无可运行 Provider 的行保持未完成，整个四 Harness 覆盖不得关闭。
 
@@ -322,7 +325,7 @@ npm run build
 
 保持现有 2 秒事件采集、1.5 秒 SSE 轮询间隔。正常环境中，以 **实时 canonical 开始事件写出后约 5 秒内出现占位** 为验收目标；另须证明这个开始本身发生于原生思考结束前，不能只测最后一段传输。
 
-部署组成必须匹配：Backend/Scheduler、Frontend、新 Runtime Bundle 中的 writer/Adapter/Bridge，以及冻结的 CLI/Kit 身份。当前组成已匹配并通过 Profile Verify；仍需在 Provider 可响应后使用同一 Bundle 的新 Task 验收，旧快照和旧 Bundle 保持不变。单改源码或 manifest 版本标签不算完成。
+部署组成必须匹配：Backend/Scheduler、Frontend、新 Runtime Bundle 中的 writer/Adapter/Bridge，以及冻结的 CLI/Kit 身份。Pi endpoint 修复已在 Backend image `sha256:87cc35d940d97ef2c82ef9f6f00d2f8cc7feddb01e7d8c74ee6aac37326a10d1`、Profile 4 generation 92 和新 Bundle 201 上由 Task #477 验证；旧快照和旧 Bundle 保持不变。其余协议行仍需在对应 Provider 可响应后使用新 Bundle 验收，单改源码或 manifest 版本标签不算完成。
 
 关闭本方案前必须满足：
 
