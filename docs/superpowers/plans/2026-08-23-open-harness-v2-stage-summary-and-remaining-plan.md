@@ -18,7 +18,7 @@
 | R3：正式 20-scenario benchmark | **完成** | Pi/OpenCode 20/20 formal pair 与 Pi 非劣性门槛已通过；当前变化未升级 CLI 或修改 model endpoint protocol，但切换了 Codex control transport，故不整体重跑 benchmark、改由 R2/R4 重验 Codex；真实验收若发现 terminal、质量或性能回归再按影响重开 |
 | R4.1：可信 Kit 启动边界 | **完成** | content-addressed 安装、管理员完整 Verify、Task 热路径轻量校验与 warm-start 已有 L2–L4 证据 |
 | R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 composition 为 source `5d2fad8e`、Profile 4、Backend/Scheduler/NGINX、任务绑定 Bundle 198–200 与 Worker Kit 0.6.15；已完成管理员 Verify 和多条真实 Task，但镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
-| R4.3：正式交互验收 | **部分 evidence，未签署** | #464–#471 已有当前 Bundle 的真实 Task/Canonical 证据，其中 Pi/OpenCode/Claude 有 reasoning start/end；仍缺运行中页面时序、Codex 成功行、可用 Chat/Responses 行和四 Harness 全覆盖；用户暂缓的真实移动设备验收不作为本轮技术执行项 |
+| R4.3：正式交互验收 | **部分 evidence，未签署** | #464–#472 已有当前 Bundle 的真实 Task/Canonical 证据，其中 Pi/OpenCode/Claude 有 reasoning start/end；#472 已补齐 Pi 运行中页面“正在思考”先于同一行完成的时序；仍缺 Codex 成功行、可用 Chat/Responses 行、OpenCode/Claude 的运行中页面和四 Harness 全覆盖；用户暂缓的真实移动设备验收不作为本轮技术执行项 |
 | R4.4：运维与真实 Task 验收 | **部分 evidence，未签署** | #468/#469/#471 已完成 Pi/OpenCode/Claude delivery 并有 canonical remote SHA；Codex #461–#463 仍在 Provider 响应前失败，Pi Chat #470 为真实 404，Claude 受控远端 divergence 和其他协议行仍未闭合 |
 | R4.5：安全与发布审计 | **阻塞于 owner 输入** | 最小权限、轮换、migration 078、签名发布包、retention、维护窗口与独立 P0/P1 审阅尚未签署 |
 | R4.6：hard-cut go/no-go | **未执行** | R4.2–R4.5 全部闭合后才能形成独立 `GO` 或 `NO-GO` |
@@ -56,9 +56,10 @@ composition 上重验 Codex reasoning、session、usage、最终结果和共享 
 `506dbc2c61fbc03144c45fdffcd9a0e264781fe4038ad0ed13b38112580b831b`；Profile Verify 和真实
 Codex Task 结果详见 [Codex App Server bridge evidence](../evidence/2026-09-08-open-harness-v2-codex-app-server-bridge.md)。
 
-远端 Backend、Scheduler、NGINX 健康，当前没有 `pending`、`queued` 或 `running` Task。根盘约 99%
-使用率、剩余约 841MB；本轮只清理了 8 个有 Codify ownership 的 dangling image 和一小时以前的
-BuildKit cache，未触碰 `quirky_allen` 等活动容器、服务或 volume。远端 app image 没有 OCI
+远端 Backend、Scheduler、NGINX 健康，当前没有 `pending`、`queued` 或 `running` Task。Task #472
+已完成取消收尾。根盘曾达 99% 使用率、剩余约 793MB；确认归属后仅清理超过一小时的 Codify
+BuildKit 调试缓存 1.78GB，未触碰 `quirky_allen` 等活动容器、服务或 volume，清理后约 93%、
+剩余 4.6GB。远端 app image 没有 OCI
 `org.opencontainers.image.revision` label，且 source commit 尚未推送，因此当前 composition
 是可复核的开发调试 candidate，不是已签署 release candidate。
 
@@ -88,7 +89,7 @@ BuildKit cache，未触碰 `quirky_allen` 等活动容器、服务或 volume。�
 
 ## 4. 唯一下一工作包：R4-RC1
 
-R4-RC1 已在开发 Host 形成当前 source/Kit composition，并执行 #461–#471 真实 Provider Task；
+R4-RC1 已在开发 Host 形成当前 source/Kit composition，并执行 #461–#472 真实 Provider Task；
 其中三 Harness reasoning 与三条 Git delivery 已闭合部分证据，但固定的 8 个合法 Harness×protocol
 退出条件尚未满足。完成前不追加无关 smoke，不刷新历史 benchmark，不进入 owner 签署。
 
@@ -131,8 +132,11 @@ Git delivery 验收，不再另开第二轮 Task。
 本轮已执行的 Task 映射、archive 序号、reasoning 计数、远端 refs 和浏览器页面见独立 evidence。
 #461/#462/#463 使用新 Codex App Server transport，但均因 Provider 上游模型不可用或地区限制
 在 reasoning 之前失败；它们只能证明真实 transport/失败边界，不能计入 Codex 行的成功验收。
-#464–#471 的当前 Bundle 矩阵补充了 Pi/OpenCode/Claude 的真实 reasoning、delivery 和 Provider
+#464–#472 的当前 Bundle 矩阵补充了 Pi/OpenCode/Claude 的真实 reasoning、delivery、Provider
 边界；#468/#469/#471 的 `worker.finalization` 均报告精确 remote SHA。
+#472 另外在真实 Codify 页面中捕获了运行中 `正在思考 · 1s`、同一行完成、工具事件继续增长，
+随后取消并刷新为稳定终态；它没有发生在活动 reasoning block 内，因此不能计入 interrupted
+thinking 或长思考验收。
 #450/#452/#453/#457 提供了部分成功交付/生命周期 evidence；#451、#456、#458、#454、#459 和
 #449 分别暴露了 zero-change 无 reasoning、无 reasoning 的取消、Claude normalization failure 及
 复杂 reconciliation timeout 边界。#455 的 Provider 404 不计入验收。
@@ -149,9 +153,10 @@ Git delivery 验收，不再另开第二轮 Task。
 - 完成后停止技术执行，转入 R4.5 owner closure，不再追加普通 smoke。
 
 本轮退出条件仍未满足：Codex App Server 已部署但没有 canonical reasoning start/end，#461–#463
-均未获得模型响应；Pi Chat #470 在 Provider 404 前失败，Pi #464 的取消发生在活动 tool 而非
-reasoning block；Claude 的受控远端 divergence、可用 Responses/Chat 协议行和成功 Task 的实时
-浏览器时序仍未证明。因此 R4-RC1 保持开放，R4.3/R4.4 不签署。
+均未获得模型响应；Pi Chat #470 在 Provider 404 前失败，Pi #464/#472 的取消均发生在活动
+tool/诊断而非 reasoning block；Claude 的受控远端 divergence、可用 Responses/Chat 协议行、
+以及 OpenCode/Claude 成功 Task 的实时浏览器时序仍未证明。#472 只关闭了 Pi 的页面时序子项，
+不改变四 Harness 长思考和 8 行矩阵的未完成状态。因此 R4-RC1 保持开放，R4.3/R4.4 不签署。
 
 ## 5. R4.5 owner closure
 
