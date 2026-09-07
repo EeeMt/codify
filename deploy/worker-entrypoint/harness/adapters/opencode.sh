@@ -421,6 +421,20 @@ opencode_adapter_terminate() {
     fi
     local pid="${1:-}"
     if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+        # Let the Bridge forward OpenCode's abort/error event so an open
+        # reasoning block can emit its canonical interrupted receipt. The
+        # bounded wait preserves the existing hard-stop path if the server or
+        # SSE stream does not converge.
+        local grace_seconds="${CODIFY_OPENCODE_ABORT_GRACE_SECONDS:-2}"
+        case "${grace_seconds}" in
+            ''|*[!0-9]*) grace_seconds=2 ;;
+        esac
+        local deadline=$((SECONDS + grace_seconds))
+        while kill -0 "${pid}" 2>/dev/null && [ "${SECONDS}" -lt "${deadline}" ]; do
+            sleep 0.05
+        done
+    fi
+    if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
         kill -TERM "${pid}" 2>/dev/null || true
     fi
     return 0

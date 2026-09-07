@@ -2778,6 +2778,7 @@ def test_opencode_adapter_terminate_requests_native_abort_before_stopping_runner
                 "CODIFY_OPENCODE_SESSION_FILE": str(session_file),
                 "OPENCODE_PORT": "8099",
                 "OPENCODE_TEST_ABORT": str(abort_args),
+                "CODIFY_OPENCODE_ABORT_GRACE_SECONDS": "0",
             },
         )
         assert result.returncode == 0, result.stderr
@@ -2787,6 +2788,50 @@ def test_opencode_adapter_terminate_requests_native_abort_before_stopping_runner
             "abort",
             "ses-adapter-test",
         ]
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            child.wait(timeout=3)
+
+
+def test_opencode_adapter_terminate_drains_native_abort_before_kill(tmp_path):
+    orchestration = tmp_path / "orchestration"
+    bridge = orchestration / "worker-entrypoint/harness/adapters/opencode_bridge.py"
+    bridge.parent.mkdir(parents=True)
+    bridge.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os\n"
+        "with open(os.environ['OPENCODE_TEST_ABORT'], 'w', encoding='utf-8') as handle:\n"
+        "    handle.write('abort\\n')\n",
+        encoding="utf-8",
+    )
+    session_file = tmp_path / "runtime" / "opencode-session.id"
+    session_file.parent.mkdir()
+    session_file.write_text("ses-adapter-drain\n", encoding="utf-8")
+    abort_args = tmp_path / "abort-args"
+    child = subprocess.Popen(
+        [
+            "sh",
+            "-c",
+            'while [ ! -f "$1" ]; do sleep 0.01; done',
+            "wait-for-abort",
+            str(abort_args),
+        ]
+    )
+    try:
+        result = _source_adapter(
+            f'opencode_adapter_terminate "{child.pid}"',
+            {
+                "CODIFY_ORCHESTRATION_DIR": str(orchestration),
+                "CODIFY_RUNTIME_DIR": str(tmp_path / "runtime"),
+                "CODIFY_OPENCODE_SESSION_FILE": str(session_file),
+                "OPENCODE_PORT": "8099",
+                "OPENCODE_TEST_ABORT": str(abort_args),
+            },
+        )
+        assert result.returncode == 0, result.stderr
+        child.wait(timeout=1)
+        assert child.returncode == 0
     finally:
         if child.poll() is None:
             child.terminate()
