@@ -129,6 +129,44 @@ def test_invalid_artifact_only_git_delivery_is_dropped():
     assert task.worker_metadata["overall_summary"] == "s"
 
 
+def test_valid_artifact_only_git_delivery_is_dropped():
+    """A valid-looking artifact cannot establish confirmed delivery."""
+    from app.core.worker_task_artifacts import save_task_metadata_from_container
+
+    artifact_git_delivery = {
+        "schema": "codify.git-delivery.v1",
+        "attempt_id": "task-1-attempt-1-0123456789ab",
+        "branch": "codify/issue-1",
+        "start_sha": "a" * 40,
+        "start_remote_sha": "a" * 40,
+        "head_sha": "b" * 40,
+        "commits": [{"sha": "b" * 40, "subject": "artifact claim"}],
+        "recovered_commits": [],
+        "diff": {
+            "additions": 1,
+            "deletions": 0,
+            "total": 1,
+            "new_files": ["artifact.txt"],
+            "modified_files": [],
+            "deleted_files": [],
+        },
+        "push": {"status": "pushed", "remote_sha": "b" * 40, "error": None},
+    }
+    task = SimpleNamespace(id=1, _canonical_git_delivery=None, worker_metadata=None)
+    container_payload = {
+        "task_id": 1,
+        "overall_summary": "summary remains available",
+        "git_delivery": artifact_git_delivery,
+    }
+
+    save_task_metadata_from_container(
+        _metadata_worker(container_payload), container=object(), task=task, issue=None
+    )
+
+    assert "git_delivery" not in task.worker_metadata
+    assert task.worker_metadata["overall_summary"] == "summary remains available"
+
+
 def test_absent_metadata_file_leaves_worker_metadata_untouched():
     from app.core.worker_task_artifacts import save_task_metadata_from_container
 
@@ -138,6 +176,26 @@ def test_absent_metadata_file_leaves_worker_metadata_untouched():
     task = SimpleNamespace(id=1, _canonical_git_delivery=None, worker_metadata=None)
     save_task_metadata_from_container(worker, container=object(), task=task, issue=None)
     assert task.worker_metadata is None
+
+
+def test_missing_metadata_removes_unverified_existing_git_delivery():
+    from app.core.worker_task_artifacts import save_task_metadata_from_container
+
+    worker = SimpleNamespace(
+        docker=SimpleNamespace(read_file_from_container=MagicMock(return_value=None))
+    )
+    task = SimpleNamespace(
+        id=1,
+        _canonical_git_delivery=None,
+        worker_metadata={
+            "overall_summary": "keep this summary",
+            "git_delivery": {"push": {"status": "pushed", "remote_sha": "b" * 40}},
+        },
+    )
+
+    save_task_metadata_from_container(worker, container=object(), task=task, issue=None)
+
+    assert task.worker_metadata == {"overall_summary": "keep this summary"}
 
 
 def test_canonical_delivery_survives_missing_container_metadata(tmp_path):

@@ -1619,7 +1619,14 @@ class TestEntrypointCommitAttribution(unittest.TestCase):
             '--force-with-lease="refs/heads/${BRANCH_NAME}:${REPO_DELIVERY_LEASE}"',
             content,
         )
-        self.assertIn('codify.unpublishedPushSha', content)
+        self.assertIn('codify.git-delivery.pending/v1', content)
+        self.assertIn('GIT_CONFIG_NOSYSTEM=1', content)
+        self.assertIn('env_prefix+=(-u BASH_ENV)', content)
+        self.assertIn(
+            'codify_run_shell "python3 \'${GIT_DELIVERY_HELPER}\' ${helper_args}" nonlogin',
+            content,
+        )
+        self.assertNotIn('git config codify.unpublishedPushSha', content)
         self.assertIn('record_push', content)
         self.assertIn('already_present', content)
         self.assertIn(
@@ -3251,8 +3258,8 @@ class TestExecuteTask(unittest.TestCase):
 
     @patch('app.core.worker.get_settings')
     @patch('app.core.worker.notify_task_event', new_callable=AsyncMock)
-    def test_task_non_timeout_failure_regular_error_message(self, mock_notify, mock_get_settings):
-        """When timed_out=False and exit_code!=0, error_message is log tail without timeout prefix."""
+    def test_task_non_timeout_failure_preserves_protocol_error(self, mock_notify, mock_get_settings):
+        """A malformed canonical attempt remains the authoritative failure reason."""
         mock_get_settings.return_value = _make_settings(task_timeout=1800)
         mock_docker = MagicMock()
         mock_docker.create_container.return_value = MagicMock(id="ctr-regular-fail")
@@ -3272,7 +3279,11 @@ class TestExecuteTask(unittest.TestCase):
         self.assertFalse(result)
         self.assertEqual(task.status, TaskStatus.FAILED)
         self.assertNotIn("Task timed out", task.error_message)
-        self.assertIn("claude error occurred", task.error_message)
+        self.assertIn(
+            "protocol_error: canonical attempt is missing a Task terminal",
+            task.error_message,
+        )
+        self.assertNotIn("claude error occurred", task.error_message)
 
 
 # ===================================================================

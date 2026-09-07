@@ -24,6 +24,7 @@ from app.core.task_failure_details import read_archived_harness_failure_detail
 from app.core.usage_limits import upsert_task_usage_ledger
 from app.core.utcnow import utcnow
 from app.core.worker_git_delivery import (
+    completed_delivery_error,
     normalize_git_delivery,
     project_delivery_commit_sha,
 )
@@ -355,6 +356,7 @@ async def parse_task_result(
     system_init_meta = await _load_latest_log_metadata(db, task.id, "system_init")
     finalization_meta = await _load_latest_log_metadata(db, task.id, "worker_finalization")
     v2_result_error = _v2_result_validation_error(task.id)
+    terminal_type = str(run_result_meta.get("type") or "")
 
     usage = (
         usage_final_meta.get("usage")
@@ -381,6 +383,15 @@ async def parse_task_result(
     git_delivery = None
     git_delivery_error = ""
     projected_commit_sha: str | None = None
+    task_mode = str(getattr(task, "task_mode", None) or "execute")
+    if (
+        "git_delivery" not in finalization_meta
+        and terminal_type == "run.completed"
+        and task_mode != "plan"
+    ):
+        git_delivery_error = (
+            "worker.finalization git_delivery is required for completed code tasks"
+        )
     if "git_delivery" in finalization_meta:
         if git_delivery_raw is None:
             git_delivery_error = "git_delivery must be an object"
@@ -391,13 +402,39 @@ async def parse_task_result(
                 sanitize_sensitive_data=sanitize_sensitive_data,
             )
             if git_delivery is not None:
+                expected_branch = (
+                    str(issue.branch_name).strip()
+                    if issue is not None and isinstance(issue.branch_name, str)
+                    else ""
+                )
+                if not expected_branch:
+                    git_delivery = None
+                    git_delivery_error = (
+                        "the current Issue branch is unavailable for git_delivery validation"
+                    )
+                elif git_delivery.get("branch") != expected_branch:
+                    git_delivery = None
+                    git_delivery_error = (
+                        "worker.finalization git_delivery.branch does not match "
+                        "the current Issue branch"
+                    )
+            if git_delivery is not None:
                 attempt_id = await _latest_attempt_id(db, task.id)
-                if attempt_id and git_delivery.get("attempt_id") != attempt_id:
+                if not attempt_id:
+                    git_delivery = None
+                    git_delivery_error = (
+                        "the canonical attempt is unavailable for git_delivery validation"
+                    )
+                elif git_delivery.get("attempt_id") != attempt_id:
                     git_delivery = None
                     git_delivery_error = (
                         "worker.finalization git_delivery.attempt_id does not match "
                         "the canonical attempt"
                     )
+            if git_delivery is not None and terminal_type == "run.completed":
+                git_delivery_error = completed_delivery_error(git_delivery) or ""
+                if git_delivery_error:
+                    git_delivery = None
             if git_delivery is not None:
                 # The only legal projection: confirmed delivery content maps to
                 # H. A payload projecting a sha for an unconfirmed state, or
@@ -466,16 +503,9 @@ async def parse_task_result(
         # Projection derived from the validated contract: confirmed content
         # maps to H, everything else stays unprojected.
         projected_sha = projected_commit_sha
-    elif "git_delivery" not in finalization_meta:
-        # Legacy finalizations (no git_delivery contract) keep trusting the
-        # worker's flat projection.
-        projected_sha = (
-            str(finalization_meta.get("commit_sha") or "").strip() or None
-        )
     else:
-        # The payload declared git_delivery but it failed validation: the flat
-        # projection is part of the same untrusted envelope and must not be
-        # re-adopted through the legacy path.
+        # Hard-cut delivery authority: no validated contract means no SHA
+        # projection, including plan and failed runs.
         projected_sha = None
     commit_sha = projected_sha or ""
     if commit_sha:
@@ -492,7 +522,6 @@ async def parse_task_result(
         except Exception:
             logger.debug(f"[Task {task.id}] Failed to parse structured commit message")
 
-    terminal_type = str(run_result_meta.get("type") or "")
     finalization_exit_code = finalization_meta.get("exit_code")
     if not terminal_type:
         task.status = TaskStatus.FAILED
@@ -574,6 +603,12 @@ async def parse_task_result(
         task.status = TaskStatus.FAILED
         task.completed_at = utcnow()
         task.error_message = f"protocol_error: unknown Task terminal {terminal_type!r}"
+
+    # Parser-generated protocol failures are canonical. Preserve them when the
+    # lifecycle also observes a non-zero process exit and considers a raw-log
+    # fallback for older workers.
+    if str(task.error_message or "").startswith("protocol_error:"):
+        task._error_from_canonical = True
 
     extracted_session_id = str(
         harness_result_meta.get("session_id") or run_result_meta.get("session_id") or ""

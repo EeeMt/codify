@@ -3,11 +3,17 @@
 GIT_DELIVERY_HELPER="${ENTRYPOINT_LIB_DIR}/git-delivery.py"
 GIT_DELIVERY_START_FILE="${CODIFY_RUNTIME_DIR}/git-delivery-start.json"
 GIT_DELIVERY_SNAPSHOT_FILE="${CODIFY_RUNTIME_DIR}/git-delivery.json"
+GIT_DELIVERY_PENDING_FROZEN_FILE="${CODIFY_RUNTIME_DIR}/git-delivery-pending.json"
 GIT_DELIVERY_SNAPSHOT_WRITTEN=0
-export GIT_DELIVERY_START_FILE GIT_DELIVERY_SNAPSHOT_FILE
-
-
-
+GIT_DELIVERY_REMOTE_URL="${GIT_REPO_URL}"
+GIT_DELIVERY_TOKEN="${GITLAB_TOKEN}"
+GIT_DELIVERY_GIT_BIN="$(command -v git)"
+GIT_DELIVERY_PYTHON_BIN="$(command -v python3)"
+GIT_DELIVERY_SSL_VERIFY="$("${GIT_DELIVERY_GIT_BIN}" config --global --bool http.sslVerify 2>/dev/null || printf 'false\n')"
+GIT_DELIVERY_SSL_CAINFO="$("${GIT_DELIVERY_GIT_BIN}" config --global --path http.sslCAInfo 2>/dev/null || true)"
+readonly GIT_DELIVERY_REMOTE_URL GIT_DELIVERY_TOKEN
+readonly GIT_DELIVERY_GIT_BIN GIT_DELIVERY_PYTHON_BIN GIT_DELIVERY_SSL_VERIFY GIT_DELIVERY_SSL_CAINFO
+export GIT_DELIVERY_START_FILE GIT_DELIVERY_SNAPSHOT_FILE GIT_DELIVERY_PENDING_FROZEN_FILE
 repo_pin_delivery_start() {
     # Fix S (local task-branch HEAD), R0 (remote work-branch HEAD at prep) and
     # B0 (base HEAD) before any task code runs. REPO_REMOTE_WORK_SHA mutates on
@@ -16,6 +22,7 @@ repo_pin_delivery_start() {
         repo_log "error delivery_pin reason=repo_missing"
         return 1
     fi
+    repo_delivery_prepare_state_dir || return 1
     local start_remote base_remote
     start_remote="${REPO_REMOTE_WORK_SHA:-}"
     base_remote="${REPO_REMOTE_BASE_SHA:-}"
@@ -30,7 +37,11 @@ repo_pin_delivery_start() {
         repo_log "error delivery_pin reason=collector_failed"
         return 1
     fi
-    chmod 644 "${GIT_DELIVERY_START_FILE}" 2>/dev/null || true
+    repo_delivery_root_seal "${GIT_DELIVERY_START_FILE}" 444 || return 1
+    repo_delivery_freeze_pending || {
+        repo_log "error delivery_pending reason=freeze_failed"
+        return 1
+    }
     local pinned_sha
     pinned_sha=$(jq -r '.start_sha // empty' "${GIT_DELIVERY_START_FILE}" 2>/dev/null || true)
     repo_log "delivery pinned branch=${BRANCH_NAME} start=${pinned_sha:-unknown} remote=${start_remote:-missing}"
@@ -44,18 +55,26 @@ repo_delivery_collect() {
         repo_log "error delivery_collect reason=start_file_missing"
         return 1
     fi
-    local collect_output
-    if ! collect_output=$(repo_delivery_run_python \
+    local candidate error_file collect_output
+    candidate=$(mktemp "${CODIFY_RUNTIME_DIR}/.git-delivery.collect.XXXXXX") || return 1
+    error_file="${candidate}.err"
+    if ! repo_delivery_run_python \
         collect \
         --work-dir /workspace \
         --start-file "${GIT_DELIVERY_START_FILE}" \
-        --out "${GIT_DELIVERY_SNAPSHOT_FILE}" 2>&1); then
+        --pending-file "${GIT_DELIVERY_PENDING_FROZEN_FILE}" \
+        --out - >"${candidate}" 2>"${error_file}"; then
+        collect_output=$(cat "${error_file}" 2>/dev/null || true)
+        rm -f "${candidate}" "${error_file}"
         repo_log "error delivery_collect reason=collector_failed detail=${collect_output}"
         return 1
     fi
+    rm -f "${error_file}"
+    if ! repo_delivery_install_snapshot "${candidate}"; then
+        repo_log "error delivery_collect reason=invalid_snapshot"
+        return 1
+    fi
     GIT_DELIVERY_SNAPSHOT_WRITTEN=1
-    chmod 644 "${GIT_DELIVERY_SNAPSHOT_FILE}" 2>/dev/null || true
-    codify_chown "${GIT_DELIVERY_SNAPSHOT_FILE}" 2>/dev/null || true
     return 0
 }
 
@@ -71,70 +90,29 @@ repo_delivery_record() {
         || [ ! -f "${GIT_DELIVERY_SNAPSHOT_FILE}" ]; then
         return 1
     fi
-    local record_output
-    if ! record_output=$(repo_delivery_run_python \
+    local candidate error_file record_output
+    candidate=$(mktemp "${CODIFY_RUNTIME_DIR}/.git-delivery.record.XXXXXX") || return 1
+    error_file="${candidate}.err"
+    if ! repo_delivery_run_python \
         record_push \
         --snapshot "${GIT_DELIVERY_SNAPSHOT_FILE}" \
         --status "${status}" \
         --remote-sha "${remote_sha}" \
         --error-code "${error_code}" \
-        --error-message "${error_message}" 2>&1); then
+        --error-message "${error_message}" \
+        --out - >"${candidate}" 2>"${error_file}"; then
+        record_output=$(cat "${error_file}" 2>/dev/null || true)
+        rm -f "${candidate}" "${error_file}"
         repo_log "error delivery_record status=${status} detail=${record_output}"
         return 1
     fi
-    return 0
-}
-
-repo_delivery_ensure_pinned_remote() {
-    # Re-bind origin to the task-frozen URL and refresh the credential header
-    # before any network op: the Harness may have repointed origin.
-    codify_run_shell 'cd /workspace && git remote set-url origin "${GIT_REPO_URL}"' || true
-    codify_run_shell 'cd /workspace && git config --local http.extraHeader "PRIVATE-TOKEN: ${GITLAB_TOKEN}"' || true
-}
-
-repo_delivery_remote_tip() {
-    # Work-branch tip of the FROZEN repository URL (never `origin`). Nonzero:
-    # unconfirmed is never "absent".
-    local refs tip
-    set +e
-    refs=$(codify_run_shell \
-        'cd /workspace && GIT_TERMINAL_PROMPT=0 git ls-remote --heads "${GIT_REPO_URL}" "refs/heads/${BRANCH_NAME}"' \
-        2>/dev/null)
-    local query_result=$?
-    set -e
-    if [ "${query_result}" -ne 0 ]; then
+    rm -f "${error_file}"
+    if ! repo_delivery_install_snapshot "${candidate}"; then
+        repo_log "error delivery_record status=${status} detail=invalid_snapshot"
         return 1
     fi
-    tip=$(printf '%s\n' "${refs}" \
-        | awk -v ref="refs/heads/${BRANCH_NAME}" '$2 == ref {print $1; exit}')
-    if [ -n "${tip}" ]; then
-        printf '%s\n' "${tip}"
-    fi
     return 0
 }
-
-repo_delivery_fetch_branch() {
-    # Fetch only the task work branch from the FROZEN URL into a private ref:
-    # local origin tracking state is untrusted after the Harness ran. Depth
-    # policy mirrors the configured clone strategy.
-    if [ -n "${CODIFY_GIT_CLONE_DEPTH}" ]; then
-        codify_run_shell \
-            'cd /workspace && git fetch --depth "${CODIFY_GIT_CLONE_DEPTH}" "${GIT_REPO_URL}" "+refs/heads/${BRANCH_NAME}:refs/remotes/codify-delivery/${BRANCH_NAME}"' \
-            2>/dev/null
-    else
-        codify_run_shell \
-            'cd /workspace && git fetch "${GIT_REPO_URL}" "+refs/heads/${BRANCH_NAME}:refs/remotes/codify-delivery/${BRANCH_NAME}"' \
-            2>/dev/null
-    fi
-}
-
-repo_delivery_local_tip() {
-    # Local copy of the frozen-remote observation written by fetch_branch.
-    codify_run_shell 'cd /workspace && git rev-parse "refs/remotes/codify-delivery/${BRANCH_NAME}"' \
-        2>/dev/null || true
-}
-
-
 
 repo_delivery_recheck_publish() {
     # One bounded recheck after a refused/uncertain push. Exports
@@ -185,10 +163,14 @@ repo_delivery_push_pinned() {
     REPO_DELIVERY_LEASE="${lease_sha}"
     REPO_DELIVERY_PUBLISH_HEAD="${head_sha}"
     export REPO_DELIVERY_LEASE REPO_DELIVERY_PUBLISH_HEAD
-    codify_run_shell "cd /workspace && git config codify.unpublishedPushSha '${head_sha}'" || true
+    repo_delivery_pending_write "${head_sha}" || {
+        repo_log "error delivery_pending reason=write_failed head=${head_sha}"
+        return 1
+    }
     set +e
-    codify_run_shell \
-        'cd /workspace && GIT_TERMINAL_PROMPT=0 git push --force-with-lease="refs/heads/${BRANCH_NAME}:${REPO_DELIVERY_LEASE}" "${GIT_REPO_URL}" "${REPO_DELIVERY_PUBLISH_HEAD}:refs/heads/${BRANCH_NAME}"'
+    repo_delivery_network_env git --git-dir "${GIT_DELIVERY_REMOTE_REPO}" \
+        push --force-with-lease="refs/heads/${BRANCH_NAME}:${REPO_DELIVERY_LEASE}" \
+        "${GIT_DELIVERY_REMOTE_URL}" "${REPO_DELIVERY_PUBLISH_HEAD}:refs/heads/${BRANCH_NAME}"
     local push_result=$?
     set -e
     return "${push_result}"
@@ -204,7 +186,11 @@ repo_delivery_record_confirmed() {
         echo "ERROR: Could not persist the confirmed delivery outcome"
         return 1
     fi
-    repo_delivery_clear_marker
+    if ! repo_delivery_pending_confirmed_and_clear; then
+        repo_log "error delivery_pending reason=clear_failed"
+        echo "ERROR: Could not clear the confirmed delivery receipt"
+        return 1
+    fi
     return 0
 }
 
@@ -265,7 +251,7 @@ repo_delivery_publish() {
         # Bounded single recheck: a concurrent creator may already contain H.
         if repo_delivery_recheck_publish "${head_sha}" "${start_remote}"; then
             echo "Remote already contains the delivered head; confirming delivery"
-            if repo_delivery_record_confirmed "already_present" "${head_sha}"; then
+            if repo_delivery_record_confirmed "already_present" "${REPO_DELIVERY_RECHECK_TIP}"; then
                 repo_log "delivery confirmed action=already_present head=${head_sha}"
                 return 0
             fi
@@ -330,7 +316,7 @@ repo_delivery_publish() {
     recheck_result=$?
     if [ "${recheck_result}" -eq 0 ]; then
         echo "Remote already contains the delivered head; confirming delivery"
-        if repo_delivery_record_confirmed "already_present" "${head_sha}"; then
+        if repo_delivery_record_confirmed "already_present" "${REPO_DELIVERY_RECHECK_TIP}"; then
             repo_log "delivery confirmed action=push_recovered head=${head_sha}"
             return 0
         fi
@@ -441,4 +427,3 @@ repo_delivery_write_metadata() {
     echo "Task metadata written to ${CODIFY_RUNTIME_DIR}/task-metadata.json (overall_summary_chars=${#FINAL_OVERALL_SUMMARY})"
     return 0
 }
-

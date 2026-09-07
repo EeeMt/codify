@@ -12,6 +12,8 @@ import hashlib
 import json
 import tarfile
 
+import pytest
+
 from app.core import worker_results
 
 
@@ -158,6 +160,7 @@ def test_parse_task_result_keeps_completed_on_valid_v2_result(tmp_path, monkeypa
         issue_id=1,
         user_prompt="p",
         status=TaskStatus.PENDING,
+        task_mode="plan",
     )
     archive = tmp_path / worker_results.archive_bundle_name(task_id=12)
     _write_archive(archive, task_id=12, result=_v2_result())
@@ -184,7 +187,14 @@ def test_parse_task_result_keeps_completed_on_valid_v2_result(tmp_path, monkeypa
 # ---------------------------------------------------------------------------
 
 
-def _finalization_db(task, run_meta: dict, finalization_meta: dict, *, attempt_id=None):
+def _finalization_db(
+    task,
+    run_meta: dict,
+    finalization_meta: dict,
+    *,
+    attempt_id=None,
+    attempt_error: bool = False,
+):
     """Async DB mock returning per-log-type metadata in query order.
 
     parse_task_result loads run_result, harness_result, usage_final,
@@ -200,6 +210,8 @@ def _finalization_db(task, run_meta: dict, finalization_meta: dict, *, attempt_i
     async def mock_execute(query, *a, **k):
         query_str = str(query)
         if "FROM task_harness_attempts" in query_str:
+            if attempt_error:
+                raise RuntimeError("attempt lookup unavailable")
             result = MagicMock()
             result.scalar_one_or_none.return_value = attempt_id
             return result
@@ -253,12 +265,28 @@ def _gd_finalization(*, head_sha: str | None, push_status: str | None = "pushed"
     }
 
 
-def _parse(task, finalization_meta, run_meta=None, exit_code: int = 0, attempt_id=None):
+def _parse(
+    task,
+    finalization_meta,
+    run_meta=None,
+    exit_code: int = 0,
+    attempt_id=_ATTEMPT_ID,
+    *,
+    issue_branch="codify/issue-99",
+    attempt_error: bool = False,
+):
     import asyncio
+    from types import SimpleNamespace
     from unittest.mock import MagicMock
 
     run_meta = run_meta or {"type": "run.completed", "status": "completed", "success": True}
-    db = _finalization_db(task, run_meta, finalization_meta, attempt_id=attempt_id)
+    db = _finalization_db(
+        task,
+        run_meta,
+        finalization_meta,
+        attempt_id=attempt_id,
+        attempt_error=attempt_error,
+    )
     asyncio.run(
         worker_results.parse_task_result(
             task,
@@ -267,6 +295,10 @@ def _parse(task, finalization_meta, run_meta=None, exit_code: int = 0, attempt_i
             exit_code=exit_code,
             sanitize_sensitive_data=lambda s: s,
             gitlab_client=MagicMock(),
+            issue=SimpleNamespace(
+                branch_name=issue_branch,
+                merge_request_iid=None,
+            ),
         )
     )
     return task
@@ -420,8 +452,186 @@ def test_unconfirmed_push_with_declared_commit_sha_is_rejected(tmp_path, monkeyp
     _parse(task, finalization)
 
     assert task.status == TaskStatus.FAILED
-    assert "contradicts" in task.error_message
+    assert "remote-confirmed" in task.error_message
     assert task.commit_sha is None
+
+
+def test_completed_content_rejects_unconfirmed_push_without_flat_sha(
+    tmp_path, monkeypatch
+):
+    """Omitting the flat projection cannot turn local-only content into success."""
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    for status in ("failed", "not_attempted", "not_needed"):
+        task = Task(
+            id=99,
+            project_id=100,
+            issue_id=1,
+            user_prompt="p",
+            status=TaskStatus.PENDING,
+        )
+        finalization = _gd_finalization(head_sha=_sha("h"))
+        del finalization["commit_sha"]
+        finalization["git_delivery"]["push"] = {
+            "status": status,
+            "remote_sha": None,
+            "error": (
+                {"code": "push_failed", "message": "not confirmed"}
+                if status == "failed"
+                else None
+            ),
+        }
+        _parse(task, finalization)
+
+        assert task.status == TaskStatus.FAILED, status
+        assert "remote-confirmed" in task.error_message, status
+        assert task.commit_sha is None
+
+
+def test_completed_no_content_requires_not_needed(tmp_path, monkeypatch):
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    task = Task(id=99, project_id=100, issue_id=1, user_prompt="p", status=TaskStatus.PENDING)
+    finalization = _gd_finalization(head_sha=None)
+    finalization["commit_sha"] = None
+    finalization["git_delivery"]["commits"] = []
+    finalization["git_delivery"]["push"] = {
+        "status": "not_needed",
+        "remote_sha": None,
+        "error": None,
+    }
+
+    _parse(task, finalization)
+
+    assert task.status == TaskStatus.COMPLETED
+    assert task.commit_sha is None
+
+
+def test_already_present_requires_confirmed_remote_sha(tmp_path, monkeypatch):
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    task = Task(id=99, project_id=100, issue_id=1, user_prompt="p", status=TaskStatus.PENDING)
+    finalization = _gd_finalization(
+        head_sha=_sha("h"),
+        push_status="already_present",
+    )
+    finalization["git_delivery"]["push"]["remote_sha"] = None
+
+    _parse(task, finalization)
+
+    assert task.status == TaskStatus.FAILED
+    assert "confirmed remote_sha" in task.error_message
+    assert task.commit_sha is None
+
+
+@pytest.mark.parametrize("task_mode", ["execute", "freeform"])
+def test_completed_code_task_requires_git_delivery(
+    tmp_path,
+    monkeypatch,
+    task_mode,
+):
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    task = Task(
+        id=99,
+        project_id=100,
+        issue_id=1,
+        user_prompt="p",
+        status=TaskStatus.PENDING,
+        task_mode=task_mode,
+    )
+
+    _parse(task, {"exit_code": 0, "commit_sha": _sha("forged")})
+
+    assert task.status == TaskStatus.FAILED
+    assert "git_delivery is required" in task.error_message
+    assert task.commit_sha is None
+
+
+def test_completed_plan_without_git_delivery_ignores_flat_commit_sha(
+    tmp_path,
+    monkeypatch,
+):
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    task = Task(
+        id=99,
+        project_id=100,
+        issue_id=1,
+        user_prompt="p",
+        status=TaskStatus.PENDING,
+        task_mode="plan",
+    )
+
+    _parse(task, {"exit_code": 0, "commit_sha": _sha("forged")})
+
+    assert task.status == TaskStatus.COMPLETED
+    assert task.commit_sha is None
+
+
+def test_completed_not_needed_rejects_uncollected_commit_lists(tmp_path, monkeypatch):
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    for uncollected_field in ("commits", "recovered_commits"):
+        task = Task(
+            id=99,
+            project_id=100,
+            issue_id=1,
+            user_prompt="p",
+            status=TaskStatus.PENDING,
+        )
+        finalization = _gd_finalization(head_sha=_sha("h"))
+        finalization["commit_sha"] = None
+        finalization["git_delivery"]["commits"] = []
+        finalization["git_delivery"]["recovered_commits"] = []
+        finalization["git_delivery"][uncollected_field] = None
+        finalization["git_delivery"]["push"] = {
+            "status": "not_needed",
+            "remote_sha": None,
+            "error": None,
+        }
+
+        _parse(task, finalization)
+
+        assert task.status == TaskStatus.FAILED, uncollected_field
+        assert "requires collected commit lists" in task.error_message
+        assert task.commit_sha is None
+
+
+def test_failed_run_preserves_uncollected_commit_lists(tmp_path, monkeypatch):
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    task = Task(id=99, project_id=100, issue_id=1, user_prompt="p", status=TaskStatus.PENDING)
+    finalization = _gd_finalization(head_sha=_sha("h"))
+    finalization["exit_code"] = 1
+    finalization["commit_sha"] = None
+    finalization["git_delivery"]["commits"] = None
+    finalization["git_delivery"]["recovered_commits"] = None
+    finalization["git_delivery"]["push"] = {
+        "status": "failed",
+        "remote_sha": None,
+        "error": {"code": "push_failed", "message": "collection unavailable"},
+    }
+    run_meta = {
+        "type": "run.failed",
+        "status": "failed",
+        "success": False,
+        "failure": {"kind": "engine_error", "message": "delivery failed"},
+    }
+
+    _parse(task, finalization, run_meta=run_meta, exit_code=1)
+
+    assert task.status == TaskStatus.FAILED
+    canonical = task._canonical_git_delivery
+    assert canonical["commits"] is None
+    assert canonical["recovered_commits"] is None
 
 
 def test_confirmed_push_without_declared_sha_derives_head(tmp_path, monkeypatch):
@@ -454,6 +664,60 @@ def test_attempt_mismatch_with_canonical_attempt_is_rejected(tmp_path, monkeypat
     )
     assert task.status == TaskStatus.FAILED
     assert "attempt_id" in task.error_message
+
+
+def test_git_delivery_with_wrong_issue_branch_is_rejected(tmp_path, monkeypatch):
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    task = Task(id=99, project_id=100, issue_id=1, user_prompt="p", status=TaskStatus.PENDING)
+    _parse(
+        task,
+        _gd_finalization(head_sha=_sha("h")),
+        issue_branch="codify/another-issue",
+    )
+
+    assert task.status == TaskStatus.FAILED
+    assert "branch" in task.error_message
+    assert task.commit_sha is None
+
+
+def test_git_delivery_requires_resolvable_canonical_attempt(tmp_path, monkeypatch):
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    for attempt_error in (False, True):
+        task = Task(
+            id=99,
+            project_id=100,
+            issue_id=1,
+            user_prompt="p",
+            status=TaskStatus.PENDING,
+        )
+        _parse(
+            task,
+            _gd_finalization(head_sha=_sha("h")),
+            attempt_id=None,
+            attempt_error=attempt_error,
+        )
+
+        assert task.status == TaskStatus.FAILED
+        assert "canonical attempt is unavailable" in task.error_message
+        assert task.commit_sha is None
+
+
+def test_nonzero_exit_marks_protocol_error_as_canonical(tmp_path, monkeypatch):
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    task = Task(id=99, project_id=100, issue_id=1, user_prompt="p", status=TaskStatus.PENDING)
+    _parse(task, _gd_finalization(head_sha=_sha("h")), exit_code=1)
+
+    assert task.status == TaskStatus.FAILED
+    assert task.error_message == (
+        "protocol_error: run.completed conflicts with the worker process exit state"
+    )
+    assert task._error_from_canonical is True
 
 
 def test_confirmed_push_carrying_error_is_rejected(tmp_path, monkeypatch):

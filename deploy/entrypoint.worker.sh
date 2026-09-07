@@ -89,6 +89,10 @@ codify_chown() {
 
 codify_run_shell() {
     local command="$1"
+    local shell_option="-lc"
+    local -a env_prefix=(env)
+    [ "${2:-}" = "nonlogin" ] && shell_option="-c"
+    [ "${2:-}" = "nonlogin" ] && env_prefix+=(-u BASH_ENV)
     # Login shells may replace PATH from the runtime image's /etc/profile. Restore
     # the composed project-runtime + mounted-kit PATH after profile loading so kit
     # tools remain available when the project image does not provide them.
@@ -99,10 +103,11 @@ codify_run_shell() {
     # explicitly inside their own script.
     command='export PATH="${CODIFY_RUNTIME_PATH}"; unset LD_LIBRARY_PATH; '"${command}"
     if [ -n "${CODIFY_RUN_AS}" ]; then
-        env HOME=/home/codify USER=codify LOGNAME=codify \
-            "${CODIFY_RUN_AS}" -- "${CODIFY_BASH}" -lc "${command}"
+        "${env_prefix[@]}" HOME=/home/codify USER=codify LOGNAME=codify \
+            "${CODIFY_RUN_AS}" -- "${CODIFY_BASH}" "${shell_option}" "${command}"
     else
-        env HOME=/home/codify su -m -s "${CODIFY_BASH}" codify -c "${command}"
+        "${env_prefix[@]}" HOME=/home/codify \
+            su -m -s "${CODIFY_BASH}" codify -c "${command}"
     fi
 }
 

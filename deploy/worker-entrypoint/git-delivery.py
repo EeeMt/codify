@@ -125,13 +125,6 @@ def _head_branch(work_dir: Path) -> str | None:
     return branch if branch != "HEAD" else None
 
 
-def _config_get(work_dir: Path, key: str) -> str | None:
-    result = _run_git(work_dir, "config", "--get", key)
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip()
-
-
 def _valid_full_sha(value: str | None) -> bool:
     return bool(value) and len(value) == 40 and all(ch in "0123456789abcdef" for ch in value)
 
@@ -305,6 +298,21 @@ def _commit_message(work_dir: Path, sha: str) -> str | None:
     return result.stdout
 
 
+def _load_pending_receipt(path: Path | None, branch: str) -> str | None:
+    """Read the root-frozen receipt for the previous task, if any."""
+    if path is None or not path.is_file():
+        return None
+    receipt = _load_json_file(path, "pending delivery receipt")
+    if receipt.get("schema") != "codify.git-delivery.pending/v1":
+        return None
+    if receipt.get("state") != "pending" or receipt.get("branch") != branch:
+        return None
+    head_sha = receipt.get("head_sha")
+    if not _valid_full_sha(head_sha):
+        return None
+    return head_sha
+
+
 def _collect_git_delivery(
     work_dir: Path,
     attempt_id: str,
@@ -312,6 +320,7 @@ def _collect_git_delivery(
     start_sha: str | None,
     start_remote_sha: str | None,
     base_sha: str | None,
+    pending_file: Path | None = None,
 ) -> tuple[dict, dict | None]:
     """Local facts for the current task. Returns (git_delivery, error|null)."""
     error: dict | None = None
@@ -412,16 +421,15 @@ def _collect_git_delivery(
                 ),
             }
         else:
-            # The unconfirmed-push marker of a previous run is adopted only
-            # when it can be verified on the current task branch. It is a
-            # delivery-confirmation record: the remote may already contain it.
+            # A root-frozen receipt of a previous unconfirmed push is adopted
+            # only when it can be verified on the current task branch.
             known = {commit["sha"] for commit in recovered}
             known.update(commit["sha"] for commit in commits)
-            marker = _config_get(work_dir, "codify.unpublishedPushSha")
-            if _valid_full_sha(marker) and _ancestor(work_dir, marker, start_sha) == 0:
-                if marker not in known:
+            pending = _load_pending_receipt(pending_file, branch)
+            if pending and pending not in known:
+                if _ancestor(work_dir, pending, start_sha) == 0:
                     recovered.append(
-                        {"sha": marker, "subject": _commit_subject(work_dir, marker)}
+                        {"sha": pending, "subject": _commit_subject(work_dir, pending)}
                     )
             delivery["recovered_commits"] = recovered
 
@@ -512,6 +520,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
     branch = str(start.get("branch") or "")
     if not attempt_id or not branch:
         raise ValueError("delivery start file is missing attempt_id or branch")
+    pending_file = Path(args.pending_file) if args.pending_file else None
     delivery, error = _collect_git_delivery(
         work_dir,
         attempt_id=attempt_id,
@@ -519,6 +528,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
         start_sha=start.get("start_sha"),
         start_remote_sha=start.get("start_remote_sha"),
         base_sha=start.get("base_sha"),
+        pending_file=pending_file,
     )
     snapshot = _projections(delivery, work_dir)
     snapshot["_work_dir"] = str(work_dir)
@@ -528,6 +538,9 @@ def cmd_collect(args: argparse.Namespace) -> int:
         # objects) must survive into the snapshot: main.sh gates on this field
         # and every exit path persists the reason with the delivery facts.
         snapshot["error"] = error
+    if args.out == "-":
+        print(json.dumps(snapshot, ensure_ascii=True, separators=(",", ":")))
+        return 0
     _write_json_atomic(Path(args.out), snapshot)
     result = {"ok": error is None, "error": error, "git_delivery": snapshot["git_delivery"]}
     print(json.dumps(result, ensure_ascii=True, separators=(",", ":")))
@@ -648,6 +661,9 @@ def cmd_record_push(args: argparse.Namespace) -> int:
         push["error"] = {"code": args.error_code, "message": message[:2000]}
     snapshot.update(_projections(git_delivery, Path(work_dir_value).resolve()))
     snapshot["git_delivery"] = _strip_private(git_delivery)
+    if args.out == "-":
+        print(json.dumps(snapshot, ensure_ascii=True, separators=(",", ":")))
+        return 0
     _write_json_atomic(snapshot_path, snapshot)
     print(
         json.dumps(
@@ -673,6 +689,7 @@ def main(argv: list[str] | None = None) -> int:
     collect.add_argument("--work-dir", required=True)
     collect.add_argument("--start-file", required=True)
     collect.add_argument("--out", required=True)
+    collect.add_argument("--pending-file", default="")
 
     classify = subparsers.add_parser("classify_remote")
     classify.add_argument("--work-dir", required=True)
@@ -686,6 +703,7 @@ def main(argv: list[str] | None = None) -> int:
     record.add_argument("--remote-sha", default="")
     record.add_argument("--error-code", default="")
     record.add_argument("--error-message", default="")
+    record.add_argument("--out", default="")
 
     args = parser.parse_args(argv)
     try:

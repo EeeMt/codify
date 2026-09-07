@@ -85,6 +85,8 @@ def _run_delivery_scenario(
 ) -> subprocess.CompletedProcess[str]:
     runtime_dir = root / "runtime"
     runtime_dir.mkdir(exist_ok=True)
+    issue_meta_dir = root / "issue-meta"
+    (issue_meta_dir / "git-delivery").mkdir(parents=True, exist_ok=True)
     base_sha = _git(remote, "rev-parse", "refs/heads/main")
 
     # Production uses the fixed /workspace mount; replace the bounded path so
@@ -113,6 +115,8 @@ def _run_delivery_scenario(
         "REQUIRE_CHANGES": "true",
         "USER_PROMPT": "delivery test",
         "GITLAB_TOKEN": "glpat-test",
+        "CODIFY_DELIVERY_TEST_MODE": "1",
+        "CODIFY_ISSUE_META_DIR": str(issue_meta_dir),
     }
     if env_overrides:
         env.update(env_overrides)
@@ -121,7 +125,14 @@ def _run_delivery_scenario(
     harness = f"""
 set -e
 codify_run_shell() {{
-    bash -c "$1"
+    if [ "${{2:-}}" != "nonlogin" ] && [ -f "$HOME/.bash_profile" ]; then
+        source "$HOME/.bash_profile"
+    fi
+    if [ "${{2:-}}" = "nonlogin" ]; then
+        env -u BASH_ENV bash -c "$1"
+    else
+        bash -c "$1"
+    fi
 }}
 codify_chown() {{
     :
@@ -145,6 +156,35 @@ def _snapshot(root: Path) -> dict:
     return json.loads(
         (root / "runtime" / "git-delivery.json").read_text(encoding="utf-8")
     )
+
+
+def _pending_path(root: Path) -> Path:
+    return root / "issue-meta" / "git-delivery" / "pending.json"
+
+
+def _write_pending_receipt(
+    root: Path,
+    *,
+    branch: str,
+    head_sha: str,
+    state: str = "pending",
+) -> Path:
+    path = _pending_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "codify.git-delivery.pending/v1",
+                "state": state,
+                "task_id": "41",
+                "attempt_id": "task-41-attempt-1",
+                "branch": branch,
+                "head_sha": head_sha,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
 
 
 @pytest.fixture
@@ -204,13 +244,106 @@ repo_delivery_write_metadata || exit 8
     assert metadata["git_delivery"] == gd
     # Remote really contains the head.
     assert _git(delivery_env["remote"], "rev-parse", f"refs/heads/{delivery_env['branch']}") == gd["head_sha"]
-    # The unconfirmed marker was cleared.
-    assert subprocess.run(
-        ["git", "config", "--get", "codify.unpublishedPushSha"],
-        cwd=workspace,
-        text=True,
-        capture_output=True,
-    ).returncode != 0
+    assert not _pending_path(root).exists()
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
+def test_snapshot_never_reopens_a_codify_writable_record_window(delivery_env: dict):
+    """A leftover Harness process cannot replace the canonical snapshot while
+    the unprivileged helper computes the confirmed push projection."""
+    root = delivery_env["root"]
+    tamper_marker = root / "snapshot-was-writable"
+    scenario = f"""
+repo_pin_delivery_start
+printf 'x\n' > a.txt
+git add a.txt && git commit -qm "harness commit"
+repo_delivery_collect || exit 9
+snapshot_mode() {{
+    stat -c %a "$GIT_DELIVERY_SNAPSHOT_FILE" 2>/dev/null \
+        || stat -f %Lp "$GIT_DELIVERY_SNAPSHOT_FILE"
+}}
+test "$(snapshot_mode)" = "444" || exit 9
+eval "$(declare -f repo_delivery_run_python | sed '1s/repo_delivery_run_python/repo_delivery_run_python_original/')"
+repo_delivery_run_python() {{
+    if [ "${{1:-}}" = "record_push" ] \
+        && [ "$(snapshot_mode)" != "444" ]; then
+        (printf '{{"git_delivery":{{"schema":"forged"}}}}\n' > "$GIT_DELIVERY_SNAPSHOT_FILE") &
+        wait
+        touch "{tamper_marker}"
+    fi
+    repo_delivery_run_python_original "$@"
+}}
+repo_delivery_publish || exit 8
+"""
+    result = _run_delivery_scenario(
+        root,
+        remote=delivery_env["remote"],
+        branch_name=delivery_env["branch"],
+        workspace=delivery_env["workspace"],
+        previous=delivery_env["previous"],
+        scenario=scenario,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not tamper_marker.exists()
+    assert _snapshot(root)["git_delivery"]["push"]["status"] == "pushed"
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
+def test_delivery_json_ignores_persistent_login_profile_output(delivery_env: dict):
+    """Harness-owned login profile output cannot contaminate helper JSON."""
+    root = delivery_env["root"]
+    (root / "home").mkdir(exist_ok=True)
+    (root / "home" / ".bash_profile").write_text(
+        "printf 'harness profile noise\\n'\n",
+        encoding="utf-8",
+    )
+    scenario = """
+repo_pin_delivery_start
+printf 'x\n' > a.txt
+git add a.txt && git commit -qm "harness commit"
+repo_delivery_collect || exit 9
+repo_delivery_publish || exit 8
+"""
+    result = _run_delivery_scenario(
+        root,
+        remote=delivery_env["remote"],
+        branch_name=delivery_env["branch"],
+        workspace=delivery_env["workspace"],
+        previous=delivery_env["previous"],
+        scenario=scenario,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _snapshot(root)["git_delivery"]["push"]["status"] == "pushed"
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
+def test_delivery_json_ignores_custom_bash_env_output(delivery_env: dict):
+    """A task-provided BASH_ENV cannot contaminate helper JSON."""
+    root = delivery_env["root"]
+    (root / "home").mkdir(exist_ok=True)
+    bash_env = root / "home" / "harness-bash-env.sh"
+    bash_env.write_text("printf 'bash-env noise\\n'\n", encoding="utf-8")
+    scenario = """
+repo_pin_delivery_start
+printf 'x\n' > a.txt
+git add a.txt && git commit -qm "harness commit"
+repo_delivery_collect || exit 9
+repo_delivery_publish || exit 8
+"""
+    result = _run_delivery_scenario(
+        root,
+        remote=delivery_env["remote"],
+        branch_name=delivery_env["branch"],
+        workspace=delivery_env["workspace"],
+        previous=delivery_env["previous"],
+        scenario=scenario,
+        env_overrides={"BASH_ENV": str(bash_env)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _snapshot(root)["git_delivery"]["push"]["status"] == "pushed"
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
@@ -386,12 +519,69 @@ repo_delivery_publish || exit 8
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
-def test_unconfirmed_marker_confirms_existing_delivery(delivery_env: dict):
-    """Push ACK was lost earlier; the marker commit is on the remote already."""
+def test_unconfirmed_marker_is_ignored_after_hard_cut(delivery_env: dict):
+    """Harness-controlled legacy markers cannot create delivery content."""
     root = delivery_env["root"]
     workspace = delivery_env["workspace"]
     marker = delivery_env["previous"]
-    _git(workspace, "config", "codify.unpublishedPushSha", marker)
+    scenario = """
+repo_pin_delivery_start
+git config codify.unpublishedPushSha %MARKER%
+repo_delivery_collect || exit 9
+if repo_delivery_has_content; then exit 9; fi
+repo_delivery_record not_needed || exit 8
+"""
+    scenario = scenario.replace("%MARKER%", marker)
+    result = _run_delivery_scenario(
+        root,
+        remote=delivery_env["remote"],
+        branch_name=delivery_env["branch"],
+        workspace=workspace,
+        previous=marker,
+        scenario=scenario,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _snapshot(root)["git_delivery"]["push"]["status"] == "not_needed"
+    gd = _snapshot(root)["git_delivery"]
+    assert gd["commits"] == []
+    assert gd["recovered_commits"] == []
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
+def test_pinned_start_file_cannot_be_rewritten_by_harness(delivery_env: dict):
+    root = delivery_env["root"]
+    scenario = """
+repo_pin_delivery_start
+PINNED=$(jq -r .start_sha "${GIT_DELIVERY_START_FILE}")
+if printf '{"start_sha":"0000000000000000000000000000000000000000"}\n' \
+    > "${GIT_DELIVERY_START_FILE}" 2>/dev/null; then
+    echo "unexpected writable start receipt"
+    exit 9
+fi
+test "$(jq -r .start_sha "${GIT_DELIVERY_START_FILE}")" = "${PINNED}"
+repo_delivery_collect || exit 9
+"""
+    result = _run_delivery_scenario(
+        root,
+        remote=delivery_env["remote"],
+        branch_name=delivery_env["branch"],
+        workspace=delivery_env["workspace"],
+        previous=delivery_env["previous"],
+        scenario=scenario,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _snapshot(root)["git_delivery"]["commits"] == []
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
+def test_root_frozen_pending_receipt_recovers_previous_delivery(delivery_env: dict):
+    root = delivery_env["root"]
+    marker = delivery_env["previous"]
+    _write_pending_receipt(
+        root,
+        branch=delivery_env["branch"],
+        head_sha=marker,
+    )
     scenario = """
 repo_pin_delivery_start
 repo_delivery_collect || exit 9
@@ -402,21 +592,16 @@ repo_delivery_publish || exit 8
         root,
         remote=delivery_env["remote"],
         branch_name=delivery_env["branch"],
-        workspace=workspace,
+        workspace=delivery_env["workspace"],
         previous=marker,
         scenario=scenario,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     gd = _snapshot(root)["git_delivery"]
     assert gd["commits"] == []
-    assert [c["sha"] for c in gd["recovered_commits"]] == [marker]
+    assert [entry["sha"] for entry in gd["recovered_commits"]] == [marker]
     assert gd["push"]["status"] == "already_present"
-    assert subprocess.run(
-        ["git", "config", "--get", "codify.unpublishedPushSha"],
-        cwd=workspace,
-        text=True,
-        capture_output=True,
-    ).returncode != 0
+    assert not _pending_path(root).exists()
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
@@ -590,7 +775,8 @@ def test_push_nonzero_with_remote_already_containing_head_is_confirmed(
     wrapper = wrapper_dir / "git"
     wrapper.write_text(
         "#!/bin/sh\n"
-        'if [ "$1" = "push" ]; then\n'
+        'is_push=0; for arg in "$@"; do [ "$arg" = "push" ] && is_push=1; done\n'
+        'if [ "$is_push" = 1 ]; then\n'
         '    REAL_GIT="$REAL_GIT" "$REAL_GIT" "$@"\n'
         "    result=$?\n"
         '    [ "$result" -eq 0 ] || exit "$result"\n'
@@ -626,13 +812,133 @@ repo_delivery_publish || exit 8
         _git(delivery_env["remote"], "rev-parse", f"refs/heads/{delivery_env['branch']}")
         == gd["head_sha"]
     )
-    # Confirmation cleared the uncertain-push marker.
-    assert subprocess.run(
-        ["git", "config", "--get", "codify.unpublishedPushSha"],
-        cwd=delivery_env["workspace"],
-        text=True,
-        capture_output=True,
-    ).returncode != 0
+    assert not _pending_path(root).exists()
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
+def test_push_recheck_records_the_observed_descendant_tip(delivery_env: dict):
+    """A concurrent fast-forward after H is published records T, not H, as R."""
+    root = delivery_env["root"]
+    concurrent = root / "concurrent"
+    _git(root, "clone", "-q", str(delivery_env["remote"]), str(concurrent))
+    _git(concurrent, "config", "user.name", "Concurrent Writer")
+    _git(concurrent, "config", "user.email", "concurrent@example.com")
+
+    wrapper_dir = root / "git-wrapper-descendant"
+    wrapper_dir.mkdir()
+    wrapper = wrapper_dir / "git"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        'is_push=0; for arg in "$@"; do [ "$arg" = "push" ] && is_push=1; done\n'
+        'if [ "$is_push" = 1 ]; then\n'
+        '    "$REAL_GIT" "$@" || exit $?\n'
+        f'    "$REAL_GIT" -C "{concurrent}" fetch -q origin "{delivery_env["branch"]}"\n'
+        f'    "$REAL_GIT" -C "{concurrent}" checkout -q -B "{delivery_env["branch"]}" FETCH_HEAD\n'
+        f'    printf "descendant\\n" >> "{concurrent}/descendant.txt"\n'
+        f'    "$REAL_GIT" -C "{concurrent}" add descendant.txt\n'
+        f'    "$REAL_GIT" -C "{concurrent}" commit -qm "concurrent descendant"\n'
+        f'    "$REAL_GIT" -C "{concurrent}" push -q origin "HEAD:refs/heads/{delivery_env["branch"]}"\n'
+        "    exit 23\n"
+        "fi\n"
+        'exec "$REAL_GIT" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    scenario = """
+repo_pin_delivery_start
+printf 'x\n' > a.txt
+git add a.txt && git commit -qm "harness commit"
+repo_delivery_collect || exit 9
+repo_delivery_publish || exit 8
+"""
+    result = _run_delivery_scenario(
+        root,
+        remote=delivery_env["remote"],
+        branch_name=delivery_env["branch"],
+        workspace=delivery_env["workspace"],
+        previous=delivery_env["previous"],
+        scenario=scenario,
+        env_overrides={
+            "PATH": f"{wrapper_dir}:{os.environ['PATH']}",
+            "REAL_GIT": shutil.which("git") or "git",
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    gd = _snapshot(root)["git_delivery"]
+    actual_tip = _git(
+        delivery_env["remote"],
+        "rev-parse",
+        f"refs/heads/{delivery_env['branch']}",
+    )
+    assert gd["push"]["status"] == "already_present"
+    assert gd["push"]["remote_sha"] == actual_tip
+    assert actual_tip != gd["head_sha"]
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
+def test_failed_receipt_delete_leaves_tombstone_not_next_task_delivery(
+    delivery_env: dict,
+):
+    root = delivery_env["root"]
+    pending_path = _pending_path(root)
+    wrapper_dir = root / "rm-wrapper"
+    wrapper_dir.mkdir()
+    wrapper = wrapper_dir / "rm"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        'if [ "${1:-}" = "-f" ] && [ "${2:-}" = "$PENDING_PATH" ]; then\n'
+        "    exit 1\n"
+        "fi\n"
+        'exec "$REAL_RM" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    first_scenario = """
+repo_pin_delivery_start
+printf 'x\n' > a.txt
+git add a.txt && git commit -qm "first task commit"
+repo_delivery_collect || exit 9
+if repo_delivery_publish; then echo "expected receipt cleanup failure"; exit 8; fi
+test "$(jq -r .state %PENDING%)" = "confirmed"
+""".replace("%PENDING%", str(pending_path))
+    first = _run_delivery_scenario(
+        root,
+        remote=delivery_env["remote"],
+        branch_name=delivery_env["branch"],
+        workspace=delivery_env["workspace"],
+        previous=delivery_env["previous"],
+        scenario=first_scenario,
+        env_overrides={
+            "PATH": f"{wrapper_dir}:{os.environ['PATH']}",
+            "PENDING_PATH": str(pending_path),
+            "REAL_RM": shutil.which("rm") or "rm",
+        },
+    )
+    assert first.returncode == 0, first.stdout + first.stderr
+    first_snapshot = _snapshot(root)
+    delivered_head = first_snapshot["git_delivery"]["head_sha"]
+    assert first_snapshot["git_delivery"]["push"]["status"] == "pushed"
+    assert json.loads(pending_path.read_text())["state"] == "confirmed"
+
+    shutil.rmtree(root / "runtime")
+    second_scenario = """
+repo_pin_delivery_start
+repo_delivery_collect || exit 9
+if repo_delivery_has_content; then echo "stale receipt reused"; exit 8; fi
+repo_delivery_record not_needed || exit 8
+"""
+    second = _run_delivery_scenario(
+        root,
+        remote=delivery_env["remote"],
+        branch_name=delivery_env["branch"],
+        workspace=delivery_env["workspace"],
+        previous=delivered_head,
+        scenario=second_scenario,
+    )
+    assert second.returncode == 0, second.stdout + second.stderr
+    gd = _snapshot(root)["git_delivery"]
+    assert gd["commits"] == []
+    assert gd["recovered_commits"] == []
+    assert gd["push"]["status"] == "not_needed"
+    assert json.loads(pending_path.read_text())["state"] == "confirmed"
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
@@ -644,7 +950,8 @@ def test_push_rejected_keeps_local_facts_and_fails(delivery_env: dict):
     wrapper = wrapper_dir / "git"
     wrapper.write_text(
         "#!/bin/sh\n"
-        'if [ "$1" = "push" ]; then\n'
+        'is_push=0; for arg in "$@"; do [ "$arg" = "push" ] && is_push=1; done\n'
+        'if [ "$is_push" = 1 ]; then\n'
         '    echo "rejected by policy" >&2\n'
         "    exit 1\n"
         "fi\n"
@@ -682,14 +989,9 @@ if repo_delivery_publish; then echo "expected failure"; exit 8; fi
         _git(delivery_env["remote"], "rev-parse", f"refs/heads/{delivery_env['branch']}")
         == delivery_env["previous"]
     )
-    # The uncertain-push marker stays for the next run to reconcile.
-    marker = subprocess.run(
-        ["git", "config", "--get", "codify.unpublishedPushSha"],
-        cwd=delivery_env["workspace"],
-        text=True,
-        capture_output=True,
-    )
-    assert marker.stdout.strip() == gd["head_sha"]
+    pending = json.loads(_pending_path(delivery_env["root"]).read_text())
+    assert pending["state"] == "pending"
+    assert pending["head_sha"] == gd["head_sha"]
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
@@ -1166,6 +1468,7 @@ git add a.txt && git commit -qm "harness commit"
 H=$(git rev-parse HEAD)
 # Harness repoints origin at the evil clone and pushes H there only.
 git remote set-url origin "{evil.as_uri()}"
+git config --local url."{evil.as_uri()}".insteadOf "${{GIT_REPO_URL}}"
 git push -q origin HEAD:refs/heads/{delivery_env["branch"]}
 test "$(git ls-remote origin refs/heads/{delivery_env["branch"]} | cut -f1)" = "$H"
 repo_delivery_collect || exit 9
@@ -1189,20 +1492,13 @@ repo_delivery_publish || exit 8
         == gd["head_sha"]
     )
     assert _git(evil, "rev-parse", f"refs/heads/{delivery_env['branch']}") == gd["head_sha"]
-    # Marker cleared only after the confirmed record.
-    marker = subprocess.run(
-        ["git", "config", "--get", "codify.unpublishedPushSha"],
-        cwd=workspace,
-        text=True,
-        capture_output=True,
-    )
-    assert marker.returncode != 0
+    assert not _pending_path(root).exists()
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
-def test_confirmed_record_failure_fails_run_and_keeps_marker(delivery_env: dict):
+def test_confirmed_record_failure_fails_run_and_keeps_pending_receipt(delivery_env: dict):
     """Snapshot write failure after a successful push must fail the run and
-    retain the unconfirmed marker (remote already has H, snapshot must not
+    retain the pending receipt (remote already has H, snapshot must not
     claim otherwise, and the next run must be able to reconcile)."""
     root = delivery_env["root"]
     runtime_dir = root / "runtime"
@@ -1211,6 +1507,7 @@ repo_pin_delivery_start
 printf 'x\n' > a.txt
 git add a.txt && git commit -qm "harness commit"
 repo_delivery_collect || exit 9
+repo_delivery_remote_tip >/dev/null || exit 9
 # Make the snapshot location read-only so record_push cannot persist.
 chmod 555 %RUNTIME%
 if repo_delivery_publish; then echo "expected publish failure"; exit 8; fi
@@ -1228,14 +1525,16 @@ if repo_delivery_publish; then echo "expected publish failure"; exit 8; fi
     snapshot = _snapshot(root)
     assert snapshot["git_delivery"]["push"]["status"] == "not_attempted"
     assert snapshot["commit_sha"] is None
-    # The unconfirmed marker survives for the next run's reconciliation.
+    # The root-owned pending receipt survives; the deprecated Git config
+    # marker is intentionally absent and cannot be used for attribution.
+    pending = json.loads(_pending_path(root).read_text())
+    assert pending["state"] == "pending"
+    assert pending["head_sha"] == snapshot["git_delivery"]["head_sha"]
     marker = subprocess.run(
         ["git", "config", "--get", "codify.unpublishedPushSha"],
-        cwd=delivery_env["workspace"],
-        text=True,
-        capture_output=True,
+        cwd=delivery_env["workspace"], text=True, capture_output=True
     )
-    assert marker.stdout.strip() == snapshot["git_delivery"]["head_sha"]
+    assert marker.returncode != 0
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")

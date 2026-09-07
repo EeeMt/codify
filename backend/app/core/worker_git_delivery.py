@@ -225,8 +225,10 @@ def normalize_git_delivery(
             return None, "git_delivery push.error requires status failed"
         if status == "not_needed" and remote_sha is not None:
             return None, "git_delivery push.remote_sha must be null on not_needed"
-        if status == "pushed" and remote_sha is None:
-            return None, "git_delivery pushed requires the ACK'd remote_sha"
+        if status in ("pushed", "already_present") and remote_sha is None:
+            return None, (
+                f"git_delivery {status} requires the confirmed remote_sha"
+            )
         normalized_push = {
             "status": status,
             "remote_sha": remote_sha,
@@ -288,6 +290,30 @@ def project_delivery_commit_sha(git_delivery: dict[str, Any]) -> str | None:
         return None
     head_sha = git_delivery.get("head_sha")
     return head_sha if is_full_sha(head_sha) else None
+
+
+def completed_delivery_error(git_delivery: dict[str, Any]) -> str | None:
+    """Return why a normalized delivery cannot accompany ``run.completed``.
+
+    A completed task either delivered attributed commits to the remote or had
+    no delivery content to publish. Local-only content belongs to a failed
+    terminal even when the worker omitted the legacy flat ``commit_sha``.
+    """
+    commits = git_delivery.get("commits")
+    recovered = git_delivery.get("recovered_commits")
+    if not isinstance(commits, list) or not isinstance(recovered, list):
+        return "run.completed git_delivery requires collected commit lists"
+    content = bool(commits) or bool(recovered)
+    push = git_delivery.get("push")
+    status = push.get("status") if isinstance(push, dict) else None
+    if content and status not in ("pushed", "already_present"):
+        return (
+            "run.completed git_delivery content requires a remote-confirmed "
+            "push status"
+        )
+    if not content and status != "not_needed":
+        return "run.completed git_delivery without content requires status not_needed"
+    return None
 
 
 

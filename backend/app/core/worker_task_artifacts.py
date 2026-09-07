@@ -164,13 +164,18 @@ def _merge_canonical_git_delivery(task: Task) -> dict:
         else {}
     )
     canonical = getattr(task, "_canonical_git_delivery", None)
-    if canonical is None and not base:
-        # Nothing canonical and nothing to enrich: keep the row untouched.
-        return base
-    if canonical is not None:
+    if canonical is None:
+        # Without a validated finalization there is no delivery authority. In
+        # particular, do not preserve a value previously copied from the
+        # container artifact when a later read is unavailable.
+        base.pop("git_delivery", None)
+    else:
         base["git_delivery"] = {
             key: canonical[key] for key in _GIT_DELIVERY_KEYS if key in canonical
         }
+    if not base and task.worker_metadata is None:
+        # Nothing canonical and nothing to enrich: keep the row untouched.
+        return base
     task.worker_metadata = base
     return base
 
@@ -212,25 +217,14 @@ def save_task_metadata_from_container(
         # finalizer ran); it may enrich summaries but must never overwrite
         # confirmed canonical delivery facts with an older snapshot.
         canonical = getattr(task, "_canonical_git_delivery", None)
-        artifact_git_delivery = data.get("git_delivery")
+        # task-metadata.json is never an authority for Git delivery. Strip its
+        # copy first, then add only the contract accepted by the canonical
+        # finalization parser.
+        data.pop("git_delivery", None)
         if canonical is not None:
-            data["git_delivery"] = canonical
-        elif isinstance(artifact_git_delivery, dict):
-            from app.core.worker_git_delivery import normalize_git_delivery
-
-            sanitizer = getattr(worker, "_sanitize_sensitive_data", None)
-            normalized, error = normalize_git_delivery(
-                artifact_git_delivery,
-                task_id=task.id,
-                sanitize_sensitive_data=sanitizer if callable(sanitizer) else (lambda value: value),
-            )
-            if error:
-                logger.warning(
-                    f"[Task {task.id}] Discarding invalid task-metadata git_delivery: {error}"
-                )
-                data.pop("git_delivery", None)
-            else:
-                data["git_delivery"] = normalized
+            data["git_delivery"] = {
+                key: canonical[key] for key in _GIT_DELIVERY_KEYS if key in canonical
+            }
         task.worker_metadata = data
         logger.info(f"[Task {task.id}] task-metadata.json persisted on task row")
     except Exception as exc:  # noqa: BLE001
