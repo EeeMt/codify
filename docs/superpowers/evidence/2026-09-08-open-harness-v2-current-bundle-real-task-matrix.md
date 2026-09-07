@@ -288,3 +288,44 @@ fail-closed 验收边界。
 
 因此本记录是当前 exact composition 的真实推进证据，不是四 Harness 8 行全部通过或 release
 candidate 签署。
+
+## 5. 2026-09-08 finalization 修复后的续测
+
+为验证 Worker finalization 与原生 OpenCode abort 的竞态，本地提交
+`4f42b9d7cbca3b575913745e225c24ff0cc52c8d` 将 `codify_finalize_on_exit` 调整为：先解除
+console FIFO 继承并 drain tee，再执行 canonical attempt finalization 和 archive sealing。
+新增 native `message.part.updated` reasoning abort 回归测试；相关 OpenCode adapter/Worker
+coverage 共 `230 passed`，`bash -n deploy/worker-entrypoint/bootstrap.sh` 与 `git diff --check`
+通过。
+
+远端开发 Host 重新构建 Backend/Scheduler 后，Profile 4 重新 Verify 为 generation `93`
+（`2026-09-07T22:25:08.585874Z`），四 Harness evidence 均 ready。新生成的 Bundle 204
+digest 为 `10cfd1acfb5674f14fdc0586a3b84da0be99f6dc28b75fea51e2f8d531260f3b`；其
+`worker-entrypoint/bootstrap.sh` SHA-256 为
+`f7d0bbfcdae1fb336584a88cb468c421d4c7979496ca3b007e1e79236c2662cf`，OpenCode adapter
+digest 为 `d16e15d140a7bcee005b71d2fee7c25c7aab4517ac078eb914fcdcffc379b085`。旧 Bundle
+保持不可变。
+
+| Task | Provider / Bundle | 终态与 reasoning | 取消边界 | raw / archive |
+| ---: | --- | --- | --- | ---: |
+| #490 | Provider 5 `opencode-mimo` / 202 | completed；2/2/0，`run.completed` | 正常完成 | 5 / 12,424 B |
+| #491 | Provider 5 `opencode-mimo` / 202 | cancelled；7/6/0，`run.failed` | 取消时未形成 canonical interrupted | 4 / 30,417 B |
+| #493 | Provider 5 `opencode-mimo` / 204 | failed；5/5/0，`run.failed` | `permission.asked` 需要交互响应，控制面按边界失败 | 4 / 29,738 B |
+| #494 | Provider 5 `opencode-mimo` / 204 | cancelled；8/8/0，`run.failed` | 取消请求晚于最后 reasoning completed | 4 / 35,703 B |
+| #495 | Provider 5 `opencode-mimo` / 204 | cancelled；14/14/0，`run.failed` | 取消落在 reasoning 完成后的阶段 | 4 / 69,628 B |
+| #496 | Provider 5 `opencode-mimo` / 204 | cancelled；2/2/0，`run.failed` | 取消竞态中新 reasoning 在请求后开始，但未产生 interrupted | 4 / 17,869 B |
+| #497 | Provider 3 `opencode-minimax` / 204 | cancelled；1/1/0，`run.failed` | 页面捕获“正在思考”，但 canonical completed 为 `22:43:35.390724Z`，取消请求为 `22:43:36.069676Z`；仍未发生活动 reasoning 中断 | 4 / 7,908 B |
+
+#497 的 attempt 为 `task-497-attempt-1-62f6fa10ec1d`，OpenCode adapter `2.1.0`、CLI
+`1.18.19`，`last_seq=26`、control `closed`。Canonical reasoning ID
+`opencode-reason-part-ses_f81f5958fffefr6ZZIAgr2XPs9-msg_07e0a6fe3001nII73RZuiXosf2-prt_07e0a7c39001PUWHcNu8OoAg4G`
+在 seq 5 started、seq 13 completed；随后 seq 24 为 `harness.failed`/`cancelled`，seq 25
+为 `worker.finalization`（exit 143），seq 26 为 `run.failed`。原始 console 记录了
+`OpenCode native abort acknowledged: HTTP 200`，说明 native abort 已被接受；本次没有
+`reasoning_summary.interrupted`，不能把页面短暂显示的“正在思考”提升为活动 reasoning
+中断证据。
+
+这组续测确认了 finalization 顺序修复已进入实际 Bundle，且正常完成、native abort、archive
+和 cancelled terminal 均能收敛；同时保留真实边界：浏览器页面状态可能滞后于 canonical part
+生命周期，#491/#494–#497 均不能关闭 OpenCode Chat “思考期间取消并刷新/重连”的验收项。
+当前仍保持 `NO-GO`，不追加无目的 smoke，不执行 migration 078、`v2_only` 或 R5。
