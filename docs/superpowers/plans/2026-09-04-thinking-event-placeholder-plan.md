@@ -2,10 +2,10 @@
 
 日期：2026-09-04
 
-状态：rev2 实现已提交于 `c089b67a`；本轮 Worker delivery 隔离修复提交于 `7fd0939c`。在开发
-Host generation 84 上已完成一轮真实 Provider 调试，但第 8 节八组合与实时占位时序仍未完成。Codex
-`exec --json` 未产生可作为 reasoning start 的 canonical 事件；Chat 取消任务也没有 reasoning
-interrupted 证据，不能据此宣称四 Harness 整体完成。
+状态：rev2 实现已提交于 `c089b67a`；Worker delivery 隔离修复提交于 `7fd0939c`；Codex
+App Server Bridge 已提交于 `5d2fad8e`。开发 Host 的 Profile 4 已安装并 Verify Kit 0.6.15，
+真实 Task #461–#463 已确认新 transport 能进入任务链路，但均在 Provider 模型响应前失败。第 8
+节八组合、Codex reasoning start/end 和实时占位时序仍未完成；不能据此宣称四 Harness 整体完成。
 
 ## 1. 目标与完成边界
 
@@ -32,7 +32,7 @@ interrupted 证据，不能据此宣称四 Harness 整体完成。
 |---|---|---|
 | [Pi Adapter](../../../deploy/worker-entrypoint/harness/adapters/pi_events.py) | 已发出配对的 `reasoning_summary.started/completed` | 保留能力，补齐独立中断与多块回归 |
 | [Claude Runner](../../../deploy/ci-claude.sh) 与 [Adapter](../../../deploy/worker-entrypoint/harness/adapters/claude_events.py) | Runner 未启用 `--include-partial-messages`；Adapter 忽略 thinking delta，完整 thinking 只发诊断 | 开启部分消息输出，按思考块映射生命周期 |
-| [Codex Runner](../../../deploy/worker-entrypoint/legacy/codex-run.sh) 与 [Adapter](../../../deploy/worker-entrypoint/harness/adapters/codex_events.py) | 使用 `exec --json`；未映射 reasoning item | 验证冻结 CLI 的早期信号，按第 4.3 节选择并完成唯一运行路径 |
+| [Codex Runner](../../../deploy/worker-entrypoint/legacy/codex-run.sh)、[Bridge](../../../deploy/worker-entrypoint/harness/adapters/codex_bridge.py) 与 [Adapter](../../../deploy/worker-entrypoint/harness/adapters/codex_events.py) | 已切换到单一 App Server stdio JSON-RPC；已映射 reasoning item，但真实 Provider 尚未返回 reasoning | 在同一 Kit/Bundle 上完成成功 turn、session/usage、取消和共享 delivery 回归 |
 | [OpenCode Adapter](../../../deploy/worker-entrypoint/harness/adapters/opencode_events.py) | 原生 reasoning 生命周期和 reasoning part 目前都只生成诊断 | 在现有 HTTP/SSE Bridge 上补齐生命周期映射与重复快照去重 |
 | [后端投影](../../../backend/app/core/worker_event_projector.py) | 已能原位完成；但每次开始都会中断同一 attempt 的全部未完成思考 | 按思考 ID 配对、去重和中断，支持交错块 |
 | [SSE](../../../backend/app/api/task_log_stream.py) 与 [前端流合并](../../../frontend/src/features/tasks/useTaskLogStreams.ts) | 已支持思考状态更新、补读和合并 | 回归多个待完成 ID、空完成、重复和终态顺序 |
@@ -110,20 +110,23 @@ interrupted 证据，不能据此宣称四 Harness 整体完成。
 - 原生 abort/error 和消息/turn 关闭只清理相应活动块。保留已有正文处理策略与最终内容展示。
 - 回归连续块、空块、多 turn、取消和 Projector 恢复。
 
-### 4.3 Codex：先验证 exec 信号，不满足就完成 App Server 接入
+### 4.3 Codex：已切换 App Server，等待真实 reasoning turn
 
-当前 Runner 使用 `codex exec --json`，当前 Adapter 没有 reasoning 映射。不能根据它存在 `item.started` 这个事件名称，就认定冻结版本会在思考期间输出 reasoning 的开始。
+冻结 CLI 的 `exec --json` 探针没有得到可证明早于完成的 canonical reasoning start；因此按本节出口，
+本期已将主任务 Runner 固定为 App Server stdio Bridge。当前唯一运行路径是
+`rpc_stdio` / `codex-app-server-v2`，不在 Provider 失败时自动回退到 `cli_jsonl`。
 
-**本期前置决策，必须有明确出口：**
+**本轮已完成的路径决策：**
 
-1. 对将要发布的 Kit/授权挂载中的实际 Codex CLI 做一次原生探针，记录版本、二进制摘要、模型协议和带接收时间的 JSONL。
-2. 若 `exec --json` 确实在思考期间发出 `item.started` 且 `item.type=reasoning`，并有同 ID 的 `item.completed`：保留 Runner，只补 Adapter 映射、去重和取消处理。
-3. 若只有完成事件，或开始实际直到结束才输出：**本期将 Codex 主任务 Runner 改为该 CLI 的 App Server stdio Bridge，不能把 Codex 留作后续工作。**
-4. 探针后将选定路径、CLI 版本和证据冻结到 Runtime Bundle。每个 Bundle 只有一条主任务运行路径，不在执行失败时自动切换 transport。
+1. 真实 Kit/CLI 版本为 `0.146.0`；Runtime Bundle 中冻结 Bridge、Adapter 和 digest，manifest 声明
+   `rpc_stdio` / `codex-app-server-v2` / `openai_responses`。
+2. 每个 Bundle 只有一条主任务运行路径；Provider 失败不触发 transport fallback。
+3. #461–#463 已证明 `run.started`、model resolution、retry、failure 和 finalization 可落库，
+   但 Provider 没有返回模型响应，所以不计入 reasoning 验收。
 
 官方 [Codex App Server 协议](https://learn.chatgpt.com/docs/app-server#protocol) 提供 stdio JSON-RPC；[item 生命周期](https://learn.chatgpt.com/docs/app-server#items) 包含 reasoning item 的 `item/started` 与 `item/completed`，并区分可读摘要和原始内容。这证明有可选原生接口，不代替冻结 CLI 的实测。
 
-若采用 App Server，必须一并完成以下集成，不能只另开一个观察进程：
+以下是已实现且仍需真实成功 turn 复核的集成边界，不能只另开一个观察进程：
 
 - 由 Task 容器中的单个 Bridge 启动 Codex 子进程，完成初始化、`thread/start` 或 `thread/resume`、`turn/start`，持续消费同一执行实例的通知。
 - 仅将当前任务 thread/turn 的实时 reasoning item 映射为占位，使用包含 thread、turn、item 身份的 ID。resume 响应中的历史 items 不重复投影。
@@ -261,7 +264,7 @@ A 完成后冻结选择，不让“还需验证信号”成为跳过某个 Harne
 | Harness | 模型协议 | 本功能验收 |
 |---|---|---|
 | Claude | `anthropic_messages` | #454/#459 有 start/end 结构但均以 `protocol_error` 失败；未完成 |
-| Codex | `openai_responses` | #451 zero-change；无 canonical reasoning start/end，未完成 |
+| Codex | `openai_responses` | #461–#463 已走 `rpc_stdio/codex-app-server-v2`，分别因 free model 404 或地区 403 在 reasoning 前失败；无 canonical reasoning start/end，未完成 |
 | Pi | `anthropic_messages` | #452 真实完成、4/4 reasoning、delivery push；实时占位先于完成的页面时序仍未完成 |
 | Pi | `openai_responses` | #450 完成但 0/0/0 reasoning；未完成 |
 | Pi | `openai_chat_completions` | #456 取消但 0/0/0 reasoning；无 interrupted thinking 证据，未完成 |
@@ -271,7 +274,8 @@ A 完成后冻结选择，不让“还需验证信号”成为跳过某个 Harne
 
 每行使用该组合下支持思考的真实模型。记录 CLI、Kit、Bundle、Provider 协议及模型身份、原生事件接收时间、canonical 序号/ID、TaskLog ID 和浏览器证据。至少每个 Harness 的一条真实运行还要覆盖取消与刷新/重连，纯状态卡片也属于正式验收对象。
 
-本轮 Task、archive 结构摘要、远端交付和截图见 [R4-RC1 remote debug evidence](../evidence/2026-09-08-open-harness-v2-r4-rc1-remote-debug.md)。截图均为任务终态页面，不能替代运行中“开始占位早于完成”的时序证据。
+本轮 Task、archive 结构摘要、远端交付和页面边界见 [R4-RC1 remote debug evidence](../evidence/2026-09-08-open-harness-v2-r4-rc1-remote-debug.md) 及
+[Codex App Server bridge evidence](../evidence/2026-09-08-open-harness-v2-codex-app-server-bridge.md)。页面均为终态检查，不能替代运行中“开始占位早于完成”的时序证据。
 
 源代码单元测试覆盖全部边缘序列；浏览器交互回归可以共用组件测试，但每个 Harness 的真实页面映射不能由 Pi 的成功代替。尚无原生信号或尚无可运行 Provider 的行保持未完成，整个四 Harness 覆盖不得关闭。
 
@@ -312,7 +316,7 @@ npm run build
 
 保持现有 2 秒事件采集、1.5 秒 SSE 轮询间隔。正常环境中，以 **实时 canonical 开始事件写出后约 5 秒内出现占位** 为验收目标；另须证明这个开始本身发生于原生思考结束前，不能只测最后一段传输。
 
-部署组成必须匹配：Backend/Scheduler、Frontend、新 Runtime Bundle 中的 writer/Adapter/Bridge，以及冻结的 CLI/Kit 身份。CLI 若需升级，真实验证后一起更新；单改源码或 manifest 版本标签不算完成。使用冻结新 Bundle 的新 Task 验收，旧快照和旧 Bundle 保持不变。
+部署组成必须匹配：Backend/Scheduler、Frontend、新 Runtime Bundle 中的 writer/Adapter/Bridge，以及冻结的 CLI/Kit 身份。当前组成已匹配并通过 Profile Verify；仍需在 Provider 可响应后使用同一 Bundle 的新 Task 验收，旧快照和旧 Bundle 保持不变。单改源码或 manifest 版本标签不算完成。
 
 关闭本方案前必须满足：
 

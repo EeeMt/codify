@@ -68,7 +68,7 @@ Command 或扩展声明的模型覆盖只能在与 Snapshot 一致时生效，�
 | Pi | 默认、一级 | 完整核心能力、三种 Model Endpoint 协议、质量非劣、steering/follow-up | `rpc_stdio` |
 | OpenCode | 一级 | 三种 Model Endpoint 协议、Server、Session、Agent、Command、Abort、事件、Git 交付 | `server_http` |
 | Claude | 兼容、一级 | V1 核心能力无回退 | `cli_stream_json` |
-| Codex | 兼容、一级 | V1 核心能力无回退 | `cli_jsonl` |
+| Codex | 兼容、一级 | V1 核心能力无回退；App Server reasoning 生命周期 | `rpc_stdio` / `codex-app-server-v2` |
 | OMP | 后续实验 | 独立 Harness、真实任务 A/B、LSP/Hashline | 后续 probe 冻结 |
 
 “一级”描述 V2 内置支持责任；整个 V2 版本仍是 Internal Preview。
@@ -139,7 +139,8 @@ steering/follow-up 已是明确后续需求，先做 run 再换 Server 会产生
 - `verify-runtime.sh`、Profile snapshot、Task snapshot 和 Runtime Bundle 现在按 Harness key 绑定 CLI、
   Adapter、control transport、model protocol 与 identity；
 - Runner/Bridge 已提供 V2 event lifecycle 和 Task-scoped command queue/pump。Pi 使用 `rpc_stdio`，
-  OpenCode 使用 Task-scoped `server_http`；Claude/Codex 保持兼容路径；
+  OpenCode 使用 Task-scoped `server_http`，Claude 使用 `cli_stream_json`，Codex 使用单一
+  `rpc_stdio` / `codex-app-server-v2` App Server 路径；不在运行失败时隐式回退 transport；
 - `model_protocol` 与 Harness control contract 已分层，Skills 按 Task-private package/manifest 注入，
   不再以 `.claude/skills` 作为公共能力边界；
 - 新建 Profile/Issue 的兼容默认值当前仍是 Claude，V2 candidate 通过显式 Profile 选择

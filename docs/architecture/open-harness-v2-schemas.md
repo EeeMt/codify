@@ -85,7 +85,7 @@ run_text()?               # 可选，Claude/Codex 兼容路径
 | Pi | `rpc_stdio` | `pi-rpc` | `[anthropic_messages, openai_responses, openai_chat_completions]` |
 | OpenCode | `server_http` | `opencode-server` | `[anthropic_messages, openai_responses, openai_chat_completions]` |
 | Claude | `cli_stream_json` | `claude-json` | `[anthropic_messages]` |
-| Codex | `cli_jsonl` | `codex-jsonl` | `[openai_responses]` |
+| Codex | `rpc_stdio` | `codex-app-server-v2` | `[openai_responses]` |
 
 > `cli_version` 以二进制实际报告为准（Codex `0.146.0`，与 `0.146.0-alpha.3.1` 属同一发布代际，取 `0.146.0`）。
 
