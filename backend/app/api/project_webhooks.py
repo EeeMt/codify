@@ -261,7 +261,7 @@ async def list_gitlab_project_webhook_statuses(
 
     def collect_project_snapshots() -> list[dict[str, Any]]:
         projects = sorted(
-            client.get_projects(),
+            client.get_visible_projects(),
             key=lambda project: str(project.get("path_with_namespace", "") or project.get("name", "")).lower(),
         )
         normalized_target = GitLabClient._normalize_hook_url(target_webhook_url)

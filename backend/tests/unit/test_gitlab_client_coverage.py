@@ -18,6 +18,7 @@ Covers functionality NOT tested by test_gitlab_client_access.py:
 - get_file_content              (lines 315-334)
 - get_issue                     (lines 336-355)
 - get_projects                  (lines 357-376)
+- get_visible_projects          (unfiltered admin-token enumeration)
 - get_branches                  (lines 378-394)
 - get_project_hooks             (lines 396-399)
 - ensure_project_webhook        (lines 401-451)
@@ -30,7 +31,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from gitlab.exceptions import GitlabGetError
+from gitlab.exceptions import GitlabError, GitlabGetError
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -774,6 +775,95 @@ class TestGetProjects(unittest.TestCase):
 
         with self.assertRaises(GitlabGetError):
             client.get_projects()
+
+
+# ===================================================================
+# get_visible_projects
+# ===================================================================
+
+class TestGetVisibleProjects(unittest.TestCase):
+    """Tests for get_visible_projects (unfiltered admin-token enumeration)."""
+
+    def test_plain_listing_returns_all_projects(self):
+        """Issues one unfiltered listing and maps every project payload."""
+        client = _make_client()
+        mock_p1 = MagicMock()
+        mock_p1.id = 1
+        mock_p1.name = "project-a"
+        mock_p1.path_with_namespace = "group/project-a"
+        mock_p1.default_branch = "main"
+        mock_p1.marked_for_deletion_at = None
+        mock_p1.web_url = "http://gitlab.example.com/group/project-a"
+        mock_p1.description = "desc"
+
+        mock_p2 = MagicMock()
+        mock_p2.id = 2
+        mock_p2.name = "project-b"
+        mock_p2.path_with_namespace = "group/project-b"
+        mock_p2.default_branch = None
+        mock_p2.marked_for_deletion_at = None
+
+        client.gl.projects.list.return_value = [mock_p1, mock_p2]
+
+        result = client.get_visible_projects()
+
+        client.gl.projects.list.assert_called_once_with(per_page=100, all=True)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["id"], 1)
+        self.assertEqual(result[0]["path_with_namespace"], "group/project-a")
+        self.assertEqual(result[0]["default_branch"], "main")
+        self.assertEqual(result[0]["web_url"], "http://gitlab.example.com/group/project-a")
+        self.assertEqual(result[0]["description"], "desc")
+        self.assertIsNone(result[1]["default_branch"])
+
+    def test_filters_deletion_pending_projects(self):
+        """Projects with marked_for_deletion_at are excluded from results."""
+        client = _make_client()
+        mock_active = MagicMock()
+        mock_active.id = 1
+        mock_active.name = "active"
+        mock_active.path_with_namespace = "group/active"
+        mock_active.default_branch = "main"
+        mock_active.marked_for_deletion_at = None
+
+        mock_pending = MagicMock()
+        mock_pending.id = 2
+        mock_pending.name = "deleted"
+        mock_pending.path_with_namespace = "group/deleted-deletion_scheduled-1"
+        mock_pending.default_branch = "main"
+        mock_pending.marked_for_deletion_at = "2026-05-15T00:00:00.000Z"
+
+        client.gl.projects.list.return_value = [mock_active, mock_pending]
+
+        result = client.get_visible_projects()
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["id"], 1)
+
+    def test_forwards_per_page(self):
+        """Passes per_page through to the listing query."""
+        client = _make_client()
+        client.gl.projects.list.return_value = []
+
+        client.get_visible_projects(per_page=50)
+
+        client.gl.projects.list.assert_called_once_with(per_page=50, all=True)
+
+    def test_raises_on_listing_failure(self):
+        """GitLab listing failure propagates instead of returning an empty list."""
+        client = _make_client()
+        client.gl.projects.list.side_effect = GitlabGetError("502: Bad Gateway")
+
+        with self.assertRaises(GitlabGetError):
+            client.get_visible_projects()
+
+    def test_wraps_unknown_listing_failure(self):
+        """Non-GitLab exceptions are wrapped in GitlabError for callers."""
+        client = _make_client()
+        client.gl.projects.list.side_effect = RuntimeError("connection reset")
+
+        with self.assertRaises(GitlabError):
+            client.get_visible_projects()
 
 
 # ===================================================================

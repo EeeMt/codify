@@ -579,7 +579,7 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
         target_url = "https://backend.example.com/api/webhook/gitlab"
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_projects.return_value = [
+        mock_client_instance.get_visible_projects.return_value = [
             {"id": 1, "name": "project-a", "path_with_namespace": "group/project-a"},
             {"id": 2, "name": "project-b", "path_with_namespace": "group/project-b"},
         ]
@@ -624,7 +624,7 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
         mock_settings = _make_mock_settings()
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_projects.return_value = []
+        mock_client_instance.get_visible_projects.return_value = []
 
         with patch("app.api.project_webhooks.load_runtime_config_from_db", new=AsyncMock()):
             with patch("app.api.project_webhooks.get_effective_settings", return_value=mock_settings):
@@ -646,7 +646,7 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
         mock_settings = _make_mock_settings()
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_projects.return_value = [
+        mock_client_instance.get_visible_projects.return_value = [
             {"id": 1, "name": "project-a", "path_with_namespace": "group/project-a"},
         ]
         mock_client_instance.get_project_hooks.side_effect = GitlabError("Forbidden")
@@ -674,7 +674,7 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
         mock_settings = _make_mock_settings()
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_projects.side_effect = GitlabError("Connection refused")
+        mock_client_instance.get_visible_projects.side_effect = GitlabError("Connection refused")
 
         with patch("app.api.project_webhooks.load_runtime_config_from_db", new=AsyncMock()):
             with patch("app.api.project_webhooks.get_effective_settings", return_value=mock_settings):
@@ -695,7 +695,7 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
         target_url = "https://backend.example.com/api/webhook/gitlab"
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_projects.return_value = [
+        mock_client_instance.get_visible_projects.return_value = [
             {"id": 1, "name": "project-a", "path_with_namespace": "group/project-a"},
         ]
         mock_client_instance.get_project_hooks.return_value = [

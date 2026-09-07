@@ -503,6 +503,49 @@ class GitLabClient:
             )
         return result
 
+    def get_visible_projects(self, per_page: int = 100) -> list:
+        """Get every project visible to the configured token (all of GitLab for admins).
+
+        Issues the plain /projects listing without membership/visibility
+        filters: GitLab returns the whole instance for an instance-admin token —
+        including private projects the admin does not belong to.  Non-admin
+        tokens see all projects GitLab deems visible to them (memberships plus
+        public/internal), a superset of what get_projects() returns.
+
+        Used by admin surfaces (webhook overview) where the membership-scoped
+        get_projects() would silently hide manageable projects.
+
+        Args:
+            per_page: Number of projects per page
+
+        Returns:
+            List of project dicts with id, name, path_with_namespace
+        """
+        logger.info("Fetching all visible projects")
+        try:
+            page_results = self.gl.projects.list(per_page=per_page, all=True)
+        except Exception as exc:
+            if isinstance(exc, (GitlabError, httpx.HTTPError)):
+                raise
+            raise GitlabError(f"Failed to fetch GitLab projects: {exc}") from exc
+
+        result = []
+        for p in page_results:
+            if getattr(p, "marked_for_deletion_at", None):
+                logger.debug("Skipping project pending deletion: %s", p.path_with_namespace)
+                continue
+            result.append(
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "path_with_namespace": p.path_with_namespace,
+                    "default_branch": getattr(p, "default_branch", None),
+                    "web_url": getattr(p, "web_url", None),
+                    "description": getattr(p, "description", None) or "",
+                }
+            )
+        return result
+
     def get_branches(self, project_id: int) -> list:
         """Get list of branches for a project.
 

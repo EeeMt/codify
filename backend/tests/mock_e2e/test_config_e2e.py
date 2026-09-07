@@ -239,11 +239,11 @@ class TestUpdateRuntimeConfig:
         assert resp.json()["task_timeout"] == 120
 
     async def test_task_timeout_out_of_range(self, client: AsyncClient):
-        """task_timeout outside 60-7200 should be rejected."""
+        """task_timeout outside 60-28800 should be rejected."""
         resp = await client.patch("/api/config/runtime", json={"task_timeout": 10})
         assert resp.status_code == 400
 
-        resp2 = await client.patch("/api/config/runtime", json={"task_timeout": 8000})
+        resp2 = await client.patch("/api/config/runtime", json={"task_timeout": 28801})
         assert resp2.status_code == 400
 
     async def test_update_scheduler_interval(self, client: AsyncClient):
@@ -724,7 +724,7 @@ class TestResetConfig:
         """After reset, values should revert to defaults."""
         await client.patch("/api/config/runtime", json={
             "max_concurrency": 20,
-            "task_timeout": 7200,
+            "task_timeout": 28800,
         })
         resp = await client.get("/api/config/runtime")
         assert resp.json()["max_concurrency"] == 20
