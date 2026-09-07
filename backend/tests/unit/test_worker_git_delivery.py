@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -199,6 +200,37 @@ def delivery_env(tmp_path: Path):
         "previous": previous,
         "workspace": workspace,
     }
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
+def test_network_git_uses_worker_credential_file_in_isolated_config(delivery_env: dict):
+    root = delivery_env["root"]
+    fake_bin = root / "fake-bin"
+    fake_bin.mkdir()
+    capture = root / "git-args.txt"
+    fake_git = fake_bin / "git"
+    fake_git.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' --invocation-- \"$@\" >> {shlex.quote(str(capture))}\n"
+        "exec /usr/bin/git \"$@\"\n",
+        encoding="utf-8",
+    )
+    fake_git.chmod(0o755)
+
+    result = _run_delivery_scenario(
+        root,
+        remote=delivery_env["remote"],
+        branch_name=delivery_env["branch"],
+        workspace=delivery_env["workspace"],
+        previous=delivery_env["previous"],
+        scenario="repo_delivery_network_env git --version",
+        env_overrides={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "credential.helper=store --file=/root/.git-credentials" in capture.read_text(
+        encoding="utf-8"
+    ).splitlines()
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")

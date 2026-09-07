@@ -109,20 +109,27 @@ repo_delivery_network_env() {
     # Network Git must not read the Harness-controlled repository config. Keep
     # only transport settings that are intentionally supplied by the worker.
     local network_command="${GIT_DELIVERY_GIT_BIN:-git}"
+    local network_git_args=()
     if [ "${1:-}" = "python3" ]; then
         network_command="${GIT_DELIVERY_PYTHON_BIN:-python3}"
         shift
     elif [ "${1:-}" = "git" ]; then
         shift
+        # The Worker bootstrap owns this credential file. Explicitly select it
+        # because the isolated config below must not read Harness-controlled
+        # repository or global Git configuration.
+        network_git_args=(
+            -c
+            "credential.helper=store --file=/root/.git-credentials"
+        )
     fi
     env -i \
         PATH="${PATH}" HOME=/root \
         GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-        GIT_CONFIG_COUNT=4 \
+        GIT_CONFIG_COUNT=3 \
         GIT_CONFIG_KEY_0=http.sslVerify GIT_CONFIG_VALUE_0="${GIT_DELIVERY_SSL_VERIFY}" \
         GIT_CONFIG_KEY_1=http.sslCAInfo GIT_CONFIG_VALUE_1="${GIT_DELIVERY_SSL_CAINFO}" \
         GIT_CONFIG_KEY_2=protocol.ext.allow GIT_CONFIG_VALUE_2=never \
-        GIT_CONFIG_KEY_3=http.extraHeader GIT_CONFIG_VALUE_3="PRIVATE-TOKEN: ${GIT_DELIVERY_TOKEN:-}" \
         GIT_NO_REPLACE_OBJECTS=1 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
         GIT_ALTERNATE_OBJECT_DIRECTORIES="${GIT_DELIVERY_OBJECTS_DIR}" \
         HTTP_PROXY="${HTTP_PROXY:-}" HTTPS_PROXY="${HTTPS_PROXY:-}" ALL_PROXY="${ALL_PROXY:-}" \
@@ -130,7 +137,7 @@ repo_delivery_network_env() {
         all_proxy="${all_proxy:-}" no_proxy="${no_proxy:-}" \
         REAL_GIT="${REAL_GIT:-}" \
         REQUESTS_CA_BUNDLE="${REQUESTS_CA_BUNDLE:-}" SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
-        "${network_command}" "$@"
+        "${network_command}" "${network_git_args[@]}" "$@"
 }
 
 repo_delivery_init_remote_repo() {
