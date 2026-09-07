@@ -45,6 +45,7 @@ Pi `2.1.1/0.84.2`、OpenCode `2.1.0/1.18.19`、Claude `1.1.0/2.1.153`。
 | #471 | Claude / 3 / `minimax-m2.7` | 200 | completed；7/7 reasoning，`run.completed` | Worker 推送一条提交；`remote_sha=305bf29f8221cd4b689f7a43a02077f85a80d310`，MR !101 |
 | #472 | Pi / 6 / `deepseek-v4-flash` | 198 | cancelled；7/7 reasoning，取消发生在后续工具/诊断期间 | 页面运行中捕获“正在思考 · 1s”后同一行完成；随后有界取消；0 changes |
 | #473 | OpenCode / 3 / `minimax-m2.7` | 199 | completed；2/2 reasoning，`run.completed` | 0 changes；真实响应与终态正常，但页面采集落在完成后，不能计入运行中时序 |
+| #474 | Claude / 3 / `minimax-m2.7` | 200 | completed；4/4 reasoning，`run.completed` | 页面运行中捕获“正在思考 · 3s”后同一行完成；0 changes |
 
 上述 Task 的 attempt 均为 `codify.worker.event/v2`，transport 与 adapter identity 来自真实
 `run.started` receipt，而非手工 fixture。#468/#469/#471 的 `worker.finalization` 均报告
@@ -65,6 +66,7 @@ Pi `2.1.1/0.84.2`、OpenCode `2.1.0/1.18.19`、Claude `1.1.0/2.1.153`。
 | #471 | 13 / 16,732 | 13,020 bytes | `run.completed` |
 | #472 | 4 / 5,844 | 79,564 bytes | `run.failed` / cancelled |
 | #473 | 5 / 2,882 | 9,647 bytes | `run.completed` |
+| #474 | 10 / 13,959 | 16,191 bytes | `run.completed` |
 
 所有任务结束后，相关 Worker 容器均已清理；Backend/Scheduler 保持健康。#472 的 attempt 为
 `task-472-attempt-1-9ef92102943b`，`codify.worker.event/v2`、Pi adapter `2.1.1`、CLI
@@ -75,6 +77,10 @@ Pi `2.1.1/0.84.2`、OpenCode `2.1.0/1.18.19`、Claude `1.1.0/2.1.153`。
 #473 的 attempt 为 `task-473-attempt-1-98753286cb17`，`codify.worker.event/v2`、OpenCode
 adapter `2.1.0`、CLI `1.18.19`，2 个 reasoning start/end、1 个工具调用，终态为
 `run.completed`；任务绑定 Bundle 199（digest `ac62176c7d341ab59f97a68cf58f49883e8ae29b91866d7e729c88fda1a03ea6`）。
+
+#474 的 attempt 为 `task-474-attempt-1-bf4d82ed037d`，`codify.worker.event/v2`、Claude
+adapter `1.1.0`、CLI `2.1.153`，4 个 reasoning start/end、5 个工具调用，终态为
+`run.completed`；任务绑定 Bundle 200（digest `e77660b1253779c3e5402b6140a4d54822cb96118cfe870887742fe3030c06ea`）。
 
 本轮远端根盘曾达 99%（约 793 MB 可用）；确认活动容器、服务镜像和 volume 后，仅回收超过
 1 小时的 Codify BuildKit 调试缓存 1.78 GB，未删除 active/unknown image、服务或 volume。
@@ -96,6 +102,10 @@ Task #473 的真实页面最终显示 `已完成`、OpenCode、2 条已完成思
 页面观察已在 `run.completed` 之后，因此只作为 OpenCode 的终态 UI 投影证据，不关闭运行中
 占位时序子项。
 
+Task #474 的真实页面在仍为 `执行中` 时显示 `事件流 1 3 1`、Claude 容器和
+`正在思考 · 3s`；下一次页面更新显示同一行 `思考完成 · 耗时 1s`，随后终态为 `已完成`、
+`+0/-0`。该证据关闭了 Claude 的运行中页面时序子项，但不构成 30 秒长思考或思考期间取消证据。
+
 ## 4. 验收边界
 
 本轮关闭了以下当前 composition 的 L4 子项：
@@ -105,6 +115,7 @@ Task #473 的真实页面最终显示 `已完成`、OpenCode、2 条已完成思
 - Pi、OpenCode、Claude 各有真实 Worker Git delivery，且有 canonical `worker.finalization`
   的远端确认 SHA；OpenCode 的 dirty file 被纳入最终交付；
 - Pi Task #472 有真实运行中页面时序：开始占位先于同一行完成，刷新后的取消终态不悬挂；
+- Claude Task #474 有真实运行中页面时序：开始占位先于同一行完成，终态无代码变更；
 - Provider 5 的 Chat 404、Pi 长工具诊断取消和 Codex #461–#463 的上游 404/403 均保留为失败
   边界，没有改 Provider 配置或伪造成功。
 
@@ -113,8 +124,8 @@ Task #473 的真实页面最终显示 `已完成`、OpenCode、2 条已完成思
 - Codex 尚无真实模型响应，因此没有 App Server reasoning/空完成/取消/最终结果回归；付费
   slug 仍需明确授权；
 - Pi/OpenCode 的 `openai_responses` 与可用 Chat 组合、Claude 受控远端 divergence、Codex
-  成功响应，以及 OpenCode/Claude 的运行中页面时序仍未完成；#472 不是思考期间取消，且单个
-  Pi 思考块耗时很短，不能替代第 8 节长思考要求；
+  成功响应，以及 OpenCode 的运行中页面时序仍未完成；#472/#474 都不是思考期间取消，且
+  单个思考块耗时很短，不能替代第 8 节长思考要求；
 - R4.5 owner closure、R4.6 独立 GO/NO-GO 和 R5/L6 仍未执行。
 
 因此本记录是当前 exact composition 的真实推进证据，不是四 Harness 8 行全部通过或 release
