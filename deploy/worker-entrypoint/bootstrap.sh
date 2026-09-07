@@ -303,15 +303,16 @@ codify_finalize_on_exit() {
     if declare -F repo_finalize_preparation_on_exit >/dev/null 2>&1; then
         repo_finalize_preparation_on_exit "${exit_code}" || true
     fi
+    # Detach the shell from the console FIFO and wait for tee to persist every
+    # buffered line before canonical finalization and archive sealing. The
+    # drain is bounded because child processes may retain a copy of the FIFO
+    # writer; finalizing first could discard a native abort's interrupted event.
+    exec >/dev/null 2>&1
+    codify_drain_console_tee
     if declare -F codify_harness_finalize_attempt >/dev/null 2>&1 \
         && [ -n "${CODIFY_ATTEMPT_ID:-}" ]; then
         codify_harness_finalize_attempt "${exit_code}" || true
     fi
-    # Detach the shell from the console FIFO and wait for tee to persist every
-    # buffered line before the archive snapshots console.log.  The drain is
-    # bounded because child processes may retain a copy of the FIFO writer.
-    exec >/dev/null 2>&1
-    codify_drain_console_tee
     # Re-derive the canonical result so an orphaned adapter translator that raced
     # this finalizer cannot leave a stale harness-result.json in the archive.
     codify_harness_ensure_result "${exit_code}" || true

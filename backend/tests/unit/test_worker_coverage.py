@@ -1547,7 +1547,7 @@ class TestEntrypointCommitAttribution(unittest.TestCase):
         finalize_index = finalizer.index('codify_harness_finalize_attempt "${exit_code}"')
         console_flush_index = finalizer.index("codify_drain_console_tee")
         archive_index = finalizer.index("create_runtime_archive || true")
-        self.assertGreater(console_flush_index, finalize_index)
+        self.assertLess(console_flush_index, finalize_index)
         self.assertGreater(archive_index, finalize_index)
         self.assertGreater(archive_index, console_flush_index)
 

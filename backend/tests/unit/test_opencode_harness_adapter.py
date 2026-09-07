@@ -1165,6 +1165,73 @@ def test_opencode_abort_interrupts_open_reasoning(tmp_path):
     assert result["success"] is False
 
 
+def test_opencode_native_reasoning_part_abort_interrupts_open_reasoning(tmp_path):
+    """A frozen ReasoningPart must be interrupted by OpenCode's abort error."""
+    runtime_dir = tmp_path / "reasoning-part-abort"
+    runtime_dir.mkdir()
+    _emit(runtime_dir, "run.started")
+    _translate(
+        runtime_dir,
+        [
+            _record(
+                "message.updated",
+                {
+                    "sessionID": "ses-native-abort",
+                    "info": {"id": "msg-native-abort", "role": "assistant"},
+                },
+            ),
+            _record(
+                "message.part.updated",
+                {
+                    "sessionID": "ses-native-abort",
+                    "part": {
+                        "type": "reasoning",
+                        "id": "rp-native-abort",
+                        "messageID": "msg-native-abort",
+                        "sessionID": "ses-native-abort",
+                        "time": {"start": 1},
+                    },
+                },
+            ),
+            _record(
+                "session.error",
+                {
+                    "sessionID": "ses-native-abort",
+                    "error": {
+                        "name": "MessageAbortedError",
+                        "data": {"message": "Aborted"},
+                    },
+                },
+            ),
+        ],
+    )
+
+    events = _events(runtime_dir)
+    interrupted = [
+        event for event in events if event["type"] == "reasoning_summary.interrupted"
+    ]
+    assert interrupted == [
+        {
+            "schema": CANONICAL_EVENT_SCHEMA_V2,
+            "type": "reasoning_summary.interrupted",
+            "payload": {
+                "reasoning_id": "opencode-reason-part-ses-native-abort-msg-native-abort-rp-native-abort",
+                "reason": "aborted",
+            },
+            "task_id": 9,
+            "attempt_id": "task-opencode-attempt-1",
+            "harness": interrupted[0]["harness"],
+            "seq": interrupted[0]["seq"],
+            "event_id": interrupted[0]["event_id"],
+            "occurred_at": interrupted[0]["occurred_at"],
+            "raw_ref": interrupted[0]["raw_ref"],
+        }
+    ]
+    assert not any(event["type"] == "reasoning_summary.completed" for event in events)
+    terminal = next(event for event in events if event["type"] == "harness.failed")
+    assert terminal["payload"]["failure"]["kind"] == "cancelled"
+
+
 def test_opencode_errored_assistant_message_interrupts_its_reasoning(tmp_path):
     """An assistant message carrying a native error fact (probe abort path)
     closes exactly its own open reasoning blocks."""
