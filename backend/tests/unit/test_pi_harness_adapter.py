@@ -673,6 +673,13 @@ def test_pi_anthropic_config_normalizes_sdk_base_url(endpoint_url, expected_base
             "chat-key",
             "openai-completions",
         ),
+        (
+            "openai_chat_completions",
+            "chat-root-model",
+            "https://chat-root.example",
+            "chat-root-key",
+            "openai-completions",
+        ),
     ],
 )
 def test_pi_config_maps_openai_protocols_to_native_apis(
@@ -699,7 +706,12 @@ def test_pi_config_maps_openai_protocols_to_native_apis(
         (tmp_path / "home/.pi/agent/models.json").read_text(encoding="utf-8")
     )["providers"]["codify"]
     assert provider["api"] == expected_api
-    assert provider["baseUrl"] == endpoint_url
+    expected_base_url = (
+        endpoint_url.rstrip("/")
+        if endpoint_url.rstrip("/").endswith("/v1")
+        else f"{endpoint_url.rstrip('/')}/v1"
+    )
+    assert provider["baseUrl"] == expected_base_url
     assert provider["apiKey"] == api_key
     assert provider["models"][0]["id"] == model
 

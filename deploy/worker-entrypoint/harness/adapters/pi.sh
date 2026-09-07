@@ -158,6 +158,20 @@ pi_adapter_prepare_config() {
             return 1
             ;;
     esac
+    # Pi's OpenAI-compatible providers expect a versioned base URL and append
+    # the protocol path themselves.  Keep the Snapshot root unchanged for
+    # already-versioned endpoints, but match OpenCode's /v1 normalization for
+    # providers such as OpenCode Zen whose stored root is /zen/go.
+    case "${model_protocol}" in
+        openai_responses|openai_chat_completions)
+            if [ -n "${base_url}" ]; then
+                case "${base_url}" in
+                    */v1|*/v1/) base_url="${base_url%/}" ;;
+                    *) base_url="${base_url%/}/v1" ;;
+                esac
+            fi
+            ;;
+    esac
     if [ -n "${model}" ] && [ -n "${base_url}" ] && [ -n "${api_key}" ]; then
         # pi 0.84.2 reads custom providers only from ~/.pi/agent/models.json
         # (the CLI subprocess HOME); it ignores the PI_HOME env var. Keep the
