@@ -44,6 +44,7 @@ Pi `2.1.1/0.84.2`、OpenCode `2.1.0/1.18.19`、Claude `1.1.0/2.1.153`。
 | #470 | Pi / 5 / `mimo-v2.5` | 198 | failed；Provider HTTP 404 HTML，0 reasoning | `openai_chat_completions` 真实 Provider 边界；未改配置、0 changes |
 | #471 | Claude / 3 / `minimax-m2.7` | 200 | completed；7/7 reasoning，`run.completed` | Worker 推送一条提交；`remote_sha=305bf29f8221cd4b689f7a43a02077f85a80d310`，MR !101 |
 | #472 | Pi / 6 / `deepseek-v4-flash` | 198 | cancelled；7/7 reasoning，取消发生在后续工具/诊断期间 | 页面运行中捕获“正在思考 · 1s”后同一行完成；随后有界取消；0 changes |
+| #473 | OpenCode / 3 / `minimax-m2.7` | 199 | completed；2/2 reasoning，`run.completed` | 0 changes；真实响应与终态正常，但页面采集落在完成后，不能计入运行中时序 |
 
 上述 Task 的 attempt 均为 `codify.worker.event/v2`，transport 与 adapter identity 来自真实
 `run.started` receipt，而非手工 fixture。#468/#469/#471 的 `worker.finalization` 均报告
@@ -63,12 +64,17 @@ Pi `2.1.1/0.84.2`、OpenCode `2.1.0/1.18.19`、Claude `1.1.0/2.1.153`。
 | #470 | 3 / 2,204 | 5,460 bytes | `run.failed` |
 | #471 | 13 / 16,732 | 13,020 bytes | `run.completed` |
 | #472 | 4 / 5,844 | 79,564 bytes | `run.failed` / cancelled |
+| #473 | 5 / 2,882 | 9,647 bytes | `run.completed` |
 
 所有任务结束后，相关 Worker 容器均已清理；Backend/Scheduler 保持健康。#472 的 attempt 为
 `task-472-attempt-1-9ef92102943b`，`codify.worker.event/v2`、Pi adapter `2.1.1`、CLI
 `0.84.2`，共 7 个 `reasoning_summary.started` 与 7 个 `reasoning_summary.completed`，
 另有 13 个 tool start、12 个 tool completion；取消终态为 `run.failed`，没有
 `reasoning_summary.interrupted`。任务绑定 Bundle 198（digest `a0b036a1f698c3f3ad41cc3fdfd0b467eb0da2a6138754cb2df74d2045c33ec0`）。
+
+#473 的 attempt 为 `task-473-attempt-1-98753286cb17`，`codify.worker.event/v2`、OpenCode
+adapter `2.1.0`、CLI `1.18.19`，2 个 reasoning start/end、1 个工具调用，终态为
+`run.completed`；任务绑定 Bundle 199（digest `ac62176c7d341ab59f97a68cf58f49883e8ae29b91866d7e729c88fda1a03ea6`）。
 
 本轮远端根盘曾达 99%（约 793 MB 可用）；确认活动容器、服务镜像和 volume 后，仅回收超过
 1 小时的 Codify BuildKit 调试缓存 1.78 GB，未删除 active/unknown image、服务或 volume。
@@ -85,6 +91,10 @@ Pi `2.1.1/0.84.2`、OpenCode `2.1.0/1.18.19`、Claude `1.1.0/2.1.153`。
 `思考完成 · 耗时 1s`，并继续显示工具输入/输出和增长中的事件流。取消并刷新后页面显示
 `已取消`、完成时间 `2026/09/08 03:46:50`，7 条思考行均保持完成。该证据关闭了 Pi 的
 “运行中开始占位先于完成”页面子项，但不是四 Harness 全覆盖，也不是思考期间取消/中断证据。
+
+Task #473 的真实页面最终显示 `已完成`、OpenCode、2 条已完成思考行和 `+0/-0`；本次首次完整
+页面观察已在 `run.completed` 之后，因此只作为 OpenCode 的终态 UI 投影证据，不关闭运行中
+占位时序子项。
 
 ## 4. 验收边界
 
