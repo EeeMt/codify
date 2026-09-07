@@ -45,7 +45,7 @@
                 <n-input-number
                   v-model:value="formValue.task_timeout"
                   :min="60"
-                  :max="7200"
+                  :max="28800"
                   class="config-form__input"
                 />
                 <template #feedback>

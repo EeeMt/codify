@@ -148,8 +148,8 @@ class ValidateTaskTimeoutTests(unittest.TestCase):
         self.assertEqual(_validate_config_value("task_timeout", 60), 60)
 
     def test_valid_max_boundary(self):
-        """max boundary (7200) should be accepted."""
-        self.assertEqual(_validate_config_value("task_timeout", 7200), 7200)
+        """max boundary (28800) should be accepted."""
+        self.assertEqual(_validate_config_value("task_timeout", 28800), 28800)
 
     def test_invalid_below_min(self):
         """Below minimum should be rejected."""
@@ -160,7 +160,7 @@ class ValidateTaskTimeoutTests(unittest.TestCase):
     def test_invalid_above_max(self):
         """Above maximum should be rejected."""
         with self.assertRaises(HTTPException):
-            _validate_config_value("task_timeout", 7201)
+            _validate_config_value("task_timeout", 28801)
 
     def test_invalid_float_type(self):
         """Float type should be rejected (must be int)."""

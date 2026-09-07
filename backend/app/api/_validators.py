@@ -25,8 +25,8 @@ def _validate_config_value(key: str, value: object) -> object:
         return value
 
     if key == "task_timeout":
-        if not isinstance(value, int) or value < 60 or value > 7200:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_timeout must be between 60 and 7200 seconds")
+        if not isinstance(value, int) or value < 60 or value > 28800:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_timeout must be between 60 and 28800 seconds")
         return value
 
     if key == "scheduler_interval":
