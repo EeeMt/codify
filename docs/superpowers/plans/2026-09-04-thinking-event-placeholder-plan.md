@@ -5,11 +5,11 @@
 状态：rev2 实现已提交于 `c089b67a`；Worker delivery 隔离修复提交于 `7fd0939c`；Codex
 App Server Bridge 已提交于 `5d2fad8e`；Pi OpenAI endpoint root 修复提交于
 `ae223cb1`。开发 Host 的 Profile 4 已安装并 Verify Kit 0.6.15，修复后重新 Verify 为
-generation 92。#464–#480 已验证 Pi/OpenCode/Claude 的真实 reasoning，#468/#469/#471 完成
+generation 92。#464–#481 已验证 Pi/OpenCode/Claude 的真实 reasoning，#468/#469/#471 完成
 canonical Git delivery；#472/#474/#475/#477 已在运行中页面捕获思考占位先于同一行完成。
 Codex #461–#463 仍在 Provider 边界失败；Pi Chat 的 #470/#476 是修复前 Bundle 失败，#477
 在新 Bundle 201 上正常完成，#478 又验证了活动思考取消后的页面刷新/重连终态兜底；#473/#479/#480
-的 OpenCode 页面采集未形成取消证据。第 8 节
+的 OpenCode 页面采集未形成取消证据，#481 的取消发生在 reasoning 完成后的工具阶段。第 8 节
 八组合、Codex reasoning start/end、思考期间取消/刷新重连和长思考要求仍未完成；不能据此宣称
 四 Harness 整体完成。
 
@@ -276,7 +276,7 @@ A 完成后冻结选择，不让“还需验证信号”成为跳过某个 Harne
 | Pi | `openai_chat_completions` | #470/#476 在修复前 Bundle 返回 404 HTML；#477 使用 Bundle 201 正常完成 24/24 reasoning 并捕获运行中页面时序；#478 在活动思考时取消并刷新恢复，TaskLog 终态兜底为 1 条 `interrupted`，但没有 canonical `reasoning_summary.interrupted` |
 | OpenCode | `anthropic_messages` | #465 正常完成 1/1 reasoning；#469 完成 9/9 reasoning 并补交 dirty file；#473 完成 2/2 reasoning 且终态页面正常，但运行中页面时序仍未完成 |
 | OpenCode | `openai_responses` | #453 完成但 0/0/0 reasoning；现有 Responses Provider 仍不可用，未完成 |
-| OpenCode | `openai_chat_completions` | #458 历史取消但 0/0/0 reasoning；#475/#479/#480 使用 Provider 5 正常完成（分别 3/3、4/4、2/2 reasoning），#480 未发生取消，仍未覆盖思考期间取消/刷新重连 |
+| OpenCode | `openai_chat_completions` | #458 历史取消但 0/0/0 reasoning；#475/#479/#480 使用 Provider 5 正常完成（分别 3/3、4/4、2/2 reasoning）；#481 在第二个 reasoning 完成约 7.3 秒后于工具阶段取消，仍未覆盖思考期间取消/刷新重连 |
 
 每行使用该组合下支持思考的真实模型。记录 CLI、Kit、Bundle、Provider 协议及模型身份、原生事件接收时间、canonical 序号/ID、TaskLog ID 和浏览器证据。Pi 的 #478 已覆盖活动思考取消后的用户态刷新/重连与允许的终态兜底，但没有 canonical interrupted receipt；OpenCode 仍需一条真实活动思考取消并刷新/重连。纯状态卡片也属于正式验收对象。
 
@@ -285,7 +285,7 @@ A 完成后冻结选择，不让“还需验证信号”成为跳过某个 Harne
 [current Bundle real-task matrix](../evidence/2026-09-08-open-harness-v2-current-bundle-real-task-matrix.md)。除 #472 的实时
 页面观察外，其余页面检查均为终态；#472/#474/#475/#477 分别补充 Pi、Claude、OpenCode 和
 Pi Chat 的页面时序，#478 补充 Pi 活动思考取消后的刷新/重连，#473/#479/#480 的 OpenCode
-观察落在完成后或自然完成；这些短思考成功都不替代其余 Harness、OpenCode 思考期间取消或
+观察落在完成后或自然完成，#481 的取消晚于 reasoning 完成；这些短思考成功都不替代其余 Harness、OpenCode 思考期间取消或
 30 秒长思考证据。
 
 源代码单元测试覆盖全部边缘序列；浏览器交互回归可以共用组件测试，但每个 Harness 的真实页面映射不能由 Pi 的成功代替。尚无原生信号或尚无可运行 Provider 的行保持未完成，整个四 Harness 覆盖不得关闭。

@@ -58,6 +58,7 @@ Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image
 | #478 | Pi / 5 / `mimo-v2.5` | 201 | cancelled；6 started / 5 canonical completed，`run.failed` | 页面在活动思考时取消并刷新；TaskLog 终态兜底为 5 completed + 1 interrupted，但无 canonical `reasoning_summary.interrupted`；0 changes |
 | #479 | OpenCode / 5 / `mimo-v2.5` | 202 | completed；4/4 reasoning，`run.completed` | 当前 Bundle 正常 Chat 回归；页面观察未抓到活动思考或取消；0 changes |
 | #480 | OpenCode / 5 / `mimo-v2.5` | 202 | completed；2/2 reasoning，`run.completed` | 第二次取消探针自然完成；未发生取消，不能计入 OpenCode Chat 取消/刷新验收；0 changes |
+| #481 | OpenCode / 5 / `mimo-v2.5` | 202 | cancelled；2/2 reasoning，`run.failed` | 取消请求晚于第二段 reasoning 完成约 7.3s，实际发生在工具/诊断阶段；刷新终态稳定，不能计入活动思考取消；0 changes |
 
 上述 Task 的 attempt 均为 `codify.worker.event/v2`，transport 与 adapter identity 来自真实
 `run.started` receipt，而非手工 fixture。#468/#469/#471 的 `worker.finalization` 均报告
@@ -85,6 +86,7 @@ Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image
 | #478 | 3 / 5,767 | 29,548 bytes | `run.failed` / cancelled |
 | #479 | 6 / 2,878 | 21,045 bytes | `run.completed` |
 | #480 | 5 / 2,878 | 20,339 bytes | `run.completed` |
+| #481 | 4 / 2,627 | 16,830 bytes | `run.failed` / cancelled |
 
 所有任务结束后，相关 Worker 容器均已清理；Backend/Scheduler 保持健康。#472 的 attempt 为
 `task-472-attempt-1-9ef92102943b`，`codify.worker.event/v2`、Pi adapter `2.1.1`、CLI
@@ -165,6 +167,14 @@ raw 为 5 chunks / 2,878 bytes，archive 为 20,339 bytes，0 changes。该任�
 OpenCode 活动思考取消窗口，但自然完成，未执行取消，因此不能关闭 OpenCode Chat 的取消/刷新
 验收项。
 
+Task #481 的 attempt 为 `task-481-attempt-1-6cef0bbbeab9`，OpenCode adapter `2.1.0`、CLI
+`1.18.19`，`last_seq=54`，2 个 reasoning start/end，终态为 `run.failed`、control `closed`。
+`cancel_requested_at=2026-09-07 21:01:42.955391`，而第二个 `reasoning_summary.completed` 为
+`2026-09-07 21:01:35.615688`；取消实际落在后续 tool/diagnostic 阶段。页面随后刷新为稳定的
+`已取消`，没有悬挂记录，但没有 `reasoning_summary.interrupted`，因此仍不能关闭 OpenCode
+Chat 的活动思考取消/刷新验收项。任务绑定 Bundle 202，raw 为 4 chunks / 2,627 bytes，
+archive 为 16,830 bytes，0 changes。
+
 ## 4. 验收边界
 
 本轮关闭了以下当前 composition 的 L4 子项：
@@ -186,8 +196,8 @@ OpenCode 活动思考取消窗口，但自然完成，未执行取消，因此�
   slug 仍需明确授权；
 - Pi/OpenCode 的 `openai_responses`、OpenCode Chat 的思考期间取消/刷新重连、Claude 受控远端
   divergence、Codex 成功响应仍未完成；#478 的 Pi 取消已覆盖终态兜底，但没有 canonical
-  interrupted receipt；#475/#477/#479/#480 是正常完成，单个思考块耗时也很短，不能替代第 8 节
-  长思考要求；
+  interrupted receipt；#475/#477/#479/#480 是正常完成，#481 是思考完成后的取消，单个思考块
+  耗时也很短，不能替代第 8 节长思考要求；
 - R4.5 owner closure、R4.6 独立 GO/NO-GO 和 R5/L6 仍未执行。
 
 因此本记录是当前 exact composition 的真实推进证据，不是四 Harness 8 行全部通过或 release
