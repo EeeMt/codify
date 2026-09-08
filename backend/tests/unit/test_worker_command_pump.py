@@ -276,9 +276,8 @@ async def test_pump_delivers_head_command(maker):
         assert await _row_status(db, command_ids[0]) == "delivered"
 
 
-async def test_pump_projects_sanitized_command_text_to_event_log(maker):
-    """The delivered audit event carries scrubbed command text, not a verbatim
-    credential, matching the command-history API (plan §5.3)."""
+async def test_pump_does_not_duplicate_native_ack_event_log(maker):
+    """The Harness event stream, not the pump, owns native ACK audit rows."""
     task_id, _, command_ids = await _seed_task_with_commands(
         maker, count=1, texts=["use glpat-abcdef0123456789abcdef token"]
     )
@@ -288,6 +287,7 @@ async def test_pump_projects_sanitized_command_text_to_event_log(maker):
         )
         assert result.commands_processed == 1
         await db.commit()
+        assert await _row_status(db, command_ids[0]) == "delivered"
         rows = (
             await db.execute(
                 sa.text(
@@ -299,15 +299,7 @@ async def test_pump_projects_sanitized_command_text_to_event_log(maker):
             )
         ).scalars().all()
 
-    assert rows, "expected a control_event audit row"
-    meta = json.loads(rows[0])
-    assert meta["type"] == "control.command.delivered"
-    assert meta["command_id"] == command_ids[0]
-    assert meta["sequence_no"] == 1
-    assert meta["command_type"] == "steer"
-    assert meta["text"] == "use [GITLAB_TOKEN] token"
-    assert "glpat-" not in meta["text"]
-    assert meta["delivered_at"]
+    assert rows == []
 
 
 async def test_pump_records_monotonic_native_delivery_timestamps(maker):

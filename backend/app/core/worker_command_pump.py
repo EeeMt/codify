@@ -480,11 +480,11 @@ async def docker_exec_control_transport(
 async def _record_control_event(
     db: AsyncSession, *, task_id: int, event_type: str, payload: dict
 ) -> None:
-    """Project a control-plane audit event into the product-visible log.
+    """Project a pump-only control outcome into the product-visible log.
 
-    Mirrors the projector's ``control_event`` TaskLog rows so the event
-    stream shows delivered/rejected alongside the DB status (plan §6.2).
-    Never touches task_harness_commands rows.
+    Native delivered/rejected events come from the Harness event stream and are
+    projected by ``WorkerEventProjector``. This helper is reserved for outcomes
+    such as ``outcome_unknown`` that have no native event to project.
     """
     from app.models import TaskLog
 
@@ -728,19 +728,9 @@ async def dispatch_one_command(
         )
         if not delivered:
             return "terminalized"
-        await _record_control_event(
-            db,
-            task_id=command.task_id,
-            event_type="control.command.delivered",
-            payload={
-                "command_id": command.command_id,
-                "payload_digest": command.payload_digest,
-                "sequence_no": command.sequence_no,
-                "command_type": command.command_type,
-                "text": _sanitized_command_text(command),
-                "delivered_at": delivered_at.isoformat(),
-            },
-        )
+        # Pi's canonical event stream projects the native ACK into the event
+        # log. The command row above is the only state update owned here;
+        # writing another TaskLog would duplicate control.command.delivered.
         return "delivered"
     if status == DISPATCH_REJECT:
         code = outcome.get("rejection_code") or "delivery_outcome_unknown"
@@ -754,20 +744,8 @@ async def dispatch_one_command(
             rejection_message=message,
             rejected_at=rejected_at,
         )
-        await _record_control_event(
-            db,
-            task_id=command.task_id,
-            event_type="control.command.rejected",
-            payload={
-                "command_id": command.command_id,
-                "payload_digest": command.payload_digest,
-                "sequence_no": command.sequence_no,
-                "command_type": command.command_type,
-                "text": _sanitized_command_text(command),
-                "rejection_code": code,
-                "rejection_message": message,
-            },
-        )
+        # The Harness event stream owns the product-visible rejection event;
+        # keep this path limited to the command row state transition.
         if command.command_type == "follow_up":
             await _clear_pending_follow_up(db, attempt, command.command_id)
         return "rejected"
