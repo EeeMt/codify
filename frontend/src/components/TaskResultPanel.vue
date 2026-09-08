@@ -755,11 +755,11 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 
-.result-card:first-child {
+.result-card:first-child:not(.result-card--error) {
   padding-top: 2px;
 }
 
-.result-card:last-child {
+.result-card:last-child:not(.result-card--error) {
   padding-bottom: 2px;
   border-bottom: 0;
 }
@@ -770,10 +770,22 @@ onBeforeUnmount(() => {
 
 .result-card--error {
   margin-bottom: 14px;
-  padding: 14px;
+  padding: 0;
   border: 1px solid rgba(208, 48, 80, 0.18);
-  border-radius: 6px;
+  border-radius: 8px;
   background: rgba(208, 48, 80, 0.045);
+  overflow: hidden;
+}
+
+.result-card--error .result-card__title {
+  margin-bottom: 0;
+  padding: 11px 14px 10px;
+  border-bottom: 1px solid rgba(208, 48, 80, 0.1);
+  background: rgba(208, 48, 80, 0.025);
+}
+
+.result-card--error .result-card__content {
+  padding: 12px 14px 13px;
 }
 
 .result-card__title {
@@ -805,7 +817,7 @@ onBeforeUnmount(() => {
 .error-summary {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   margin-bottom: 10px;
 }
@@ -815,6 +827,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: var(--n-text-color-3, #666);
   line-height: 1.5;
+  padding-top: 3px;
 }
 
 .error-kind-chip {
@@ -829,6 +842,7 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(239, 68, 68, 0.22);
   color: #dc2626;
   text-transform: lowercase;
+  margin-top: 1px;
 }
 
 .error-summary__message {

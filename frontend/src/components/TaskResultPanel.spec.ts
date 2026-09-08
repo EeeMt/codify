@@ -48,12 +48,20 @@ describe('TaskResultPanel', () => {
     expect(taskResultPanelSource).toContain('v-show="rawErrorExpanded"')
   })
 
-  it('vertically centers the failure reason label with the kind chip and message', () => {
+  it('keeps the error header separate and aligns failure metadata with wrapped messages', () => {
+    const errorCard = cssBlock('.result-card--error')
+    const errorTitle = cssBlock('.result-card--error .result-card__title')
+    const errorContent = cssBlock('.result-card--error .result-card__content')
     const errorSummary = cssBlock('.error-summary')
     const errorLabel = cssBlock('.error-summary__label')
 
-    expect(errorSummary).toContain('align-items: center;')
-    expect(errorLabel).not.toContain('padding-top: 3px;')
+    expect(errorCard).toContain('padding: 0;')
+    expect(errorCard).toContain('overflow: hidden;')
+    expect(errorTitle).toContain('padding: 11px 14px 10px;')
+    expect(errorTitle).toContain('margin-bottom: 0;')
+    expect(errorContent).toContain('padding: 12px 14px 13px;')
+    expect(errorSummary).toContain('align-items: flex-start;')
+    expect(errorLabel).toContain('padding-top: 3px;')
   })
 
   it('execution summary card is guarded by selectedSummaryLog and uses result-card--summary-text class', () => {
