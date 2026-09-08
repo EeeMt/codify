@@ -8,11 +8,11 @@
 记录历史 source/Kit composition 下的 Pi、OpenCode、Claude 真实任务，以及 Pi OpenAI endpoint
 与 Worker finalization、OpenCode native abort drain 修复后新 Bundle 的真实回归。事件来自远端
 `task_harness_event_receipts`，raw/archive 只记录元数据，不复制原始内容。历史 Bundle 保持不可变，
-修复后的 Task 使用独立 Bundle 201/202/203/204/205；#482/#483/#484 又在当前 Bundle 上复核了
+修复后的 Task 使用独立 Bundle 201/202/203/204/205/206；#482/#483/#484 又在当前 Bundle 上复核了
 `openai_responses` 的真实 Provider 失败边界，#485–#488 补齐了 Claude 的正常交付与受控远端
 分叉保护，#490–#498 复核了 OpenCode finalization、native abort、archive 和 cancelled terminal
 收敛边界，#499–#503 在新 Bundle 上完成正常完成、工具阶段取消和活动 reasoning canonical
-interrupted 回归。
+interrupted 回归；#504–#505 在 Bundle 206 上补充了受控远端分叉前置失败和 Claude 长运行探针。
 
 ## 1. Exact composition
 
@@ -38,12 +38,16 @@ interrupted 回归。
 | 203 | Claude（同一 Kit/Backend composition） | `4f22bb5db5e00fdbab820c4d1a5ada8da212555049b7a26c27730d88430a167e` |
 | 204 | OpenCode（finalization drain 修复后） | `10cfd1acfb5674f14fdc0586a3b84da0be99f6dc28b75fea51e2f8d531260f3b` |
 | 205 | OpenCode（native abort drain 修复后） | `a9992043629103ef544de7250d1817e14cfd5f61653f17a4feab57176c38a2c9` |
+| 206 | Claude（#504/#505；同一当前 composition） | `921d7b53676eb61f4b8c1301802392e8791fe1d912cfddecd1381caddd28dffc` |
 
 上述 manifest 均保留四 Harness；实际 Task snapshot 分别绑定对应 Harness 的 adapter/CLI：
 Pi `2.1.1/0.84.2`、OpenCode `2.1.0/1.18.19`、Claude `1.1.0/2.1.153`。Bundle 201 的 Pi
 adapter digest 为 `d326e5c4f0bc2eedcbc4d835ef17c804d1b07b959be5a6af9384309d50249c3d`；修复前
 Bundle 198 为 `e619b8464d7b1c6fee08661eb1e2dd3a87da58065f10dc9166d749403a836356`。
 Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image。
+
+Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bundle 205 完全一致，
+因此把 206 记录为 #504/#505 的当前任务快照 identity，不把它误计为新的 Adapter source 修复。
 
 ## 2. Real Task matrix
 
@@ -80,9 +84,12 @@ Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image
 | #501 | OpenCode / 3 / `minimax-m2.7` | 205 | completed；1/1 reasoning，`run.completed` | 全新会话正常完成；0 changes，archive 正常封存 |
 | #502 | OpenCode / 3 / `minimax-m2.7` | 205 | cancelled；1/1 reasoning，`run.failed` | 页面显示思考中，但 canonical reasoning 已在取消前自然完成；0 changes |
 | #503 | OpenCode / 3 / `minimax-m2.7` | 205 | cancelled；1/0/1 reasoning，`run.failed` | 页面 `正在思考 · 2s` 时取消；canonical `reasoning_summary.interrupted(reason=aborted)`，刷新后终态稳定；0 changes |
+| #504 | Claude / 3 / `minimax-m2.7` | 206 | failed；0 reasoning，无 canonical receipt | 受控 Issue #131 远端分叉在进入 Harness 前被拒绝；Worker 未覆盖远端，不能计入 Provider/reasoning 验收 |
+| #505 | Claude / 3 / `minimax-m2.7` | 206 | completed；1/1 reasoning，约 2.0s，`run.completed` | 长运行探针总时长约 2m32s、381 条 `message.delta`；freeform、0 changes、delivery `not_needed`，不能计入长思考 |
 
-上述 Task 的 attempt 均为 `codify.worker.event/v2`，transport 与 adapter identity 来自真实
-`run.started` receipt，而非手工 fixture。#468/#469/#471 的 `worker.finalization` 均报告
+除 #504（进入 Harness 前失败且没有 canonical receipt）外，上述 Task 的 attempt 均为
+`codify.worker.event/v2`，transport 与 adapter identity 来自真实 `run.started` receipt，而非
+手工 fixture。#468/#469/#471 的 `worker.finalization` 均报告
 `push.status=pushed`、精确 `remote_sha` 和 branch，故这些 delivery 不是 artifact metadata 或
 平铺 SHA 推断。
 
@@ -121,6 +128,8 @@ Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image
 | #501 | 5 / 3,182 | 67,604 bytes | `run.completed` |
 | #502 | 4 / 2,797 | 8,636 bytes | `run.failed` / cancelled |
 | #503 | 4 / 2,581 | 5,829 bytes | `run.failed` / cancelled |
+| #504 | 3 / 1,517 | 1,384 bytes | 无 canonical terminal；Task `failed` |
+| #505 | 66 / 101,140 | 173,301 bytes | `run.completed` |
 
 所有任务结束后，相关 Worker 容器均已清理；Backend/Scheduler 保持健康。#472 的 attempt 为
 `task-472-attempt-1-9ef92102943b`，`codify.worker.event/v2`、Pi adapter `2.1.1`、CLI
@@ -292,6 +301,8 @@ fail-closed 验收边界。
 - OpenCode Task #503 在 Bundle 205 上补齐了活动 reasoning 取消：页面先显示“正在思考”，随后
   canonical `reasoning_summary.started → reasoning_summary.interrupted(reason=aborted) →
   harness.failed(cancelled) → worker.finalization → run.failed`，刷新后任务保持 `已取消`。
+- Claude Task #505 在 Bundle 206 上补齐了正常长运行任务的 archive/finalization/terminal 收敛；
+  其 reasoning block 约 2.0 秒，不能计入长思考。
 
 仍未关闭：
 
@@ -303,7 +314,7 @@ fail-closed 验收边界。
   fail-closed 边界。#478 的 Pi 取消已覆盖终态
   兜底，但没有 canonical interrupted receipt；#475/#477/#479/#480 是正常完成，#481 是思考完成
   后的取消，#498/#502 是 native reasoning 收尾竞态，#503 已补齐 OpenCode 的 canonical
-  interrupted，但单个思考块耗时也很短，不能替代第 8 节长思考要求；
+  interrupted，但单个思考块耗时也很短；#505 的 Claude 长运行探针同样只有约 2.0 秒思考，不能替代第 8 节长思考要求；
 - R4.5 owner closure、R4.6 独立 GO/NO-GO 和 R5/L6 仍未执行。
 
 因此本记录是当前 exact composition 的真实推进证据，不是四 Harness 8 行全部通过或 release
@@ -327,6 +338,9 @@ digest 为 `a9992043629103ef544de7250d1817e14cfd5f61653f17a4feab57176c38a2c9`；
 文件 SHA-256 为 `093005ffe94815daf84381d9bfbaa77a012ac5963699906e3415613de772c29b`，manifest
 adapter digest 为 `969cd7d9a560c489df42b58e316fc30df16f1826efe5e6109eb089455bdba7ad`。旧 Bundle
 保持不可变；Backend image 为 `sha256:459ce6cb448c83c278e440d8ae0a993144037f227363736d03045c5934783210`。
+随后 #504/#505 绑定的 Bundle 206 digest 为
+`921d7b53676eb61f4b8c1301802392e8791fe1d912cfddecd1381caddd28dffc`，大小为 655,360 bytes；
+其四 Harness manifest 与 Bundle 205 相同。
 
 | Task | Provider / Bundle | 终态与 reasoning | 取消边界 | raw / archive |
 | ---: | --- | --- | --- | ---: |
@@ -343,6 +357,8 @@ adapter digest 为 `969cd7d9a560c489df42b58e316fc30df16f1826efe5e6109eb089455bdb
 | #501 | Provider 3 `opencode-minimax` / 205 | completed；1/1/0，`run.completed` | 全新会话正常完成；0 changes | 5 / 3,182 B |
 | #502 | Provider 3 `opencode-minimax` / 205 | cancelled；1/1/0，`run.failed` | 页面显示思考中，但 canonical reasoning 已在取消前自然完成；0 changes | 4 / 2,797 B |
 | #503 | Provider 3 `opencode-minimax` / 205 | cancelled；1/0/1，`run.failed` | 页面 `正在思考 · 2s` 时取消；canonical interrupted；刷新后 `已取消` | 4 / 2,581 B |
+| #504 | Provider 3 `opencode-minimax` / 206 | failed；0/0/0，无 canonical receipt | Issue #131 分叉在 Harness 前拒绝；Worker 未覆盖远端 | 3 / 1,517 B |
+| #505 | Provider 3 `opencode-minimax` / 206 | completed；1/1/0，`run.completed` | 总时长约 2m32s，但 reasoning 约 2.0s；freeform、0 changes | 66 / 101,140 B |
 
 #497 的 attempt 为 `task-497-attempt-1-62f6fa10ec1d`，OpenCode adapter `2.1.0`、CLI
 `1.18.19`，`last_seq=26`、control `closed`。Canonical reasoning ID
@@ -379,6 +395,25 @@ archive 为 5,829 bytes；console 记录 `OpenCode native abort acknowledged: HT
 和 cancelled terminal 均能收敛。#503 进一步证明 native abort drain 能在活动 reasoning
 期间保留 canonical `reasoning_summary.interrupted`，并按 `harness.failed → worker.finalization
 → run.failed` 收尾；#498/#502 仍保留浏览器页面滞后于 canonical part 生命周期的真实边界。
-当前 OpenCode Chat 的活动思考取消/刷新终态子项已在 Bundle 205 关闭，但 Codex 成功、可用
-Responses 组合和四 Harness 长思考仍未证明。
+
+#504 的 attempt 为 `task-504-attempt-1-db3e087851d7`，绑定 Bundle 206、Provider 3
+`opencode-minimax`、Claude `1.1.0/2.1.153`，但 `last_seq=0`，没有 canonical receipt。受控
+Issue #131 探针在进入 Harness 前发现本地 head `726d21ae40f2a8e9c82955c57ed150fd9664ebb7`
+与远端 `c34f7ff5add4a188b1fb8ed020d8d10ae7b3a246` 分叉，bootstrap 拒绝 merge/overwrite；Task
+记录为 `protocol_error: canonical attempt is missing a Task terminal`。这是受控远端分叉的
+前置失败边界，不是 Provider 或 reasoning 结果；Worker 没有覆盖远端分支。raw 为 3 chunks /
+1,517 bytes，archive 为 1,384 bytes。
+
+#505 的 attempt 为 `task-505-attempt-1-2ef68217d604`，绑定 Bundle 206、Provider 3
+`opencode-minimax`，`session_mode=fresh`，`last_seq=393`、control `closed`。真实页面显示
+`思考完成 · 耗时 2s`，随后任务在约 2m32s 后正常完成；canonical seq 4/5 在
+`2026-09-07T23:59:08.166676Z` / `23:59:10.201940Z` 对同一 reasoning ID 完成 start/end，
+相隔约 2.0s，seq 391/392/393 依次为 `delivery.completed`、`worker.finalization`、
+`run.completed`。任务共有 381 个 `message.delta`，但为 `freeform`、`require_changes=false`，
+branch `codify/issue-115` 保持原 head，Git delivery 为 `not_needed`，0 changes；raw 为
+66 chunks / 101,140 bytes，archive 为 173,301 bytes。它证明长运行任务的页面、archive 和正常
+terminal 能收敛，但没有形成长 reasoning block，不能关闭四 Harness 长思考条件。
+
+当前 OpenCode Chat 的活动思考取消/刷新终态子项已在 Bundle 205 关闭；Bundle 206 的 #505
+补充了 Claude 正常长运行边界，但 Codex 成功、可用 Responses 组合和四 Harness 长思考仍未证明。
 当前仍保持 `NO-GO`，不追加无目的 smoke，不执行 migration 078、`v2_only` 或 R5。
