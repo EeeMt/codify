@@ -13,7 +13,7 @@ identity 误当作当前发布包。
 | 项 | 当前值 |
 | --- | --- |
 | Runtime source anchor | `4249fcc4`；当前分支后续仅增加测试夹具与文档，不改变已部署 runtime |
-| Profile / Verify | Profile 4 `v2-canary-0.6.11-four-harness`，generation `101`，状态 ready；最近 Verify 于 `2026-09-08 09:09:23 UTC` 启动并于 `09:10:02 UTC` 完成，readiness 至 `2026-09-08 09:25:02 UTC` |
+| Profile / Verify | Profile 4 `v2-canary-0.6.11-four-harness`，generation `102`，状态 ready；最近 Verify 于 `2026-09-08 13:56:12 UTC` 启动并于 `13:56:52 UTC` 完成，readiness 至 `2026-09-08 14:11:52 UTC` |
 | Worker Kit | `0.6.16-linux-amd64-4866812149bd`；manifest SHA `4866812149bd240af4802ab1aa11b8364cc49b400a8d4a71d2721b8ac9ef5f9c` |
 | Backend / NGINX | `sha256:029384d710497c768bd6ca23ef6fa62fcd4751670d03d7aa0c35d990e91ed81e` / `sha256:aa09c11639f0f5838c085006c0690344f32536c1dcbd91dda37681cd6e253f2` |
 | Worker image | `127.0.0.1:5000/codify-worker/java21-maven@sha256:234582c692d1ebb00ba8e882160618c2258463149d968009ac81c545e63a538b` |
@@ -28,9 +28,9 @@ identity 误当作当前发布包。
 - Task #539 有连续 Canonical receipts `1..34`，11/11 reasoning `started → completed`，单段
   `5.204–6.349s`，最终 `+0/-0`、`commit_sha=null`，无远端写入；固定 8 行技术 evidence 见
   [当前真实 Task 矩阵](2026-09-08-open-harness-v2-current-bundle-real-task-matrix.md)。该 Task 快照属于
-  generation `99`，作为不可变历史证据保留；本次 generation `101` Verify 未改变 image、Kit、Harness
+  generation `99`，作为不可变历史证据保留；本次 generation `102` Verify 未改变 image、Kit、Harness
   inventory 或 Bundle 内容，因此没有追加重复 smoke。
-- generation `101` 的同一 Profile 4 已完成四 Harness 管理员 Verify；readiness 重新变为 `ready`，四个验证
+- generation `102` 的同一 Profile 4 已完成四 Harness 管理员 Verify；readiness 重新变为 `ready`，四个验证
   容器均已退出并清理，当前 Docker 磁盘统计仍为 Images `20/9`、可回收 `961.5MB`，未清理业务服务、
   volume、active Worker 或不确定归属的镜像。
 - 真实浏览器验收补齐了两个 UI 边界：有可读正文的 Task #526 仍显示并可展开“完整内容”；当前
