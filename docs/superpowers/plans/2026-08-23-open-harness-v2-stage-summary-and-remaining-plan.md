@@ -43,7 +43,7 @@ Bundle 216，显式快照 `{"codex":{"reasoning_effort":"high"}}`；11 个 reaso
 | R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 overlay 已推进到 source `4249fcc4`、Profile 4 generation `99`、Worker Kit 0.6.16、Backend image `sha256:029384d710497c768bd6ca23ef6fa62fcd4751670d03d7aa0c35d990e91ed81e`、NGINX image `sha256:aa09c11639f0f5838c085006c0690344f32536c1dcbd91dda37681cd6e253f2` 和 Task #539 的 Bundle 216；历史 Bundle 198–215 保持不可变；镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
 | R4.3：正式交互验收 | **技术 evidence 已闭合，未签署** | 固定 8 行由 #468/#469/#488/#513/#517/#521/#523 与当前 #539 组成，覆盖四 Harness 的真实占位、完成/中断、刷新/重连、正文边界和受控 fail-closed；Task #539 在 Bundle 216 上补齐 Provider 4 + Codex 的 `reasoning_effort=high`、11 个 `started → completed` 生命周期和 `5.204–6.349s` 页面/TaskLog 时序。reasoning 空 summary 仍保持状态-only，不伪造正文；5–6 秒已是当前口径。剩余是固定 8 行整体 identity 与正式签署，移动设备验收不作为本轮技术执行项 |
 | R4.4：运维与真实 Task 验收 | **技术 evidence 已闭合，未签署** | #468/#469/#488/#513/#517/#521/#523 与 #539 已覆盖 delivery、finalization、archive、取消、零变化、当前 Codex reasoning 和受控远端 divergence；#488 的失败是预期 fail-closed。Task #539 的 canonical receipt `1..34` 连续、`+0/-0`、`commit_sha=null`，无远端写入。当前不再以 30s 单段 reasoning 作为技术门槛；剩余是 exact identity/owner 签署，而不是追加普通 smoke |
-| R4.5：安全与发布审计 | **阻塞于 owner 输入** | 最小权限、轮换、migration 078、签名发布包、retention、维护窗口与独立 P0/P1 审阅尚未签署 |
+| R4.5：安全与发布审计 | **技术审计已收敛，阻塞于 owner 输入** | 当前 candidate 的 identity、测试、Provider credential-ref 边界、Docker/Kit 状态和未执行项已记录在 [R4.5 current-candidate audit](../evidence/2026-09-08-open-harness-v2-r4.5-current-candidate-audit.md)；最小权限/轮换、migration 078 决定、签名发布包、retention、维护窗口与独立 P0/P1 审阅仍未签署 |
 | R4.6：hard-cut go/no-go | **未执行** | R4.2–R4.5 全部闭合后才能形成独立 `GO` 或 `NO-GO` |
 | R5：L6 `v2_only` hard cut | **未执行** | 仅在 R4.6 `GO` 且获得单独执行批准后进入维护窗口 |
 
@@ -170,6 +170,7 @@ probe evidence](../evidence/2026-09-08-open-harness-v2-codex-long-thinking-probe
 - [R4.1 Kit boundary evidence](../evidence/2026-09-03-open-harness-v2-r4.1-kit-boundary.md)
 - [R4.3/R4.4 live Host evidence](../evidence/2026-09-04-open-harness-v2-r4.3-r4.4-live-host.md)
 - [R4.5 security/release audit](../evidence/2026-09-04-open-harness-v2-r4.5-security-release-audit.md)
+- [R4.5 current-candidate audit](../evidence/2026-09-08-open-harness-v2-r4.5-current-candidate-audit.md)
 - [generation 78 four-Harness smoke evidence](../evidence/2026-09-05-open-harness-v2-generation-78-four-harness-smoke.md)
 - [generation 81 delivery-summary regression evidence](../evidence/2026-09-05-open-harness-v2-delivery-summary-regression.md)
 - [four-Harness thinking native probes](../evidence/2026-09-06-four-harness-thinking-probes.md)
