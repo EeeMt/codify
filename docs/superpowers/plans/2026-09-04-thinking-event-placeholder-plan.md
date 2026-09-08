@@ -5,14 +5,14 @@
 状态：rev2 实现已提交于 `c089b67a`；Worker delivery 隔离修复提交于 `7fd0939c`；Codex
 App Server Bridge 已提交于 `5d2fad8e`；Pi OpenAI endpoint root 修复提交于
 `ae223cb1`。外部取消 reasoning 收尾修复已提交于 `dcd0b7b5`。开发 Host 当前为 Profile 4 generation 96、
-Worker Kit 0.6.15；#508–#528 已在当前 source/Kit composition 上形成真实 canonical evidence。#517 在 Bundle 210 关闭 Pi
+Worker Kit 0.6.15；#508–#532 已在当前 source/Kit composition 上形成真实 canonical evidence。#517 在 Bundle 210 关闭 Pi
 `openai_responses` 正常 reasoning 成功行，#513 关闭 OpenCode Responses 正常 durable terminal；
 #514 的 Pi 多轮工具链仍保留上游 401/活动 tool fail-closed 边界。#515 已验证 Codex 取消/刷新
 终态，#518 又在 Bundle 208 产生 4 个短 reasoning block（最大约 4.139s），#521 在 Bundle 211
 补齐 Pi Chat 外部取消的 canonical interrupted 与刷新后终态，#523/#524 又分别补齐 OpenCode Chat 与 Codex
 活动 reasoning 取消/刷新闭环；#526 在 Bundle 211 关闭 Pi 的 63.864s 长思考行，#528 在 Bundle 214 关闭 Claude 的
-469.513s/213.294s 长思考行；#525 的 Codex 最大 block 7.635s、#527 的 OpenCode 最大 block 15.580s，仍未达到本方案
-要求的至少 30s 长思考。第 8 节八组合、Codex/OpenCode 长思考、思考期间取消/刷新重连仍未全部完成；
+469.513s/213.294s 长思考行；#531 的 OpenCode block 达到 1,040.182s；#525/#529/#532 的 Codex 最大 block 仅
+7.635s/7.116s/6.938s，仍未达到本方案要求的至少 30s 长思考。第 8 节八组合、Codex 长思考、思考期间取消/刷新重连仍未全部完成；
 #485–#488 的 Claude 正常 reasoning、delivery 和 remote divergence 保护仍保持有效，不能据此宣称
 四 Harness 整体完成。
 
@@ -273,24 +273,24 @@ A 完成后冻结选择，不让“还需验证信号”成为跳过某个 Harne
 | Harness | 模型协议 | 本功能验收 |
 |---|---|---|
 | Claude | `anthropic_messages` | #454/#459 有 start/end 结构但均以 `protocol_error` 失败；#474 完成 4/4 reasoning 并捕获运行中页面时序；#485/#486/#487 在 Bundle 203 完成 5/5、6/6、7/7 reasoning 并正常 delivery；#488 完成 6/6 reasoning 后以 `remote_diverged` 拒绝覆盖远端；#528 在 Bundle 214 完成两个长 reasoning block（469.513s/213.294s）并正常终态，Claude 长思考行已关闭 |
-| Codex | `openai_responses` | #508 已在 App Server V2 完成真实 reasoning/delivery，#511 完成零变化行，#515/#524 完成取消/刷新终态与 canonical interrupted；#518 在 Bundle 208 完成 4/4 reasoning 与正常 finalization，但 block 仅 0.501/0.115/4.139/2.663s；#525 在 Bundle 213 的唯一 block 仅 7.635s，仍未达到 30s 长思考 |
+| Codex | `openai_responses` | #508 已在 App Server V2 完成真实 reasoning/delivery，#511 完成零变化行，#515/#524 完成取消/刷新终态与 canonical interrupted；#518 在 Bundle 208 完成 4/4 reasoning 与正常 finalization，但 block 仅 0.501/0.115/4.139/2.663s；#525/#529/#532 在 Bundle 213 的最大 block 仅 7.635/7.116/6.938s，仍未达到 30s 长思考 |
 | Pi | `anthropic_messages` | #467 正常完成 1/1 reasoning；#468 完成 6/6 reasoning 并由 Worker push；#472 在 Pi/deepseek-v4-flash 上补齐运行中页面“正在思考 · 1s”先于同一行完成；#526 在 Bundle 211 完成 3/3 reasoning，第三个 block 63.864s，Pi 长思考行已关闭 |
 | Pi | `openai_responses` | #517 在 Bundle 210 使用 Provider 4 完成 1/1 reasoning start/end、正常 terminal 与 `+0/-0`；#516 是无 reasoning 基础对照；#514 的同一 Provider 多轮工具链仍以 401/活动 tool `protocol_error` fail-closed |
 | Pi | `openai_chat_completions` | #470/#476 在修复前 Bundle 返回 404 HTML；#477 使用 Bundle 201 正常完成 24/24 reasoning 并捕获运行中页面时序；#478 在活动思考时取消并刷新恢复，TaskLog 终态兜底为 1 条 `interrupted`，但没有 canonical `reasoning_summary.interrupted`；#521 在 Bundle 211 使用 Provider 5 完成外部取消时的 canonical `reasoning_summary.interrupted(worker_cancelled)` 与刷新后 `已取消` |
 | OpenCode | `anthropic_messages` | #465 正常完成 1/1 reasoning；#469 完成 9/9 reasoning 并补交 dirty file；#473 完成 2/2 reasoning 且终态页面正常，但运行中页面时序仍未完成 |
 | OpenCode | `openai_responses` | #513 在 Bundle 209 使用 Provider 4 完成 5/5 reasoning、durable lifecycle、`+0/-0` 与正常 finalization；#482/#484 的历史 404/403 失败边界仍保留 |
-| OpenCode | `openai_chat_completions` | #458 历史取消但 0/0/0 reasoning；#475/#479/#480 使用 Provider 5 正常完成（分别 3/3、4/4、2/2 reasoning）；#481 在第二个 reasoning 完成约 7.3 秒后于工具阶段取消；#523 在 Bundle 212 补齐思考期间取消、canonical interrupted 与刷新重连；#527 在同一 Bundle 的 4 个 block 最大仅 15.580s，仍未达到 30s 长思考 |
+| OpenCode | `openai_chat_completions` | #458 历史取消但 0/0/0 reasoning；#475/#479/#480 使用 Provider 5 正常完成（分别 3/3、4/4、2/2 reasoning）；#481 在第二个 reasoning 完成约 7.3 秒后于工具阶段取消；#523 在 Bundle 212 补齐思考期间取消、canonical interrupted 与刷新重连；#527 是同一 Bundle 的负探针（最大 15.580s），#531 在同一 Provider/Bundle 完成 1,040.182s 长思考，OpenCode 长思考行已关闭 |
 
-每行使用该组合下支持思考的真实模型。记录 CLI、Kit、Bundle、Provider 协议及模型身份、原生事件接收时间、canonical 序号/ID、TaskLog ID 和浏览器证据。Pi 的 #478 已覆盖活动思考取消后的用户态刷新/重连与允许的终态兜底，但没有 canonical interrupted receipt；#521 在新 Bundle 211 补齐了 Pi Chat 的 canonical interrupted 和刷新后终态，但不替代长思考证据。#523/#524 又分别补齐 OpenCode Chat 与 Codex 的活动 reasoning 取消/刷新闭环；#526/#528 关闭 Pi/Claude 的真实长思考行，#525/#527 仅形成 Codex/OpenCode 的短 block 负证据。#514 的 Pi Responses 失败是多轮工具链活动 tool 的真实 fail-closed 边界，不能替代 #517 的正常成功，也不授权修改凭据或模型 slug；#488 仅关闭 Claude delivery 的受控远端分叉保护，不替代思考期间取消或长思考。纯状态卡片也属于正式验收对象。
+每行使用该组合下支持思考的真实模型。记录 CLI、Kit、Bundle、Provider 协议及模型身份、原生事件接收时间、canonical 序号/ID、TaskLog ID 和浏览器证据。Pi 的 #478 已覆盖活动思考取消后的用户态刷新/重连与允许的终态兜底，但没有 canonical interrupted receipt；#521 在新 Bundle 211 补齐了 Pi Chat 的 canonical interrupted 和刷新后终态，但不替代长思考证据。#523/#524 又分别补齐 OpenCode Chat 与 Codex 的活动 reasoning 取消/刷新闭环；#526/#528/#531 关闭 Pi/Claude/OpenCode 的真实长思考行，#525/#527/#529/#532 形成 Codex 的短 block 负证据。#514 的 Pi Responses 失败是多轮工具链活动 tool 的真实 fail-closed 边界，不能替代 #517 的正常成功，也不授权修改凭据或模型 slug；#488 仅关闭 Claude delivery 的受控远端分叉保护，不替代思考期间取消或长思考。纯状态卡片也属于正式验收对象。
 
 本轮 Task、archive 结构摘要、远端交付和页面边界见 [R4-RC1 remote debug evidence](../evidence/2026-09-08-open-harness-v2-r4-rc1-remote-debug.md)、
 [Codex App Server bridge evidence](../evidence/2026-09-08-open-harness-v2-codex-app-server-bridge.md) 及
 [current Bundle real-task matrix](../evidence/2026-09-08-open-harness-v2-current-bundle-real-task-matrix.md)。除 #472 的实时
 页面观察外，其余页面检查均为终态；#472/#474/#475/#477 分别补充 Pi、Claude、OpenCode 和
 Pi Chat 的页面时序，#478 补充 Pi 活动思考取消后的刷新/重连，#523/#524 分别补充 OpenCode Chat
-与 Codex 活动 reasoning 取消后的刷新/重连，#526/#528 补充 Pi/Claude 达标的真实长思考，#525/#527
-补充 Codex/OpenCode 未达 30s 的负证据，#473/#479/#480 的 OpenCode 观察落在完成后或自然完成，
-#481 的取消晚于 reasoning 完成；Codex/OpenCode 长思考仍不能关闭。
+与 Codex 活动 reasoning 取消后的刷新/重连，#526/#528/#531 补充 Pi/Claude/OpenCode 达标的真实长思考，#525/#527/#529/#532
+补充 Codex 的负证据，#473/#479/#480 的 OpenCode 观察落在完成后或自然完成，
+#481 的取消晚于 reasoning 完成；OpenCode 长思考已由 #531 关闭，Codex 长思考仍不能关闭。
 
 源代码单元测试覆盖全部边缘序列；浏览器交互回归可以共用组件测试，但每个 Harness 的真实页面映射不能由 Pi 的成功代替。尚无原生信号或尚无可运行 Provider 的行保持未完成，整个四 Harness 覆盖不得关闭。
 
@@ -331,7 +331,7 @@ npm run build
 
 保持现有 2 秒事件采集、1.5 秒 SSE 轮询间隔。正常环境中，以 **实时 canonical 开始事件写出后约 5 秒内出现占位** 为验收目标；另须证明这个开始本身发生于原生思考结束前，不能只测最后一段传输。
 
-部署组成必须匹配：Backend/Scheduler、Frontend、新 Runtime Bundle 中的 writer/Adapter/Bridge，以及冻结的 CLI/Kit 身份。当前 Backend image 为 `sha256:7e1878d5107dcc0e4871ef269bf1ddea16fbf03046301bb291a56dae31dc62cf`、Profile 4 generation 96、Kit 0.6.15；Bundle 209 的 #513、Bundle 210 的 #514/#516/#517、Bundle 208 的 #518、Bundle 211 的 #521/#526、Bundle 212 的 #523/#527、Bundle 213 的 #524/#525 和 Bundle 214 的 #528 已分别记录当前 Responses、Pi、Codex、Pi Chat、OpenCode Chat、取消及长思考正负证据；旧快照和旧 Bundle 保持不变。其余组合仍需在对应 Provider 可响应后使用同一 exact composition 验收，单改源码或 manifest 版本标签不算完成。
+部署组成必须匹配：Backend/Scheduler、Frontend、新 Runtime Bundle 中的 writer/Adapter/Bridge，以及冻结的 CLI/Kit 身份。当前 Backend image 为 `sha256:7e1878d5107dcc0e4871ef269bf1ddea16fbf03046301bb291a56dae31dc62cf`、Profile 4 generation 96、Kit 0.6.15；Bundle 209 的 #513、Bundle 210 的 #514/#516/#517、Bundle 208 的 #518、Bundle 211 的 #521/#526、Bundle 212 的 #523/#527/#531、Bundle 213 的 #524/#525/#529/#532 和 Bundle 214 的 #528 已分别记录当前 Responses、Pi、Codex、Pi Chat、OpenCode Chat、取消及长思考正负证据；旧快照和旧 Bundle 保持不变。其余组合仍需在对应 Provider 可响应后使用同一 exact composition 验收，单改源码或 manifest 版本标签不算完成。
 
 关闭本方案前必须满足：
 
@@ -339,7 +339,7 @@ npm run build
 - [ ] 第 8.2 节全部 8 个合法协议组合完成真实验收，包含只有状态而没有正文的情况。
 - [ ] 公共投影支持按 ID 配对、重复去重与交错块，不再用新块开始中断整个 attempt。
 - [ ] 正常完成、空完成、取消/异常、刷新/重连均保持同一条记录的正确状态。
-- [ ] 每个 Harness 至少一条真实长思考页面证据，开始占位先于完成出现，计时停止正确（Pi #526、Claude #528 已达标；Codex #525、OpenCode #527 尚未达标）。
+- [ ] 每个 Harness 至少一条真实长思考页面证据，开始占位先于完成出现，计时停止正确（Pi #526、Claude #528、OpenCode #531 已达标；Codex #525/#529/#532 尚未达标）。
 - [ ] 若 Codex 更换 transport，原有 session、权限、工具、usage、最终结果和共享交付回归完成。
 - [ ] 源码/测试、Bundle 组成、真实任务、浏览器验收分别记录，并同步本文件进度。
 
