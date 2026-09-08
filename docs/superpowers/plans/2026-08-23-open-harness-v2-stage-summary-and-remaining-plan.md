@@ -30,10 +30,11 @@ Bundle 216，显式快照 `{"codex":{"reasoning_effort":"high"}}`；11 个 reaso
 [Codex Go Provider reasoning probe evidence](../evidence/2026-09-08-open-harness-v2-codex-long-thinking-probes.md)。
 
 **2026-09-08 readiness TTL 复核：** 在继续推进 release gate 前，对同一开发 Host 的 Profile 4 做了显式管理员
-Verify。四个 Harness 均通过，Profile generation 更新为 `100`，readiness 有效至 `2026-09-08 09:07:59 UTC`；
+Verify。四个 Harness 均通过，Profile generation 更新为 `101`，readiness 检查于 `2026-09-08 09:10:02 UTC`
+完成并有效至 `2026-09-08 09:25:02 UTC`；
 Worker image、Kit `0.6.16`、manifest SHA 和 Harness inventory 均未变化，验证容器已清理，未产生新的 Bundle。
 Task #539 / Bundle 216 保留为 generation `99` 下的不可变真实 Task 证据；由于没有实际 runtime artifact 漂移，
-不追加重复 smoke，当前 release identity 以 generation `100` 为准。
+不追加重复 smoke，当前 release identity 以 generation `101` 为准。
 
 ## 1. 当前结论
 
@@ -46,9 +47,9 @@ Task #539 / Bundle 216 保留为 generation `99` 下的不可变真实 Task 证�
 | R2：四 Harness hard-cut conformance | **完成，受影响场景重开** | 历史 8 个适用 Harness×protocol 行及 lifecycle/command/recovery 已闭合；`c089b67a`、`7fd0939c` 及 `5d2fad8e` 修改 reasoning lifecycle、共享 delivery 隔离边界和 Codex App Server transport，仍须在同一 candidate 上重验受影响组合 |
 | R3：正式 20-scenario benchmark | **完成** | Pi/OpenCode 20/20 formal pair 与 Pi 非劣性门槛已通过；当前变化未升级 CLI 或修改 model endpoint protocol，但切换了 Codex control transport，故不整体重跑 benchmark、改由 R2/R4 重验 Codex；真实验收若发现 terminal、质量或性能回归再按影响重开 |
 | R4.1：可信 Kit 启动边界 | **完成** | content-addressed 安装、管理员完整 Verify、Task 热路径轻量校验与 warm-start 已有 L2–L4 证据 |
-| R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 overlay 已推进到 source `4249fcc4`、Profile 4 generation `100`、Worker Kit 0.6.16、Backend image `sha256:029384d710497c768bd6ca23ef6fa62fcd4751670d03d7aa0c35d990e91ed81e`、NGINX image `sha256:aa09c11639f0f5838c085006c0690344f32536c1dcbd91dda37681cd6e253f2`；Task #539 的 Bundle 216 是 generation `99` 下的不可变真实 Task 证据，历史 Bundle 198–215 保持不可变；镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
+| R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 overlay 已推进到 source `4249fcc4`、Profile 4 generation `101`、Worker Kit 0.6.16、Backend image `sha256:029384d710497c768bd6ca23ef6fa62fcd4751670d03d7aa0c35d990e91ed81e`、NGINX image `sha256:aa09c11639f0f5838c085006c0690344f32536c1dcbd91dda37681cd6e253f2`；Task #539 的 Bundle 216 是 generation `99` 下的不可变真实 Task 证据，历史 Bundle 198–215 保持不可变；镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
 | R4.3：正式交互验收 | **技术 evidence 已闭合，未签署** | 固定 8 行由 #468/#469/#488/#513/#517/#521/#523 与 generation `99` 快照下的 #539 组成，覆盖四 Harness 的真实占位、完成/中断、刷新/重连、正文边界和受控 fail-closed；Task #539 在 Bundle 216 上补齐 Provider 4 + Codex 的 `reasoning_effort=high`、11 个 `started → completed` 生命周期和 `5.204–6.349s` 页面/TaskLog 时序。reasoning 空 summary 仍保持状态-only，不伪造正文；5–6 秒已是当前口径。剩余是固定 8 行整体 identity 与正式签署，移动设备验收不作为本轮技术执行项 |
-| R4.4：运维与真实 Task 验收 | **技术 evidence 已闭合，未签署** | #468/#469/#488/#513/#517/#521/#523 与 generation `99` 快照下的 #539 已覆盖 delivery、finalization、archive、取消、零变化、Codex reasoning 和受控远端 divergence；#488 的失败是预期 fail-closed。Task #539 的 canonical receipt `1..34` 连续、`+0/-0`、`commit_sha=null`，无远端写入。当前不再以 30s 单段 reasoning 作为技术门槛；generation `100` Verify 未改变这些 runtime artifact。剩余是 exact identity/owner 签署，而不是追加普通 smoke |
+| R4.4：运维与真实 Task 验收 | **技术 evidence 已闭合，未签署** | #468/#469/#488/#513/#517/#521/#523 与 generation `99` 快照下的 #539 已覆盖 delivery、finalization、archive、取消、零变化、Codex reasoning 和受控远端 divergence；#488 的失败是预期 fail-closed。Task #539 的 canonical receipt `1..34` 连续、`+0/-0`、`commit_sha=null`，无远端写入。当前不再以 30s 单段 reasoning 作为技术门槛；generation `101` Verify 未改变这些 runtime artifact。剩余是 exact identity/owner 签署，而不是追加普通 smoke |
 | R4.5：安全与发布审计 | **技术审计已收敛，阻塞于 owner 输入** | 当前 candidate 的 identity、测试、Provider credential-ref 边界、Docker/Kit 状态和未执行项已记录在 [R4.5 current-candidate audit](../evidence/2026-09-08-open-harness-v2-r4.5-current-candidate-audit.md)；最小权限/轮换、migration 078 决定、签名发布包、retention、维护窗口与独立 P0/P1 审阅仍未签署 |
 | R4.6：hard-cut go/no-go | **未执行** | R4.2–R4.5 全部闭合后才能形成独立 `GO` 或 `NO-GO` |
 | R5：L6 `v2_only` hard cut | **未执行** | 仅在 R4.6 `GO` 且获得单独执行批准后进入维护窗口 |
@@ -195,7 +196,7 @@ probe evidence](../evidence/2026-09-08-open-harness-v2-codex-long-thinking-probe
 
 R4-RC1 已在开发 Host 形成当前 source/Kit composition，并完成固定 8 行的真实 Provider evidence；
 其中 #468/#469/#488/#513/#517/#521/#523 使用不可变历史 Bundle，Codex 行由 generation `99` 快照下的 #539
-在 Bundle 216 上重验；当前 generation `100` 仅重新确认了相同 image/Kit/runtime readiness。技术退出条件已形成预期结果，尚未完成的是 R4.2–R4.4 的正式 identity/验收签署
+在 Bundle 216 上重验；当前 generation `101` 仅重新确认了相同 image/Kit/runtime readiness。技术退出条件已形成预期结果，尚未完成的是 R4.2–R4.4 的正式 identity/验收签署
 和 R4.5 owner closure。停止追加无关 smoke，不刷新历史 benchmark，不进入 owner 签署前的 hard cut。
 
 ### A. 冻结源码与变更范围
