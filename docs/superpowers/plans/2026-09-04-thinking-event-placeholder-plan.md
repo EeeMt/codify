@@ -4,17 +4,14 @@
 
 状态：rev2 实现已提交于 `c089b67a`；Worker delivery 隔离修复提交于 `7fd0939c`；Codex
 App Server Bridge 已提交于 `5d2fad8e`；Pi OpenAI endpoint root 修复提交于
-`ae223cb1`。开发 Host 的 Profile 4 已安装并 Verify Kit 0.6.15，修复后重新 Verify 为
-generation 92。#464–#488 已验证 Pi/OpenCode/Claude 的真实 reasoning，#468/#469/#471/#485/#486/#487 完成
-canonical Git delivery；#472/#474/#475/#477 已在运行中页面捕获思考占位先于同一行完成。
-Codex #461–#463 仍在 Provider 边界失败；Pi Chat 的 #470/#476 是修复前 Bundle 失败，#477
-在新 Bundle 201 上正常完成，#478 又验证了活动思考取消后的页面刷新/重连终态兜底；#473/#479/#480
-的 OpenCode 页面采集未形成取消证据，#481 的取消发生在 reasoning 完成后的工具阶段。第 8 节
-八组合、Codex reasoning start/end、思考期间取消/刷新重连和长思考要求仍未完成。#482（OpenCode/
-Provider 9/Bundle 202）、#483（Pi/Provider 12/Bundle 201）和 #484（OpenCode/Provider 4/
-Bundle 202）进一步证明现有 Responses Provider 在真实模型响应前返回免费模型 404 或地区 403；
-#485–#487（Claude/Provider 3/Bundle 203）完成正常 reasoning 与 Git delivery，#488 在同一 Bundle
-上证明并发远端分叉时以 `remote_diverged` fail-closed；不能据此宣称四 Harness 整体完成。
+`ae223cb1`。开发 Host 当前为 Profile 4 generation 95、Worker Kit 0.6.15；#508–#518 已在
+当前 source/Kit composition 上形成真实 canonical evidence。#517 在 Bundle 210 关闭 Pi
+`openai_responses` 正常 reasoning 成功行，#513 关闭 OpenCode Responses 正常 durable terminal；
+#514 的 Pi 多轮工具链仍保留上游 401/活动 tool fail-closed 边界。#515 已验证 Codex 取消/刷新
+终态，#518 又在 Bundle 208 产生 4 个短 reasoning block（最大约 4.139s），但没有达到本方案
+要求的至少 30s 长思考。第 8 节八组合、四 Harness 长思考、思考期间取消/刷新重连仍未全部完成；
+#485–#488 的 Claude 正常 reasoning、delivery 和 remote divergence 保护仍保持有效，不能据此宣称
+四 Harness 整体完成。
 
 ## 1. 目标与完成边界
 
@@ -273,15 +270,15 @@ A 完成后冻结选择，不让“还需验证信号”成为跳过某个 Harne
 | Harness | 模型协议 | 本功能验收 |
 |---|---|---|
 | Claude | `anthropic_messages` | #454/#459 有 start/end 结构但均以 `protocol_error` 失败；#474 完成 4/4 reasoning 并捕获运行中页面时序；#485/#486/#487 在 Bundle 203 完成 5/5、6/6、7/7 reasoning 并正常 delivery；#488 完成 6/6 reasoning 后以 `remote_diverged` 拒绝覆盖远端，仍未覆盖思考期间取消/长思考 |
-| Codex | `openai_responses` | #461–#463 已走 `rpc_stdio/codex-app-server-v2`，分别因 free model 404 或地区 403 在 reasoning 前失败；无 canonical reasoning start/end，未完成 |
+| Codex | `openai_responses` | #508 已在 App Server V2 完成真实 reasoning/delivery，#511 完成零变化行，#515 完成取消/刷新终态；#518 在 Bundle 208 完成 4/4 reasoning 与正常 finalization，但 block 仅 0.501/0.115/4.139/2.663s，未达到 30s 长思考 |
 | Pi | `anthropic_messages` | #467 正常完成 1/1 reasoning；#468 完成 6/6 reasoning 并由 Worker push；#472 在 Pi/deepseek-v4-flash 上补齐运行中页面“正在思考 · 1s”先于同一行完成，但不是长思考或思考期间取消 |
-| Pi | `openai_responses` | #450 完成但 0/0/0 reasoning；#483 在 Bundle 201 上因 Provider 12 免费模型 404 失败；现有 Responses Provider 仍不可用，未完成 |
+| Pi | `openai_responses` | #517 在 Bundle 210 使用 Provider 4 完成 1/1 reasoning start/end、正常 terminal 与 `+0/-0`；#516 是无 reasoning 基础对照；#514 的同一 Provider 多轮工具链仍以 401/活动 tool `protocol_error` fail-closed |
 | Pi | `openai_chat_completions` | #470/#476 在修复前 Bundle 返回 404 HTML；#477 使用 Bundle 201 正常完成 24/24 reasoning 并捕获运行中页面时序；#478 在活动思考时取消并刷新恢复，TaskLog 终态兜底为 1 条 `interrupted`，但没有 canonical `reasoning_summary.interrupted` |
 | OpenCode | `anthropic_messages` | #465 正常完成 1/1 reasoning；#469 完成 9/9 reasoning 并补交 dirty file；#473 完成 2/2 reasoning 且终态页面正常，但运行中页面时序仍未完成 |
-| OpenCode | `openai_responses` | #453 完成但 0/0/0 reasoning；#482 在 Bundle 202 上因 Provider 9 免费模型 404 失败，#484 因 Provider 4 地区 403 失败；现有 Responses Provider 仍不可用，未完成 |
+| OpenCode | `openai_responses` | #513 在 Bundle 209 使用 Provider 4 完成 5/5 reasoning、durable lifecycle、`+0/-0` 与正常 finalization；#482/#484 的历史 404/403 失败边界仍保留 |
 | OpenCode | `openai_chat_completions` | #458 历史取消但 0/0/0 reasoning；#475/#479/#480 使用 Provider 5 正常完成（分别 3/3、4/4、2/2 reasoning）；#481 在第二个 reasoning 完成约 7.3 秒后于工具阶段取消，仍未覆盖思考期间取消/刷新重连 |
 
-每行使用该组合下支持思考的真实模型。记录 CLI、Kit、Bundle、Provider 协议及模型身份、原生事件接收时间、canonical 序号/ID、TaskLog ID 和浏览器证据。Pi 的 #478 已覆盖活动思考取消后的用户态刷新/重连与允许的终态兜底，但没有 canonical interrupted receipt；OpenCode 仍需一条真实活动思考取消并刷新/重连。#482/#483 的 Responses 任务在 reasoning 前由 OpenRouter 免费 Provider 以 404 失败，#484 由 Provider 4 上游地区策略以 403 失败，不能替代可用 Responses 行；#488 仅关闭 Claude delivery 的受控远端分叉保护，不替代思考期间取消或长思考；若无新的已授权可用模型，保持两条 Responses 行未完成。纯状态卡片也属于正式验收对象。
+每行使用该组合下支持思考的真实模型。记录 CLI、Kit、Bundle、Provider 协议及模型身份、原生事件接收时间、canonical 序号/ID、TaskLog ID 和浏览器证据。Pi 的 #478 已覆盖活动思考取消后的用户态刷新/重连与允许的终态兜底，但没有 canonical interrupted receipt；OpenCode 仍需一条真实活动思考取消并刷新/重连。#514 的 Pi Responses 失败是多轮工具链活动 tool 的真实 fail-closed 边界，不能替代 #517 的正常成功，也不授权修改凭据或模型 slug；#488 仅关闭 Claude delivery 的受控远端分叉保护，不替代思考期间取消或长思考。纯状态卡片也属于正式验收对象。
 
 本轮 Task、archive 结构摘要、远端交付和页面边界见 [R4-RC1 remote debug evidence](../evidence/2026-09-08-open-harness-v2-r4-rc1-remote-debug.md)、
 [Codex App Server bridge evidence](../evidence/2026-09-08-open-harness-v2-codex-app-server-bridge.md) 及
@@ -330,7 +327,7 @@ npm run build
 
 保持现有 2 秒事件采集、1.5 秒 SSE 轮询间隔。正常环境中，以 **实时 canonical 开始事件写出后约 5 秒内出现占位** 为验收目标；另须证明这个开始本身发生于原生思考结束前，不能只测最后一段传输。
 
-部署组成必须匹配：Backend/Scheduler、Frontend、新 Runtime Bundle 中的 writer/Adapter/Bridge，以及冻结的 CLI/Kit 身份。Pi endpoint 修复已在 Backend image `sha256:87cc35d940d97ef2c82ef9f6f00d2f8cc7feddb01e7d8c74ee6aac37326a10d1`、Profile 4 generation 92 和新 Bundle 201 上由 Task #477 验证；旧快照和旧 Bundle 保持不变。其余协议行仍需在对应 Provider 可响应后使用新 Bundle 验收，单改源码或 manifest 版本标签不算完成。
+部署组成必须匹配：Backend/Scheduler、Frontend、新 Runtime Bundle 中的 writer/Adapter/Bridge，以及冻结的 CLI/Kit 身份。当前 Backend image 为 `sha256:9c24e529fcd2238d57be93a359ab79a5f4868ed4143f09852c88c92406bba510`、Profile 4 generation 95、Kit 0.6.15；Bundle 209 的 #513、Bundle 210 的 #514/#516/#517 和 Bundle 208 的 #518 已分别记录当前 Responses、Pi 和 Codex 证据；旧快照和旧 Bundle 保持不变。其余组合仍需在对应 Provider 可响应后使用同一 exact composition 验收，单改源码或 manifest 版本标签不算完成。
 
 关闭本方案前必须满足：
 

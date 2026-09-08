@@ -20,7 +20,9 @@ interrupted 回归；#504–#505 在 Bundle 206 上补充了受控远端分叉�
 验证了 OpenCode `openai_responses` 的真实成功生命周期；#514 在 Bundle 210 复核 Pi `openai_responses`，
 保留了上游 401 与活动 tool 的 fail-closed 终态，未伪造成功；#515 在 Bundle 208 上补齐 Codex
 运行中取消、页面刷新后的 `已取消` 终态、canonical failure/finalization/archive 和容器清理；#516/#517
-在同一 Bundle 210 上分别完成 Pi Responses 无 reasoning 基础响应与正常 reasoning 成功终态。
+在同一 Bundle 210 上分别完成 Pi Responses 无 reasoning 基础响应与正常 reasoning 成功终态；#518
+在 Bundle 208 上补充 Codex 长 reasoning 负证据，四个 reasoning block 的最大 canonical 持续约 4.139s，
+仍未达到 30s 长思考门槛。
 
 ## 1. Exact composition
 
@@ -48,7 +50,7 @@ interrupted 回归；#504–#505 在 Bundle 206 上补充了受控远端分叉�
 | 205 | OpenCode（native abort drain 修复后） | `a9992043629103ef544de7250d1817e14cfd5f61653f17a4feab57176c38a2c9` |
 | 206 | Claude（#504/#505；同一当前 composition） | `921d7b53676eb61f4b8c1301802392e8791fe1d912cfddecd1381caddd28dffc` |
 | 207 | Codex（#508；Profile 4 generation 94） | `6dca863dcb69e26bd6ce9db082e7fd5d1827fdfa6b46027322cb8524fd2bda35` |
-| 208 | Codex（#510/#511/#512/#515；pre-Harness finalizer 修复后） | `96341e488faa37bd081169a3c69a91504fbbaa2efa89f0ce890eb2e55114adc7` |
+| 208 | Codex（#510/#511/#512/#515/#518；pre-Harness finalizer 修复后） | `96341e488faa37bd081169a3c69a91504fbbaa2efa89f0ce890eb2e55114adc7` |
 | 209 | OpenCode（#513；当前 Profile 4 generation 95） | `1788f343846af0ea05de39a45276640e49d92f62a990fdd30b2c571416f6a91c` |
 | 210 | Pi（#514/#516/#517；当前 Profile 4 generation 95） | `9d206d5c90fb8ddbdb850f92e19976b46e749fb0ab736ccb1ccf23ed71806030` |
 
@@ -109,6 +111,7 @@ Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bun
 | #515 | Codex / 4 / `gpt-5.6-luna` | 208 | cancelled；6/6 reasoning，5/5 tool，`run.failed` | 页面运行中取消后刷新仍为 `已取消`；canonical seq 31/32/33 为 `harness.failed(cancelled)` → `worker.finalization(exit_code=143, diff=0)` → `run.failed(status=cancelled)`，0 changes、无远端写入 |
 | #516 | Pi / 4 / `gpt-5.6-luna` | 210 | completed；0 reasoning，`run.completed` | 自由模式基础 Responses 控制任务，AI 返回 `PASS`；0 changes、`commit_sha=null`，用于确认简单请求可达，不计作 reasoning 行 |
 | #517 | Pi / 4 / `gpt-5.6-luna` | 210 | completed；1/1 reasoning，`run.completed` | 分析模式无工具只读控制任务；canonical seq 5/6 为同一 reasoning ID 的 started/completed，页面显示思考完成与 `PASS`；0 changes、无提交，关闭 Pi Responses 正常 reasoning 成功行 |
+| #518 | Codex / 4 / `gpt-5.6-luna` | 208 | completed；4/4 reasoning，`run.completed` | 只读约 32s 探针；canonical reasoning block 为 0.501/0.115/4.139/2.663s，最大仍远低于 30s；2 次工具调用正常收敛，`+0/-0` |
 
 除 #504（旧 Bundle、进入 Harness 前失败且没有 canonical receipt）外，上述 Task 的 attempt 均为
 `codify.worker.event/v2`，transport 与 adapter identity 来自真实 `run.started` receipt，而非
@@ -162,6 +165,7 @@ Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bun
 | #515 | 5 / 2,534 | 22,868 bytes | `run.failed` / cancelled |
 | #516 | 4 / 2,830 | 4,401 bytes | `run.completed` |
 | #517 | 4 / 2,860 | 6,823 bytes | `run.completed` |
+| #518 | 5 / 3,243 | 22,904 bytes | `run.completed` |
 
 所有任务结束后，相关 Worker 容器均已清理；Backend/Scheduler 保持健康。#472 的 attempt 为
 `task-472-attempt-1-9ef92102943b`，`codify.worker.event/v2`、Pi adapter `2.1.1`、CLI
@@ -539,6 +543,16 @@ Codex adapter `1.2.0`、CLI `0.146.0`，`last_seq=43`、`control=closed`。这�
 raw 为 6 chunks / 3,881 bytes，archive 为 46,212 bytes。它是有界负证据：总任务耗时和较多
 只读工具调用没有产生长 reasoning，也没有提供活动 reasoning 取消窗口；不关闭 Codex 长思考或
 取消验收，也不授权增加等待卡或静态伪造。
+
+Task #518 的 attempt 为 `task-518-attempt-1-79200b845323`，绑定 Bundle 208、Profile 4、Provider 4
+`opencode-luna / gpt-5.6-luna`，`codify.worker.event/v2`，Codex adapter `1.2.0`、CLI `0.146.0`，
+`last_seq=25`、`control=closed`。它是新的只读长 reasoning 探针，真实页面总运行约 32s、
+`+0/-0`，canonical 有 4 对同 ID reasoning start/end，按 receipt 时间计算分别为
+`0.501s/0.115s/4.139s/2.663s`；期间有 2 次只读 shell 工具调用，均正常完成。末尾 seq 21/22/23/24/25
+依次为 `harness.completed`、`delivery.started`、`delivery.completed(exit_code=0, commit_sha=null)`、
+`worker.finalization(exit_code=0, diff=0)`、`run.completed(status=completed, success=true)`；raw 为
+5 chunks / 3,243 bytes，archive 为 22,904 bytes。它补充了当前 Codex App Server 的真实负证据：
+总运行时间不能替代至少 30s 的 reasoning block，仍不关闭 Codex 或四 Harness 长思考验收。
 
 ## 7. Current Bundle Responses recheck: #513/#514/#516/#517
 
