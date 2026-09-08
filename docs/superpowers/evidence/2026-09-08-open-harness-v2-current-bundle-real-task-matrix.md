@@ -2,13 +2,13 @@
 
 **复核日期：** 2026-09-08
 **Host：** `192.168.50.129`（开发环境，Docker context `remote`）
-**结论：** Codex 真实模型响应/reasoning/正常 Git delivery、零变化 delivery、取消/刷新终态、OpenCode 活动 reasoning canonical interrupted，以及当前 Bundle 的 OpenCode `openai_responses` durable lifecycle 已验证；Worker 仓库前置失败的 canonical terminal 也已补齐。Pi `openai_responses` 已在同一 Provider/当前 Bundle 上由 #517 完成正常 reasoning 与 terminal，#516 另完成无 reasoning 的基础响应；#521 在新 Bundle 211 上补齐 Pi Chat 外部取消的 canonical `reasoning_summary.interrupted` 与刷新后 `已取消`；#514 的多轮工具链仍保留真实 401/活动 tool fail-closed 边界，不能把该失败误记为成功。R4.3/R4.4 仍未签署，整体保持 `NO-GO`
+**结论：** Codex 真实模型响应/reasoning/正常 Git delivery、零变化 delivery、取消/刷新终态、OpenCode 活动 reasoning canonical interrupted，以及当前 Bundle 的 OpenCode `openai_responses` durable lifecycle 已验证；Worker 仓库前置失败的 canonical terminal 也已补齐。Pi `openai_responses` 已在同一 Provider/当前 Bundle 上由 #517 完成正常 reasoning 与 terminal，#516 另完成无 reasoning 的基础响应；#521 在 Bundle 211 上补齐 Pi Chat 外部取消的 canonical `reasoning_summary.interrupted` 与刷新后 `已取消`，#523 在 Bundle 212 上补齐 OpenCode Chat 同一闭环，#524 在 Bundle 213 上补齐 Codex 活动 reasoning 取消/刷新闭环；#514 的多轮工具链仍保留真实 401/活动 tool fail-closed 边界，不能把该失败误记为成功。R4.3/R4.4 仍未签署，整体保持 `NO-GO`
 
 本记录补充 [Codex App Server bridge evidence](2026-09-08-open-harness-v2-codex-app-server-bridge.md)，
 记录历史 source/Kit composition 下的 Pi、OpenCode、Claude 真实任务，以及 Pi OpenAI endpoint
 与 Worker finalization、OpenCode native abort drain 修复后新 Bundle 的真实回归。事件来自远端
 `task_harness_event_receipts`，raw/archive 只记录元数据，不复制原始内容。历史 Bundle 保持不可变，
-修复后的 Task 使用独立 Bundle 201/202/203/204/205/206/207/208/209/210/211；#482/#483/#484 又在当前 Bundle 上复核了
+修复后的 Task 使用独立 Bundle 201/202/203/204/205/206/207/208/209/210/211/212/213；#482/#483/#484 又在当前 Bundle 上复核了
 `openai_responses` 的真实 Provider 失败边界，#485–#488 补齐了 Claude 的正常交付与受控远端
 分叉保护，#490–#498 复核了 OpenCode finalization、native abort、archive 和 cancelled terminal
 收敛边界，#499–#503 在新 Bundle 上完成正常完成、工具阶段取消和活动 reasoning canonical
@@ -22,7 +22,8 @@ interrupted 回归；#504–#505 在 Bundle 206 上补充了受控远端分叉�
 运行中取消、页面刷新后的 `已取消` 终态、canonical failure/finalization/archive 和容器清理；#516/#517
 在同一 Bundle 210 上分别完成 Pi Responses 无 reasoning 基础响应与正常 reasoning 成功终态；#518
 在 Bundle 208 上补充 Codex 长 reasoning 负证据，四个 reasoning block 的最大 canonical 持续约 4.139s；#521
-在 Bundle 211 上补齐 Pi Chat 外部取消的 canonical interrupted、页面刷新终态与清理证据，仍未达到 30s 长思考门槛。
+在 Bundle 211 上补齐 Pi Chat 外部取消的 canonical interrupted、页面刷新终态与清理证据；#523 在 Bundle 212
+上补齐 OpenCode Chat 同一闭环；#524 在 Bundle 213 上补齐 Codex 活动 reasoning 取消/刷新闭环，仍未达到 30s 长思考门槛。
 
 ## 1. Exact composition
 
@@ -54,6 +55,8 @@ interrupted 回归；#504–#505 在 Bundle 206 上补充了受控远端分叉�
 | 209 | OpenCode（#513；当前 Profile 4 generation 95） | `1788f343846af0ea05de39a45276640e49d92f62a990fdd30b2c571416f6a91c` |
 | 210 | Pi（#514/#516/#517；当前 Profile 4 generation 95） | `9d206d5c90fb8ddbdb850f92e19976b46e749fb0ab736ccb1ccf23ed71806030` |
 | 211 | Pi（#521；外部取消 reasoning 收尾修复后，当前 Profile 4 generation 96） | `2382cfe47018540fa82d0f272c68591caeba4ced1f633102811d17fad6e95c39` |
+| 212 | OpenCode（#523；同一外部取消 reasoning 收尾修复，当前 Profile 4 generation 96） | `38796d1956e15f38b7163612d3972a46cb4375d4b4a0de7541a02ef1c6ce439c` |
+| 213 | Codex（#524；同一外部取消 reasoning 收尾修复，当前 Profile 4 generation 96） | `5f5d3ddb0546df5afb7f09451c19dac0b7be79b3de5e64fdde37264491dd1cc1` |
 
 上述 manifest 均保留四 Harness；实际 Task snapshot 分别绑定对应 Harness 的 adapter/CLI：
 Pi `2.1.1/0.84.2`、OpenCode `2.1.0/1.18.19`、Claude `1.1.0/2.1.153`、Codex `1.2.0/0.146.0`。Bundle 201 的 Pi
@@ -61,7 +64,7 @@ adapter digest 为 `d326e5c4f0bc2eedcbc4d835ef17c804d1b07b959be5a6af9384309d5024
 Bundle 198 为 `e619b8464d7b1c6fee08661eb1e2dd3a87da58065f10dc9166d749403a836356`。
 Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image。部署外部取消 reasoning 收尾
 修复后重新 Verify Profile 4 生成 generation `96`，以刷新与新 Runtime source 一致的四 Harness evidence；
-新生成的 Bundle 211 绑定 #521，历史 Bundle 207 及更早 Bundle 保持不可变。
+新生成的 Bundle 211 绑定 #521、Bundle 212 绑定 #523、Bundle 213 绑定 #524，历史 Bundle 207 及更早 Bundle 保持不可变。
 
 Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bundle 205 完全一致，
 因此把 206 记录为 #504/#505 的当前任务快照 identity，不把它误计为新的 Adapter source 修复。
@@ -114,6 +117,8 @@ Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bun
 | #517 | Pi / 4 / `gpt-5.6-luna` | 210 | completed；1/1 reasoning，`run.completed` | 分析模式无工具只读控制任务；canonical seq 5/6 为同一 reasoning ID 的 started/completed，页面显示思考完成与 `PASS`；0 changes、无提交，关闭 Pi Responses 正常 reasoning 成功行 |
 | #518 | Codex / 4 / `gpt-5.6-luna` | 208 | completed；4/4 reasoning，`run.completed` | 只读约 32s 探针；canonical reasoning block 为 0.501/0.115/4.139/2.663s，最大仍远低于 30s；2 次工具调用正常收敛，`+0/-0` |
 | #521 | Pi / 5 / `mimo-v2.5` | 211 | cancelled；1 started / 0 completed / 1 interrupted，`run.failed` | 页面 11:01:24 显示“正在思考 · 21s”，取消并刷新后稳定“已取消”；canonical seq 5/6 为 started→interrupted(`worker_cancelled`)，seq 7/8/9 为 terminal/finalization/run.failed，`+0/-0` |
+| #523 | OpenCode / 5 / `mimo-v2.5` | 212 | cancelled；1 started / 0 completed / 1 interrupted，`run.failed` | 页面 11:20:54 显示“正在思考 · 6s”，立即取消并刷新后稳定“已取消”；canonical seq 5/173 为 started→interrupted(`worker_cancelled`)，seq 175/178/179 为 terminal/finalization/run.failed，`+0/-0` |
+| #524 | Codex / 4 / `gpt-5.6-luna` | 213 | cancelled；3 started / 2 completed / 1 interrupted，`run.failed` | 页面 11:26:02 先显示两个完成 block，第三个思考 block 活动时取消并刷新；canonical seq 10/11 为 started→interrupted(`worker_cancelled`)，seq 12/13/14 为 terminal/finalization/run.failed，`+0/-0` |
 
 除 #504（旧 Bundle、进入 Harness 前失败且没有 canonical receipt）外，上述 Task 的 attempt 均为
 `codify.worker.event/v2`，transport 与 adapter identity 来自真实 `run.started` receipt，而非
@@ -169,6 +174,8 @@ Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bun
 | #517 | 4 / 2,860 | 6,823 bytes | `run.completed` |
 | #518 | 5 / 3,243 | 22,904 bytes | `run.completed` |
 | #521 | 4 / 2,761 | 7,509 bytes | `run.failed` / cancelled |
+| #523 | 4 / 2,834 | 18,318 bytes | `run.failed` / cancelled |
+| #524 | 4 / 2,775 | 5,022 bytes | `run.failed` / cancelled |
 
 所有任务结束后，相关 Worker 容器均已清理；Backend/Scheduler 保持健康。#472 的 attempt 为
 `task-472-attempt-1-9ef92102943b`，`codify.worker.event/v2`、Pi adapter `2.1.1`、CLI
@@ -335,6 +342,14 @@ fail-closed 验收边界。
 - Pi Task #521 在 Bundle 211 上补齐了外部取消先于 Adapter 原生结束事件到达时的
   `reasoning_summary.started → reasoning_summary.interrupted(reason=worker_cancelled)`，并验证了取消后刷新、
   archive、TaskLog interrupted 与容器清理；该任务关闭 Pi Chat 的 canonical interrupted/刷新终态子项；
+- OpenCode Task #523 在 Bundle 212 上补齐了同一活动思考取消闭环：页面先显示“正在思考”，立即取消后
+  刷新仍为 `已取消`；canonical `reasoning_summary.started → reasoning_summary.interrupted(reason=worker_cancelled) →
+  harness.failed(cancelled) → worker.finalization → run.failed`，TaskLog、archive 与容器清理均收敛；该任务关闭
+  OpenCode Chat 的 canonical interrupted/刷新终态子项；
+- Codex Task #524 在 Bundle 213 上完成了活动 reasoning 取消回归：前两个 block 正常完成，第三个 block
+  在页面显示思考时取消；canonical `reasoning_summary.started → reasoning_summary.interrupted(reason=worker_cancelled) →
+  harness.failed(cancelled) → worker.finalization → run.failed`，刷新后保持 `已取消`，TaskLog、archive 和容器
+  清理均收敛；该任务关闭 Codex 活动 reasoning 取消/刷新子项，但不关闭 Codex 或四 Harness 长思考；
 - Claude Task #474 有真实运行中页面时序：开始占位先于同一行完成，终态无代码变更；
 - Claude Task #485/#486/#487 补齐了当前 Bundle 203 的真实正常 reasoning 与 Git delivery，
   #488 又以并发远端分叉证明 delivery fail-closed，拒绝覆盖远端分支且不产生成功交付；
@@ -369,17 +384,18 @@ fail-closed 验收边界。
 仍未关闭：
 
 - Codex 的真实成功响应与 reasoning 已由 #508 证明，精确零代码变化、无空提交和无虚假远端 SHA
-  已由 #511 关闭；#512 的长运行探针没有形成长 reasoning 或活动取消窗口，仍缺 Codex 取消/刷新
-  和长思考回归，不修改 Provider slug。
+  已由 #511 关闭；#512 的长运行探针没有形成长 reasoning，#524 已补齐活动取消/刷新窗口，仍缺 Codex
+  长思考回归，不修改 Provider slug。
 - Pi/OpenCode 的 `openai_responses` 基础可用行已由 #513/#517 分别关闭：#513 是 OpenCode
   durable lifecycle，#517 是 Pi 正常 reasoning start/end 与正常 terminal；#516 仅作为 Pi 无
   reasoning 的基础请求控制证据。#482/#483 在当前 Bundle 202/201 上仍保留真实 OpenRouter
   免费模型 404，#484 在 Bundle 202 上保留 Provider 4 地区 403；不能改用付费 slug 或绕过
   上游策略伪造能力。#514 则显示同一 Provider 的 Pi 多轮工具链仍会在上游 401 后以活动 tool
   `protocol_error` fail-closed，不能据此修改凭据、模型 slug 或把失败升级为成功。当前仍缺
-  四 Harness 长思考、Codex 取消验收和 OpenCode Chat 活动思考取消/刷新。#488 已关闭 Claude 受控远端 divergence 的 fail-closed
-  边界。#478 的 Pi 取消已覆盖终态兜底，但没有 canonical interrupted receipt；#521 已在新 Bundle
-  关闭 Pi Chat 的 canonical interrupted/刷新子项；#475/#477/#479/#480
+  四 Harness 长思考。#488 已关闭 Claude 受控远端 divergence 的 fail-closed
+  边界。#478 的 Pi 取消已覆盖终态兜底，但没有 canonical interrupted receipt；#521 已在 Bundle 211
+  关闭 Pi Chat 的 canonical interrupted/刷新子项，#523 已在 Bundle 212 关闭 OpenCode Chat 的同一子项，#524 已在 Bundle 213
+  关闭 Codex 活动 reasoning 取消/刷新子项；#475/#477/#479/#480
   是正常完成，#481 是思考完成后的取消，#498/#502 是 native reasoning 收尾竞态，#503 已补齐
   OpenCode 的 canonical interrupted，但单个思考块耗时也很短；#505 的 Claude 长运行探针同样
   只有约 2.0 秒思考，不能替代第 8 节长思考要求；
@@ -561,7 +577,7 @@ Task #518 的 attempt 为 `task-518-attempt-1-79200b845323`，绑定 Bundle 208�
 5 chunks / 3,243 bytes，archive 为 22,904 bytes。它补充了当前 Codex App Server 的真实负证据：
 总运行时间不能替代至少 30s 的 reasoning block，仍不关闭 Codex 或四 Harness 长思考验收。
 
-## 7. Current Bundle Responses and cancellation recheck: #513/#514/#516/#517/#521
+## 7. Current Bundle Responses and cancellation recheck: #513/#514/#516/#517/#521/#523/#524
 
 Task #513 的 attempt 为 `task-513-attempt-1-b97b9dc7fbf2`，绑定 Bundle 209、Profile 4、Provider 4
 `opencode-luna / gpt-5.6-luna`，`codify.worker.event/v2`，OpenCode adapter `2.1.0`、CLI
@@ -629,4 +645,25 @@ Task #521 的 attempt 为 `task-521-attempt-1-23efb01fa0e6`，绑定新生成的
 `run.failed(status=cancelled)`；TaskLog thinking id `23113` 为 `interrupted`，Task 为 `+0/-0` 且无提交。
 archive 为 7,509 bytes，raw TaskLog 为 4 chunks / 2,761 chars，容器已清理。该任务验证了外部 Docker
 取消先于 Adapter 原生结束事件到达时，finalizer 能关闭仍开放的 reasoning block；它关闭 Pi Chat 的
-canonical interrupted/刷新终态子项，但不关闭 Codex 或四 Harness 长思考，也不替代 OpenCode Chat 活动取消验收。
+canonical interrupted/刷新终态子项，但不关闭四 Harness 长思考证据。
+
+Task #523 的 attempt 为 `task-523-attempt-1-5c03573672c5`，绑定 Bundle 212、Profile 4、Provider 5
+`opencode-mimo / mimo-v2.5`，协议为 `openai_chat_completions`，OpenCode adapter `2.1.0`、CLI `1.18.19`，
+`last_seq=179`、`control=closed`。真实页面在 11:20:54 显示 `正在思考 · 6s`，立即取消并刷新后稳定显示
+`已取消` 与 `思考记录已中断`。canonical seq 5/173 为同一 OpenCode reasoning ID 的
+`reasoning_summary.started → reasoning_summary.interrupted(reason=worker_cancelled)`，随后 seq 175/178/179
+依次为 `harness.failed(cancelled)`、`worker.finalization(exit_code=143, diff=0)`、
+`run.failed(status=cancelled)`；TaskLog thinking id `23129` 为 `interrupted`，Task 为 `+0/-0` 且无提交。
+archive 为 18,318 bytes，raw TaskLog 为 4 chunks / 2,818 chars（2,834 bytes），容器已清理。该任务
+关闭 OpenCode Chat 的活动 reasoning canonical interrupted 与刷新终态子项；仍不关闭四 Harness 长思考证据要求。
+
+Task #524 的 attempt 为 `task-524-attempt-1-c53700ca4fab`，绑定 Bundle 213、Profile 4、Provider 4
+`opencode-luna / gpt-5.6-luna`，协议为 `openai_responses`，Codex adapter `1.2.0`、CLI `0.146.0`，
+`last_seq=14`、`control=closed`。真实页面在 11:26:02 先显示两个已完成 reasoning block，第三个 block
+于 11:26:10 进入活动思考后立即取消；刷新后稳定显示 `已取消`，三个 block 为 2 completed + 1 interrupted。
+canonical seq 10/11 为第三个 reasoning ID 的
+`reasoning_summary.started → reasoning_summary.interrupted(reason=worker_cancelled)`，随后 seq 12/13/14
+依次为 `harness.failed(cancelled)`、`worker.finalization(exit_code=143, diff=0)`、
+`run.failed(status=cancelled)`；TaskLog thinking ids `23137/23138/23139` 分别为 completed/completed/interrupted，
+Task 为 `+0/-0` 且无提交。archive 为 5,022 bytes，raw TaskLog 为 4 chunks / 2,759 chars（2,775 bytes），
+容器已清理。该任务关闭 Codex 活动 reasoning 取消/刷新终态子项，但不关闭 Codex 或四 Harness 的 30s 长思考证据。
