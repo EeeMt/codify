@@ -7,7 +7,35 @@
 本记录只收敛本轮真实 Provider、Runtime identity、Task archive 结构摘要和浏览器页面证据。
 它不把一次成功 Task 推广为四 Harness 完成，也不替代 R4.5 owner 签署或 R4.6 决策。
 
-## 1. Source 与部署组成
+> 第 1–5 节保留 generation 84 的早期远端调试快照；当前开发 candidate 以本节 overlay 和方案文档
+> R4.2 表为准。旧快照不因新部署改写，旧失败边界也继续保留为历史 evidence。
+
+## 0. Current candidate overlay
+
+| 项 | 当前值 |
+| --- | --- |
+| Source anchor | `4249fcc4` (`feat(codex): forward configured reasoning effort`) |
+| Profile / Verify | Profile 4 `v2-canary-0.6.11-four-harness`，generation `99`，`2026-09-08 07:52:51.33487` |
+| Worker Kit | `0.6.16-linux-amd64-4866812149bd`，manifest SHA `4866812149bd240af4802ab1aa11b8364cc49b400a8d4a71d2721b8ac9ef5f9c` |
+| Backend / Scheduler | `sha256:029384d710497c768bd6ca23ef6fa62fcd4751670d03d7aa0c35d990e91ed81e`，远端运行 35 分钟且 Backend healthy |
+| NGINX | `sha256:aa09c11639f0f5838c085006c0690344f32536c1dcbd91dda37681cd6e253f2`，远端运行 2 小时 |
+| Worker image | `127.0.0.1:5000/codify-worker/java21-maven@sha256:234582c692d1ebb00ba8e882160618c2258463149d968009ac81c545e63a538b` |
+| Runtime Bundle | `216` / `c374ef5a009c53d2fc469a262e5cabcb23efff97f9d6176655992198bba946a7` |
+| Provider / Task | Provider 4 `opencode-luna / gpt-5.6-luna`，`openai_responses`；Task #539 `completed` |
+| Task snapshot | `worker_profile_id=4`、`runtime_bundle_id=216`、`projected_harness_key=codex`、`reasoning_effort=high` |
+
+远端 Docker 只读复核得到 11 个容器全部运行（Backend/Scheduler/NGINX/Postgres 健康），没有
+`pending`、`queued` 或 `running` Task；`docker system df` 为 Images `20/9`、`7.991GB`、可回收
+`961.5MB`，Build cache 可回收 `380MB`。未触及服务、volume、active/unknown Worker 或不确定归属的
+image/archive，也没有执行清理。
+
+Task #539 在当前 Bundle 上有 34 条连续 Canonical receipt，11/11 reasoning `started → completed`，
+单段 `5.204–6.349s`，最终 `+0/-0`、`commit_sha=null`，无远端写入。该任务和固定 8 行中的
+不可变历史 Task #468/#469/#488/#513/#517/#521/#523 一起构成当前技术 evidence；5–6 秒是当前 reasoning
+可用性口径，历史段落中的 30s 仅作旧负探针记录。R4.3/R4.4 技术 evidence 已闭合但尚未正式签署，
+R4.5 owner closure 未完成，故 R4.6 仍为 `NO-GO`。
+
+## 1. Historical source 与部署组成（generation 84）
 
 | 项 | 本轮值 |
 | --- | --- |
@@ -32,7 +60,7 @@ identity；它不是已签名的 source-to-image provenance。分支当前与 `o
 `2.176GB`；根盘约 41% 使用率。本轮未达到磁盘满条件，未清理任何 Codify 镜像、volume、cache
 或不确定归属的活动容器。
 
-## 2. 真实 Task 结构摘要
+## 2. Historical 真实 Task 结构摘要
 
 完整 raw archive 仍保留在远端；下表只记录脱敏后的事件类型/序号、终态和交付摘要。`reasoning`
 列依次为 `started/completed/interrupted`，不是把 archive 内容复制到本地。
@@ -52,7 +80,7 @@ identity；它不是已签名的 source-to-image provenance。分支当前与 `o
 
 此外，#455 的 Provider 返回模型不可用的 404；它不是取消、thinking 或 delivery 证据，故不计入矩阵。
 
-## 3. 浏览器页面证据
+## 3. Historical 浏览器页面证据
 
 以下截图来自开发 Host 的真实 Task detail 页面；它们证明页面终态、Provider/Harness、delivery 摘要和
 可见 thinking 行，但截图是在任务完成/取消/失败后取得，不能单独证明“开始占位早于完成”或 5 秒内出现。
@@ -66,7 +94,7 @@ identity；它不是已签名的 source-to-image provenance。分支当前与 `o
 - [#458 OpenCode Chat cancelled](../../../output/playwright/task-458-opencode-chat-cancelled.png)
 - [#459 Claude normalization failure](../../../output/playwright/task-459-claude-normalization-failed.png)
 
-## 4. 验收结论与停止条件
+## 4. Historical 验收边界与停止条件
 
 本轮确认了 Pi/OpenCode 的部分真实成功交付、受控远端分叉保护、两个 Chat 取消终态和 Claude 的
 两类失败边界；没有满足完整 R4-RC1 退出条件：
@@ -77,10 +105,11 @@ identity；它不是已签名的 source-to-image provenance。分支当前与 `o
 - OpenCode #449 的复杂 delivery 场景超时；不能把部分提交或失败前日志当成成功 reconciliation。
 - #452、#457 的 reasoning start/end 与完成页面已留证，但本轮没有在任务运行中截取“占位先于完成”的实时页面时序。
 
-因此 R4.3/R4.4 仍为部分 evidence、未签署；R4.5 仍等待 owner 输入；R4.6 保持 `NO-GO`。
-不得执行 migration 078、`v2_only` 或 R5，也不追加普通 smoke 来稀释上述失败边界。
+因此 generation 84 快照本身不能作为当前 R4.3/R4.4 的完整 evidence；它的失败边界继续有效，不能被后续成功
+Task 稀释。当前 R4.3/R4.4 的技术结论和 #539 见第 0 节；正式签署仍等待 R4.2 identity、R4.3/R4.4
+验收签字与 R4.5 owner closure。不得执行 migration 078、`v2_only` 或 R5，也不追加普通 smoke 来稀释历史失败边界。
 
-## 5. 本地验证
+## 5. Historical 本地验证
 
 - `backend/.venv/bin/python -m pytest backend/tests/unit/test_worker_git_delivery.py -q`：`36 passed`
 - `bash -n deploy/worker-entrypoint/repository-helpers.sh`：passed

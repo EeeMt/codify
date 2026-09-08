@@ -186,9 +186,10 @@ probe evidence](../evidence/2026-09-08-open-harness-v2-codex-long-thinking-probe
 
 ## 4. 唯一下一工作包：R4-RC1
 
-R4-RC1 已在开发 Host 形成当前 source/Kit composition，并执行 #461–#517 真实 Provider Task；
-其中三 Harness reasoning 与三条 Git delivery 已闭合部分证据，但固定的 8 个合法 Harness×protocol
-退出条件尚未满足。完成前不追加无关 smoke，不刷新历史 benchmark，不进入 owner 签署。
+R4-RC1 已在开发 Host 形成当前 source/Kit composition，并完成固定 8 行的真实 Provider evidence；
+其中 #468/#469/#488/#513/#517/#521/#523 使用不可变历史 Bundle，当前受影响的 Codex 行由 #539
+在 Bundle 216 上重验。技术退出条件已形成预期结果，尚未完成的是 R4.2–R4.4 的正式 identity/验收签署
+和 R4.5 owner closure。停止追加无关 smoke，不刷新历史 benchmark，不进入 owner 签署前的 hard cut。
 
 ### A. 冻结源码与变更范围
 
