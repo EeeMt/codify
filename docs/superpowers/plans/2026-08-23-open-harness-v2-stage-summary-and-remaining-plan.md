@@ -47,8 +47,8 @@ Task #539 / Bundle 216 保留为 generation `99` 下的不可变真实 Task 证�
 | R3：正式 20-scenario benchmark | **完成** | Pi/OpenCode 20/20 formal pair 与 Pi 非劣性门槛已通过；当前变化未升级 CLI 或修改 model endpoint protocol，但切换了 Codex control transport，故不整体重跑 benchmark、改由 R2/R4 重验 Codex；真实验收若发现 terminal、质量或性能回归再按影响重开 |
 | R4.1：可信 Kit 启动边界 | **完成** | content-addressed 安装、管理员完整 Verify、Task 热路径轻量校验与 warm-start 已有 L2–L4 证据 |
 | R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 overlay 已推进到 source `4249fcc4`、Profile 4 generation `100`、Worker Kit 0.6.16、Backend image `sha256:029384d710497c768bd6ca23ef6fa62fcd4751670d03d7aa0c35d990e91ed81e`、NGINX image `sha256:aa09c11639f0f5838c085006c0690344f32536c1dcbd91dda37681cd6e253f2`；Task #539 的 Bundle 216 是 generation `99` 下的不可变真实 Task 证据，历史 Bundle 198–215 保持不可变；镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
-| R4.3：正式交互验收 | **技术 evidence 已闭合，未签署** | 固定 8 行由 #468/#469/#488/#513/#517/#521/#523 与当前 #539 组成，覆盖四 Harness 的真实占位、完成/中断、刷新/重连、正文边界和受控 fail-closed；Task #539 在 Bundle 216 上补齐 Provider 4 + Codex 的 `reasoning_effort=high`、11 个 `started → completed` 生命周期和 `5.204–6.349s` 页面/TaskLog 时序。reasoning 空 summary 仍保持状态-only，不伪造正文；5–6 秒已是当前口径。剩余是固定 8 行整体 identity 与正式签署，移动设备验收不作为本轮技术执行项 |
-| R4.4：运维与真实 Task 验收 | **技术 evidence 已闭合，未签署** | #468/#469/#488/#513/#517/#521/#523 与 #539 已覆盖 delivery、finalization、archive、取消、零变化、当前 Codex reasoning 和受控远端 divergence；#488 的失败是预期 fail-closed。Task #539 的 canonical receipt `1..34` 连续、`+0/-0`、`commit_sha=null`，无远端写入。当前不再以 30s 单段 reasoning 作为技术门槛；剩余是 exact identity/owner 签署，而不是追加普通 smoke |
+| R4.3：正式交互验收 | **技术 evidence 已闭合，未签署** | 固定 8 行由 #468/#469/#488/#513/#517/#521/#523 与 generation `99` 快照下的 #539 组成，覆盖四 Harness 的真实占位、完成/中断、刷新/重连、正文边界和受控 fail-closed；Task #539 在 Bundle 216 上补齐 Provider 4 + Codex 的 `reasoning_effort=high`、11 个 `started → completed` 生命周期和 `5.204–6.349s` 页面/TaskLog 时序。reasoning 空 summary 仍保持状态-only，不伪造正文；5–6 秒已是当前口径。剩余是固定 8 行整体 identity 与正式签署，移动设备验收不作为本轮技术执行项 |
+| R4.4：运维与真实 Task 验收 | **技术 evidence 已闭合，未签署** | #468/#469/#488/#513/#517/#521/#523 与 generation `99` 快照下的 #539 已覆盖 delivery、finalization、archive、取消、零变化、Codex reasoning 和受控远端 divergence；#488 的失败是预期 fail-closed。Task #539 的 canonical receipt `1..34` 连续、`+0/-0`、`commit_sha=null`，无远端写入。当前不再以 30s 单段 reasoning 作为技术门槛；generation `100` Verify 未改变这些 runtime artifact。剩余是 exact identity/owner 签署，而不是追加普通 smoke |
 | R4.5：安全与发布审计 | **技术审计已收敛，阻塞于 owner 输入** | 当前 candidate 的 identity、测试、Provider credential-ref 边界、Docker/Kit 状态和未执行项已记录在 [R4.5 current-candidate audit](../evidence/2026-09-08-open-harness-v2-r4.5-current-candidate-audit.md)；最小权限/轮换、migration 078 决定、签名发布包、retention、维护窗口与独立 P0/P1 审阅仍未签署 |
 | R4.6：hard-cut go/no-go | **未执行** | R4.2–R4.5 全部闭合后才能形成独立 `GO` 或 `NO-GO` |
 | R5：L6 `v2_only` hard cut | **未执行** | 仅在 R4.6 `GO` 且获得单独执行批准后进入维护窗口 |
@@ -156,7 +156,7 @@ CLI digest 为 `2e863156ed35ecc5253b1e2f907a9143077b9f7cb51942070c61996471ff6e04
 
 **2026-09-08 当前 reasoning effort overlay：** 为支持真实 OpenCode Go 验证，Backend/Scheduler 已部署
 source `4249fcc4`（Backend image `sha256:029384d710497c768bd6ca23ef6fa62fcd4751670d03d7aa0c35d990e91ed81e`），
-Profile 4 重新 Verify 为 generation `99`，Worker Kit 仍为 0.6.16；代码更新后的 Codex adapter digest
+Task #539 创建时 Profile 4 的 Verify generation 为 `99`，Worker Kit 仍为 0.6.16；代码更新后的 Codex adapter digest
 为 `9cc9dfe316cbba7f93ae1aad751f95f729e67706de365206671d6e485ae247b0`。Task #539 绑定新 Bundle 216
 （digest `c374ef5a009c53d2fc469a262e5cabcb23efff97f9d6176655992198bba946a7`），快照明确包含
 `{"codex":{"reasoning_effort":"high"}}`，Provider 4 为 `openai_responses` / OpenCode Go；11 个真实
@@ -194,8 +194,8 @@ probe evidence](../evidence/2026-09-08-open-harness-v2-codex-long-thinking-probe
 ## 4. 唯一下一工作包：R4-RC1
 
 R4-RC1 已在开发 Host 形成当前 source/Kit composition，并完成固定 8 行的真实 Provider evidence；
-其中 #468/#469/#488/#513/#517/#521/#523 使用不可变历史 Bundle，当前受影响的 Codex 行由 #539
-在 Bundle 216 上重验。技术退出条件已形成预期结果，尚未完成的是 R4.2–R4.4 的正式 identity/验收签署
+其中 #468/#469/#488/#513/#517/#521/#523 使用不可变历史 Bundle，Codex 行由 generation `99` 快照下的 #539
+在 Bundle 216 上重验；当前 generation `100` 仅重新确认了相同 image/Kit/runtime readiness。技术退出条件已形成预期结果，尚未完成的是 R4.2–R4.4 的正式 identity/验收签署
 和 R4.5 owner closure。停止追加无关 smoke，不刷新历史 benchmark，不进入 owner 签署前的 hard cut。
 
 ### A. 冻结源码与变更范围
@@ -297,7 +297,7 @@ Provider 凭据、模型 slug 或绕过上游认证；若后续要修复多轮�
 - 无未接受的 P0/P1；形成一份独立、脱敏的 R4-RC1 evidence；
 - 完成后停止技术执行，转入 R4.5 owner closure，不再追加普通 smoke。
 
-当前技术执行不再因 30 秒单段 reasoning 开放：Task #539 已在新 Bundle 216 上关闭 Codex 的真实
+当前技术执行不再因 30 秒单段 reasoning 开放：generation `99` 快照下的 Task #539 已在新 Bundle 216 上关闭 Codex 的真实
 Provider/adapter/占位/Canonical/TaskLog/finalization 子项，固定 8 行技术 evidence 也已形成预期结果。
 R4-RC1 仍保持开放，仅因为 R4.2 candidate identity、R4.3/R4.4 正式签署和 R4.5 owner closure 尚未完成；
 后续不追加普通长思考 smoke。
