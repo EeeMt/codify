@@ -1,5 +1,11 @@
 # 四 Harness 思考占位与耗时展示实施方案
 
+**2026-09-08 展示边界修正：** 思考占位只负责生命周期状态和耗时反馈，不得因
+`in_progress`、`completed` 或 `interrupted` 状态而隐藏已经投影的正文。只要记录存在
+显式 `payload_id`、内联正文或已加载正文，就继续保留原有预览和“完整内容”入口；只有
+真正空的占位记录才显示状态而不显示全文。Codex 仅接入 App Server 提供的可读
+`summary_text`（包括流式 `summaryTextDelta`），不把原始 `content`/`textDelta` 当作页面正文。
+
 日期：2026-09-04
 
 状态：rev2 实现已提交于 `c089b67a`；Worker delivery 隔离修复提交于 `7fd0939c`；Codex
@@ -88,12 +94,15 @@ Worker Kit 0.6.15；#508–#532 已在当前 source/Kit composition 上形成真
 | 状态 | 展示 |
 |---|---|
 | `in_progress` | “正在思考 · 12 秒”，轻量动画，本地每秒计时 |
-| `completed` | “思考完成 · 耗时 48 秒”，有最终内容时出现预览与全文入口 |
+| `completed` | “思考完成 · 耗时 48 秒”，有显式内容时出现预览与全文入口 |
 | 空内容 `completed` | 同样停止计时并展示已知耗时，没有全文入口 |
 | `interrupted` | “思考记录已中断”，停止计时，不将 Harness/Task 结束时间充作精确思考耗时 |
 | Task 已终止但记录仍未结束 | 前端派生为中断展示；后续真实完成记录仍可纠正这项展示兜底 |
 
 本地计时只用于运行反馈，完成以服务端耗时为准；`0` 是有效值，`null` 表示未知。保持日志 ID、创建时间和位置，避免完成时重复计数或跳动。没有正文不能影响状态闭合。
+
+全文入口由“是否存在显式正文”决定，而不是由生命周期状态决定。占位优化不能把已有
+正文变成不可展开；空内容完成或中断记录才保持状态-only 展示。
 
 ## 4. 四个 Harness 的原生接入
 
@@ -140,6 +149,9 @@ Worker Kit 0.6.15；#508–#532 已在当前 source/Kit composition 上形成真
 - 由 Task 容器中的单个 Bridge 启动 Codex 子进程，完成初始化、`thread/start` 或 `thread/resume`、`turn/start`，持续消费同一执行实例的通知。
 - 仅将当前任务 thread/turn 的实时 reasoning item 映射为占位，使用包含 thread、turn、item 身份的 ID。resume 响应中的历史 items 不重复投影。
 - 以 reasoning 的 `item/completed` 关闭思考块；`turn/completed` 只用于整轮结果及剩余块收尾。取消经 `turn/interrupt` 和既有进程 TERM/KILL 兜底，失败与超时按原有失败分类处理。
+- `item/completed` 的 `reasoning.summary` 与 `item/reasoning/summaryTextDelta` 只投影为显式
+  摘要正文；`reasoning.content` 与 `item/reasoning/textDelta` 保持隐藏，不进入 canonical
+  `text` 或页面全文。
 - 同时接回助手最终回复、工具调用、usage、上下文压缩、session ID 和结果文件，使现有共享交付仍有完整输入。EOF 或启动成功均不能代替成功终态。
 - 保持冻结的 Provider/模型/认证配置、运行用户、任务 Skills、工作目录、sandbox 与审批策略、Git 写入限制，以及 session 保存/恢复边界。权限请求不得因更换 transport 被无条件放行。
 - 更新 Codex manifest 的 `control_transport`、Adapter 版本及 Bundle 摘要；同步被该元数据变更影响的合同、目录和测试。使用现有 `rpc_stdio` 类别表达本地协议，并记录 Codex App Server 协议名。
@@ -206,7 +218,7 @@ Worker Kit 0.6.15；#508–#532 已在当前 source/Kit composition 上形成真
 - HTTP 快照、SSE batch/update 共用按 ID 合并规则。重复消息不增加数量，过时进行中快照不覆盖最终状态。
 - 多个思考卡片共用一个本地时钟；计时 tick 不增加 API 调用、数据库写入、日志行或全文渲染。
 - 四个 Harness 使用同一 UI，不根据 Harness 名称、正文非空或模型名决定是否展示占位。
-- 完成前无全文入口，完成后按现有内容加载；用户阅读历史时不强制滚动。完成更新保留已有展开状态。
+- 空占位没有全文入口；只要已有显式正文就保留原有预览与全文入口，完成后仍按现有内容加载。用户阅读历史时不强制滚动；完成更新保留已有展开状态。
 - 桌面、360px 窄屏、中英文和减少动画偏好均纳入回归。
 
 ## 7. 实施步骤与文件范围

@@ -587,8 +587,7 @@ def _translate_raw_stream_v2(runtime_dir: Path, raw_records: list[dict]) -> None
 
 
 def test_codex_reasoning_items_map_to_lifecycle(tmp_path):
-    """exec reasoning items: item.started -> started; item.completed -> empty
-    completed with the same stable id (plan §4.3 exec-path mapping)."""
+    """exec reasoning items preserve an explicit summary and stable pairing."""
     runtime_dir = tmp_path / "reasoning"
     runtime_dir.mkdir()
     _emit(runtime_dir, "run.started")
@@ -607,7 +606,12 @@ def test_codex_reasoning_items_map_to_lifecycle(tmp_path):
             },
             {
                 "type": "item.completed",
-                "item": {"id": "item_0", "type": "reasoning"},
+                "item": {
+                    "id": "item_0",
+                    "type": "reasoning",
+                    "summary": [{"type": "summary_text", "text": "safe summary"}],
+                    "content": [{"type": "reasoning_text", "text": "hidden chain"}],
+                },
             },
             {
                 "type": "item.completed",
@@ -627,7 +631,9 @@ def test_codex_reasoning_items_map_to_lifecycle(tmp_path):
     assert completed[0]["payload"] == {
         "reasoning_id": "codex-reason-thread-abc-item_0",
         "client": "codex",
+        "text": "safe summary",
     }
+    assert "hidden chain" not in json.dumps(events, ensure_ascii=False)
     assert completed[0]["seq"] > started[0]["seq"]
 
 
@@ -694,6 +700,24 @@ def test_codex_app_server_reasoning_items_map_to_lifecycle(tmp_path):
                 },
             },
             {
+                "method": "item/reasoning/summaryTextDelta",
+                "params": {
+                    "threadId": "thread-app",
+                    "turnId": "turn-app",
+                    "itemId": "item-app-reason",
+                    "delta": "safe ",
+                },
+            },
+            {
+                "method": "item/reasoning/summaryTextDelta",
+                "params": {
+                    "threadId": "thread-app",
+                    "turnId": "turn-app",
+                    "itemId": "item-app-reason",
+                    "delta": "summary",
+                },
+            },
+            {
                 "method": "item/completed",
                 "params": {
                     "threadId": "thread-app",
@@ -702,7 +726,7 @@ def test_codex_app_server_reasoning_items_map_to_lifecycle(tmp_path):
                         "id": "item-app-reason",
                         "type": "reasoning",
                         "summary": [],
-                        "content": [],
+                        "content": [{"type": "reasoning_text", "text": "hidden chain"}],
                     },
                 },
             },
@@ -761,7 +785,9 @@ def test_codex_app_server_reasoning_items_map_to_lifecycle(tmp_path):
     assert completed[0]["payload"] == {
         "reasoning_id": "codex-reason-thread-app-item-app-reason",
         "client": "codex",
+        "text": "safe summary",
     }
+    assert "hidden chain" not in json.dumps(events, ensure_ascii=False)
     assert events[-2]["type"] == "usage.final"
     assert events[-2]["payload"]["usage"]["reasoning_tokens"] == 3
     result = json.loads((runtime_dir / "harness-result.json").read_text(encoding="utf-8"))

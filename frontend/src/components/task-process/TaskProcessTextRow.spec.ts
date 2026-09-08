@@ -134,6 +134,39 @@ describe('TaskProcessTextRow', () => {
     expect(renderMarkdownMock).not.toHaveBeenCalled()
   })
 
+  it('keeps explicit thinking content expandable while the lifecycle row is active', async () => {
+    const wrapper = mount(TaskProcessTextRow, {
+      props: {
+        row: {
+          kind: 'thinking',
+          event: createTaskLog(),
+          textEntry: {
+            text: '',
+            preview: 'live thinking summary',
+            payloadId: 21,
+            charCount: 24,
+            truncated: false,
+            thinkingStatus: 'in_progress',
+            startedAt: '2026-09-04T01:00:00Z',
+            endedAt: null,
+            durationMs: null,
+          },
+        },
+        expandedText: '**live thinking body**',
+        loading: false,
+        showContent: true,
+        nowMs: Date.parse('2026-09-04T01:00:15Z'),
+        taskActive: true,
+      },
+    })
+
+    expect(wrapper.find('.event-preview').text()).toContain('live thinking summary')
+    expect(wrapper.find('button.tool-badge').exists()).toBe(true)
+
+    await wrapper.get('button.tool-badge').trigger('click')
+    expect(wrapper.html()).toContain('<p>**live thinking body**</p>')
+  })
+
   it('shows a label with no time suffix when in-progress has no usable startedAt', () => {
     const wrapper = mount(TaskProcessTextRow, {
       props: {

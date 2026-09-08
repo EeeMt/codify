@@ -135,19 +135,20 @@ const nameLabel = computed<string>(() => {
 
 const hasContent = computed(() => {
   const entry = props.row.textEntry
-  return entry.payloadId !== null || entry.text.trim() !== ''
+  return entry.payloadId !== null || entry.text.trim() !== '' || props.expandedText.trim() !== ''
 })
 
-// Legacy rows always keep today's full-text badge; lifecycle rows only render it
-// once completed with actual content. in_progress / interrupted render nothing.
+// The lifecycle placeholder must not hide content that was already projected.
+// Empty placeholders remain status-only, while any explicit body keeps the
+// same preview/full-text affordance regardless of lifecycle status.
 const showFullTextControls = computed(
-  () => !isLifecycleRow.value || (lifecycleStatus.value === 'completed' && hasContent.value),
+  () => !isLifecycleRow.value || hasContent.value,
 )
 
 const showPreview = computed(() => {
   if (preview.value === '') return false
   if (!isLifecycleRow.value) return true
-  return lifecycleStatus.value === 'completed'
+  return hasContent.value
 })
 
 function syncRender() {

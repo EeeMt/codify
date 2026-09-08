@@ -29,6 +29,7 @@ _STATE: dict = {
     "model_resolved": False,
     "last_assistant_text": "",
     "message_text": {},
+    "reasoning_summary_text": {},
     "usage": {},
     # Open reasoning blocks keyed by canonical reasoning_id (plan §4.3 exec
     # path). Only blocks whose started was observed are ever completed here;
@@ -98,6 +99,27 @@ def _reasoning_id(item_id: str) -> str:
     per-thread, so thread alone is not enough; contentIndex-like fields are
     never used alone (plan §3.2)."""
     return f"codex-reason-{_STATE['thread_id'] or 'thread'}-{item_id}"
+
+
+def _reasoning_summary_text(item: dict) -> str:
+    """Extract only the provider's explicit readable reasoning summary.
+
+    Codex reasoning items distinguish ``summary`` from raw ``content``.  The
+    former is the model-provided display summary; the latter is hidden
+    reasoning and must never enter canonical events or TaskPayloads.
+    """
+    summary = item.get("summary")
+    if not isinstance(summary, list):
+        return ""
+    return "".join(
+        part.get("text", "")
+        for part in summary
+        if (
+            isinstance(part, dict)
+            and part.get("type") == "summary_text"
+            and isinstance(part.get("text"), str)
+        )
+    )
 
 
 def _close_open_reasoning(reason: str, raw_line: int) -> None:
@@ -316,6 +338,14 @@ def _translate_app_server(record: dict, raw_line: int) -> bool:
         if isinstance(item_id, str) and isinstance(delta, str):
             _STATE["message_text"][item_id] = _STATE["message_text"].get(item_id, "") + delta
         return True
+    if method == "item/reasoning/summaryTextDelta":
+        item_id = params.get("itemId")
+        delta = params.get("delta")
+        if isinstance(item_id, str) and isinstance(delta, str):
+            _STATE["reasoning_summary_text"][item_id] = (
+                _STATE["reasoning_summary_text"].get(item_id, "") + delta
+            )
+        return True
     if method == "thread/tokenUsage/updated":
         token_usage = params.get("tokenUsage")
         if isinstance(token_usage, dict):
@@ -429,20 +459,26 @@ def translate(record: dict, raw_line: int) -> None:
         item = record.get("item") if isinstance(record.get("item"), dict) else {}
         item_type = item.get("type")
         if item_type == "reasoning":
-            # A reasoning block ends without a body: the completion carries no
-            # text and still closes the placeholder. Replays of the same item
-            # must not emit a second completion (plan §4.3).
+            # Close the placeholder and retain only an explicit readable
+            # summary. Raw reasoning content is intentionally never projected.
             reasoning_id = _reasoning_id(str(item.get("id") or ""))
             if reasoning_id in _STATE["open_reasoning"]:
+                payload = {"reasoning_id": reasoning_id, "client": "codex"}
+                item_id = str(item.get("id") or "")
+                streamed_summary = _STATE["reasoning_summary_text"].pop(item_id, "")
+                summary_text = _reasoning_summary_text(item) or streamed_summary
+                if summary_text:
+                    payload["text"] = summary_text
                 _emit(
                     "reasoning_summary.completed",
-                    {"reasoning_id": reasoning_id, "client": "codex"},
+                    payload,
                     raw_line,
                 )
                 del _STATE["open_reasoning"][reasoning_id]
                 _STATE["closed_reasoning"].add(reasoning_id)
             elif reasoning_id not in _STATE["closed_reasoning"]:
                 # Never started at all: auditable orphan, no fabricated start.
+                _STATE["reasoning_summary_text"].pop(str(item.get("id") or ""), None)
                 _emit(
                     "diagnostic",
                     {"code": "reasoning_completed_without_start", "item_id": item.get("id")},
