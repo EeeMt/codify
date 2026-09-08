@@ -227,6 +227,38 @@ codify_harness_preparation_failure_message() {
     printf '%s\n' "${message}"
 }
 
+codify_harness_interrupt_open_reasoning() {
+    local reason="${1:-process_terminated}"
+    local reasoning_id
+    # An outer Docker stop can terminate the Adapter before its native stream
+    # reaches EOF. Close only canonical blocks that are durably known to be
+    # open; the Adapter remains authoritative whenever it had time to emit its
+    # own completed/interrupted event.
+    while IFS= read -r reasoning_id; do
+        [ -n "${reasoning_id}" ] || continue
+        codify_emit_event "reasoning_summary.interrupted" \
+            "$(jq -nc --arg reasoning_id "${reasoning_id}" --arg reason "${reason}" \
+                '{reasoning_id:$reasoning_id,reason:$reason}')" || return 1
+    done < <(
+        jq -r -s '
+            reduce .[] as $event ({open: []};
+                if $event.type == "reasoning_summary.started" then
+                    ($event.payload.reasoning_id // "") as $reasoning_id
+                    | if $reasoning_id != "" and (.open | index($reasoning_id)) == null
+                      then .open += [$reasoning_id]
+                      else .
+                      end
+                elif $event.type == "reasoning_summary.completed"
+                    or $event.type == "reasoning_summary.interrupted" then
+                    .open = [.open[] | select(. != ($event.payload.reasoning_id // ""))]
+                else .
+                end
+            )
+            | .open[]
+        ' "${CODIFY_RUNTIME_DIR}/event.jsonl" 2>/dev/null
+    )
+}
+
 codify_harness_finalize_attempt() {
     local exit_code="${1:-1}"
     local delivery_payload finalization_payload terminal_payload git_snapshot
@@ -271,14 +303,17 @@ codify_harness_finalize_attempt() {
         if codify_event_type_exists "harness.completed" || codify_event_type_exists "harness.failed"; then
             CODIFY_HARNESS_TERMINAL_SEEN=1
         elif codify_harness_timeout_requested; then
+            codify_harness_interrupt_open_reasoning "worker_timeout" || true
             codify_emit_event "harness.failed" \
                 '{"failure":{"kind":"timeout","message":"Task timed out"}}'
             CODIFY_HARNESS_TERMINAL_SEEN=1
         elif [ "${CODIFY_CANCELLED:-0}" -eq 1 ]; then
+            codify_harness_interrupt_open_reasoning "worker_cancelled" || true
             codify_emit_event "harness.failed" \
                 '{"failure":{"kind":"cancelled","message":"Cancelled by user"}}'
             CODIFY_HARNESS_TERMINAL_SEEN=1
         else
+            codify_harness_interrupt_open_reasoning "process_terminated" || true
             codify_emit_event "harness.failed" \
                 '{"failure":{"kind":"protocol_error","message":"Harness exited without a terminal event"}}'
             CODIFY_HARNESS_TERMINAL_SEEN=1

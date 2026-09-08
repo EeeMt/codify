@@ -1070,6 +1070,49 @@ codify_harness_finalize_attempt 143
     assert result["session_id"] == "session-timeout"
 
 
+def test_cancel_finalizer_interrupts_only_open_reasoning_before_terminal(tmp_path):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    _emit(runtime_dir, "run.started")
+    _emit(runtime_dir, "reasoning_summary.started", {"reasoning_id": "closed-before-stop"})
+    _emit(
+        runtime_dir,
+        "reasoning_summary.completed",
+        {"reasoning_id": "closed-before-stop", "text": "done"},
+    )
+    _emit(runtime_dir, "reasoning_summary.started", {"reasoning_id": "open-at-stop"})
+    environment = {
+        **_environment(runtime_dir),
+        "ENTRYPOINT_LIB_DIR": str(REPO_ROOT / "deploy/worker-entrypoint"),
+        "CODIFY_CANCELLED": "1",
+        "CODIFY_HARNESS_TERMINAL_SEEN": "0",
+    }
+    command = """
+source "$ENTRYPOINT_LIB_DIR/harness/common.sh"
+CODIFY_CANCELLED=1
+CODIFY_HARNESS_TERMINAL_SEEN=0
+codify_harness_finalize_attempt 143
+"""
+    subprocess.run(["bash", "-c", command], env=environment, check=True)
+
+    events = _events(runtime_dir)
+    assert [event["type"] for event in events] == [
+        "run.started",
+        "reasoning_summary.started",
+        "reasoning_summary.completed",
+        "reasoning_summary.started",
+        "reasoning_summary.interrupted",
+        "harness.failed",
+        "worker.finalization",
+        "run.failed",
+    ]
+    assert events[4]["payload"] == {
+        "reasoning_id": "open-at-stop",
+        "reason": "worker_cancelled",
+    }
+    assert events[4]["seq"] < events[5]["seq"]
+
+
 def test_outer_timeout_marker_overrides_completed_result(tmp_path):
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir()
