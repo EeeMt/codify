@@ -17,9 +17,9 @@
 | R2：四 Harness hard-cut conformance | **完成，受影响场景重开** | 历史 8 个适用 Harness×protocol 行及 lifecycle/command/recovery 已闭合；`c089b67a`、`7fd0939c` 及 `5d2fad8e` 修改 reasoning lifecycle、共享 delivery 隔离边界和 Codex App Server transport，仍须在同一 candidate 上重验受影响组合 |
 | R3：正式 20-scenario benchmark | **完成** | Pi/OpenCode 20/20 formal pair 与 Pi 非劣性门槛已通过；当前变化未升级 CLI 或修改 model endpoint protocol，但切换了 Codex control transport，故不整体重跑 benchmark、改由 R2/R4 重验 Codex；真实验收若发现 terminal、质量或性能回归再按影响重开 |
 | R4.1：可信 Kit 启动边界 | **完成** | content-addressed 安装、管理员完整 Verify、Task 热路径轻量校验与 warm-start 已有 L2–L4 证据 |
-| R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 composition 已推进到 source `90dfe874`、Profile 4 generation 94、Backend/Scheduler/NGINX、Worker Kit 0.6.15 和 Bundle 205/206；#499–#505 已绑定新 Bundle，206 与 205 的四 Harness manifest 相同，历史 Bundle 198–204 保持不可变；镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
-| R4.3：正式交互验收 | **部分 evidence，未签署** | #464–#505 已有真实 Task/Canonical 证据；#472/#474/#475/#477 已补齐 Pi、Claude、OpenCode、Pi Chat 的运行中页面“正在思考”先于同一行完成时序；#478 补齐 Pi 活动思考取消后的刷新/重连终态兜底；Bundle 205 的 #503 已补齐 OpenCode 活动 reasoning 的 canonical `interrupted` 与刷新后 `已取消`；Bundle 206 的 #505 证明 Claude 长运行可正常封存但 reasoning 仅约 2.0 秒，不能计入长思考；#482/#483/#484 在当前 Bundle 上复核 Responses 但均被真实 Provider 404/403 阻断；#485–#487 关闭 Claude 正常 delivery，#488 关闭 Claude 受控远端 divergence 的 fail-closed 边界；仍缺 Codex 成功行、两条可用 Responses 行、长思考和四 Harness 全覆盖；用户暂缓的真实移动设备验收不作为本轮技术执行项 |
-| R4.4：运维与真实 Task 验收 | **部分 evidence，未签署** | #468/#469/#471 已完成 Pi/OpenCode/Claude delivery 并有 canonical remote SHA；Pi Chat 的旧 404 已由 Pi endpoint 修复 + Bundle 201 的 #477 正常成功回归关闭，#478 已验证 Pi 取消终态兜底；#482/#483 证明当前 OpenCode/Pi Responses Provider 返回免费模型 404，#484 证明 Provider 4 返回地区 403，均不能改用付费 slug 或绕过上游策略；#485–#487 证明 Claude Bundle 203 正常 delivery，#488 证明并发分叉时拒绝覆盖远端；Bundle 205 的 #499–#503 确认 OpenCode 正常完成、native abort drain、archive、活动 reasoning interrupted 和 cancelled terminal 收敛，Bundle 206 的 #505 确认 Claude 长运行的 normal finalization/archive，#504 确认受控分叉在 Harness 前拒绝；但 Codex #461–#463 仍在 Provider 响应前失败，Responses、Codex 成功响应和长思考仍未闭合 |
+| R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 composition 已推进到 source `6835e43c`、Profile 4 generation 95、Backend/Scheduler/NGINX、Worker Kit 0.6.15 和 Bundle 207/208；#508/#510 已绑定新 Bundle，历史 Bundle 198–206 保持不可变；镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
+| R4.3：正式交互验收 | **部分 evidence，未签署** | #464–#510 已有真实 Task/Canonical 证据；#472/#474/#475/#477 已补齐 Pi、Claude、OpenCode、Pi Chat 的运行中页面“正在思考”先于同一行完成时序；#478 补齐 Pi 活动思考取消后的刷新/重连终态兜底；Bundle 205 的 #503 已补齐 OpenCode 活动 reasoning 的 canonical `interrupted` 与刷新后 `已取消`；Bundle 206 的 #505 证明 Claude 长运行可正常封存但 reasoning 仅约 2.0 秒，不能计入长思考；#508 已补齐 Codex 真实成功响应与两段 reasoning，但本次 +1/-0，尚未关闭零变化行；#510 补齐仓库前置失败的 canonical terminal；#482/#483/#484 在当前 Bundle 上复核 Responses 但均被真实 Provider 404/403 阻断；仍缺 Pi/OpenCode 可用 Responses、Codex 零变化/取消、长思考和四 Harness 全覆盖；用户暂缓的真实移动设备验收不作为本轮技术执行项 |
+| R4.4：运维与真实 Task 验收 | **部分 evidence，未签署** | #468/#469/#471 已完成 Pi/OpenCode/Claude delivery 并有 canonical remote SHA；Pi Chat 的旧 404 已由 Pi endpoint 修复 + Bundle 201 的 #477 正常成功回归关闭，#478 已验证 Pi 取消终态兜底；#482/#483 证明当前 OpenCode/Pi Responses Provider 返回免费模型 404，#484 证明 Provider 4 返回地区 403，均不能改用付费 slug 或绕过上游策略；#485–#487 证明 Claude Bundle 203 正常 delivery，#488 证明并发分叉时拒绝覆盖远端；Bundle 205 的 #499–#503 确认 OpenCode 正常完成、native abort drain、archive、活动 reasoning interrupted 和 cancelled terminal 收敛，Bundle 206 的 #505 确认 Claude 长运行的 normal finalization/archive，#508 确认 Codex App Server 真实 delivery，#510 确认 pre-Harness failure finalization 不再缺 Task terminal；仍缺精确 8 行全部通过和 owner closure |
 | R4.5：安全与发布审计 | **阻塞于 owner 输入** | 最小权限、轮换、migration 078、签名发布包、retention、维护窗口与独立 P0/P1 审阅尚未签署 |
 | R4.6：hard-cut go/no-go | **未执行** | R4.2–R4.5 全部闭合后才能形成独立 `GO` 或 `NO-GO` |
 | R5：L6 `v2_only` hard cut | **未执行** | 仅在 R4.6 `GO` 且获得单独执行批准后进入维护窗口 |
@@ -34,32 +34,35 @@
 
 | 项 | 当前值 |
 | --- | --- |
-| Git revision | `90dfe874d155df38909c5d273cf2729b121dded5` |
-| 分支状态 | `dev` 已提交 Pi OpenAI endpoint root、Worker finalization drain 与 OpenCode native abort drain 修复，候选及关联文档证据仍在本地、尚未推送；既有 security audit 仍按独立路径处理 |
-| 影响面 | Worker Git finalization credential isolation、console FIFO drain ordering、OpenCode native abort drain、Codex App Server stdio Bridge、Pi OpenAI endpoint root normalization、Adapter/manifest/runtime digest、Backend protocol matrix 与既有 Canonical reasoning 投影 |
+| Git revision | `6835e43ce855564f5c825c91c58ff2ee718637c9` |
+| 分支状态 | `dev` 已提交 Pi OpenAI endpoint root、Worker finalization drain、OpenCode native abort drain 与 pre-Harness canonical finalization 修复，候选及关联文档证据仍在本地、尚未推送；既有 security audit 仍按独立路径处理 |
+| 影响面 | Worker Git finalization credential isolation、console FIFO drain ordering、pre-Harness canonical terminal、OpenCode native abort drain、Codex App Server stdio Bridge、Pi OpenAI endpoint root normalization、Adapter/manifest/runtime digest、Backend protocol matrix 与既有 Canonical reasoning 投影 |
 | 设计基线 | [Task Git delivery reconciliation design](../specs/2026-09-04-task-git-delivery-reconciliation-design.md)；[four-Harness thinking lifecycle plan](2026-09-04-thinking-event-placeholder-plan.md) |
-| 当前聚焦 L2 | Pi endpoint 修复的 `test_pi_harness_adapter.py` 为 58 passed；finalization/native abort 受影响 OpenCode/Worker coverage 为 231 passed；相关 shell `bash -n` 与 `git diff --check` 通过；既有 frontend production build 已通过 |
+| 当前聚焦 L2 | 受影响四 Harness/Worker focused tests 为 `417 passed`；新增 pre-Harness finalizer 回归、ruff、相关 shell `bash -n` 与 `git diff --check` 均通过；既有 frontend production build 已通过 |
 
 本轮提交不升级 Harness CLI、不修改 Provider 协议、Scheduler 排队规则或既有 Task Snapshot schema；
 除既有 Codex App Server Bridge/Pi endpoint 变更外，`4f42b9d7` 调整 Worker finalization 的
 console FIFO drain 与 canonical finalization 顺序，`90dfe874` 增加 native OpenCode abort 后
-Bridge 有界 drain 与回归测试。
+Bridge 有界 drain 与回归测试，`6835e43c` 修复仓库准备早于 Harness 失败时的 canonical
+terminal 缺口；未升级 Harness CLI、未修改 Provider 协议或 Task Snapshot schema。
 因此必须在同一 exact composition 上重验受影响的 OpenCode terminal/archive，以及 Codex reasoning、
 session、usage、最终结果和共享 Git delivery；局部测试和直接 Adapter fixture 不等于 L3/L4/L5
 evidence。
 
 ### 2.2 远端开发 candidate
 
-本轮在开发 Host 形成了包含 Pi endpoint、Worker finalization 与 OpenCode native abort drain 修复的新调试 composition：Profile 4 为
+本轮在开发 Host 形成了包含 Pi endpoint、Worker finalization、OpenCode native abort drain 与
+pre-Harness finalizer 修复的新调试 composition：Profile 4 为
 `v2-canary-0.6.11-four-harness`，Backend image 为
-`sha256:459ce6cb448c83c278e440d8ae0a993144037f227363736d03045c5934783210`，NGINX image 为
+`sha256:9c24e529fcd2238d57be93a359ab79a5f4868ed4143f09852c88c92406bba510`，NGINX image 为
 `sha256:ba50f6296e92e426dd445740d7214c6c54aaddd2a79d58d1513a4741379c6e43`，Runtime Bundle 为
-`201/202/203/204/205/206`（Bundle 205 为 native abort drain 修复后的当前任务快照，Bundle 206 为 #504/#505 的当前任务快照；历史 Bundle 仍保持不可变），Worker Kit 为 `0.6.15`、manifest SHA 为
+`201/202/203/204/205/206/207/208`（Bundle 205 为 native abort drain 修复后的历史任务快照，Bundle 206 为 #504/#505 的历史任务快照，Bundle 207 为 #508，Bundle 208 为 #510；历史 Bundle 仍保持不可变），Worker Kit 为 `0.6.15`、manifest SHA 为
 `506dbc2c61fbc03144c45fdffcd9a0e264781fe4038ad0ed13b38112580b831b`；Profile Verify 和真实
-Pi/OpenCode/Claude Task 结果详见 [Codex App Server bridge evidence](../evidence/2026-09-08-open-harness-v2-codex-app-server-bridge.md)
+Pi/OpenCode/Claude/Codex Task 结果详见 [Codex App Server bridge evidence](../evidence/2026-09-08-open-harness-v2-codex-app-server-bridge.md)
 和 [Current Bundle real-task matrix](../evidence/2026-09-08-open-harness-v2-current-bundle-real-task-matrix.md)。
 
-Profile 4 在创建 #499 前重新 Verify 为 generation `94`、四 Harness 状态“已就绪”。Bundle 205
+Profile 4 在创建 #499 前为 generation `94`；部署 pre-Harness 修复后重新 Verify 为 generation
+`95`、四 Harness 状态“已就绪”。Bundle 205
 digest 为 `a9992043629103ef544de7250d1817e14cfd5f61653f17a4feab57176c38a2c9`，其中 OpenCode
 manifest adapter digest 为 `969cd7d9a560c489df42b58e316fc30df16f1826efe5e6109eb089455bdba7ad`，
 adapter 文件 SHA 为 `093005ffe94815daf84381d9bfbaa77a012ac5963699906e3415613de772c29b`，共享
@@ -76,9 +79,13 @@ adapter digest 为 `d326e5c4f0bc2eedcbc4d835ef17c804d1b07b959be5a6af9384309d5024
 随后 #504/#505 绑定 Bundle 206（digest
 `921d7b53676eb61f4b8c1301802392e8791fe1d912cfddecd1381caddd28dffc`）；其四 Harness manifest
 与 Bundle 205 相同。#505 的 Claude reasoning 仅约 2.0 秒，虽整项任务运行约 2m32s 并正常
-封存 archive/finalization，但不能计入长思考。
+封存 archive/finalization，但不能计入长思考。#508 绑定 Bundle 207（digest
+`6dca863dcb69e26bd6ce9db082e7fd5d1827fdfa6b46027322cb8524fd2bda35`）并完成 Codex 成功回归；
+#510 绑定 Bundle 208（digest
+`96341e488faa37bd081169a3c69a91504fbbaa2efa89f0ce890eb2e55114adc7`）并完成 pre-Harness
+canonical failure 回归。
 
-远端 Backend、Scheduler、NGINX 健康，当前没有 `pending`、`queued` 或 `running` Task。Task #490–#505
+远端 Backend、Scheduler、NGINX 健康，当前没有 `pending`、`queued` 或 `running` Task。Task #490–#510
 已完成终态收尾。当前根盘约 93% 使用率、剩余约 4.4GB；本轮没有再次清理，未触碰活动容器、服务、
 volume 或不确定归属的 image。远端 app image 没有 OCI
 `org.opencontainers.image.revision` label，且 source commit 尚未推送，因此当前 composition
@@ -110,14 +117,14 @@ volume 或不确定归属的 image。远端 app image 没有 OCI
 
 ## 4. 唯一下一工作包：R4-RC1
 
-R4-RC1 已在开发 Host 形成当前 source/Kit composition，并执行 #461–#505 真实 Provider Task；
+R4-RC1 已在开发 Host 形成当前 source/Kit composition，并执行 #461–#510 真实 Provider Task；
 其中三 Harness reasoning 与三条 Git delivery 已闭合部分证据，但固定的 8 个合法 Harness×protocol
 退出条件尚未满足。完成前不追加无关 smoke，不刷新历史 benchmark，不进入 owner 签署。
 
 ### A. 冻结源码与变更范围
 
-1. 以 `90dfe874d155df38909c5d273cf2729b121dded5` 为本轮 source anchor；该提交在既有 Codex App Server/Worker delivery、Pi endpoint root 修复与 Worker finalization drain ordering 之上，补齐 native OpenCode abort 后的有界 Bridge drain；尚未推送，故候选未签署。
-2. 审阅 Git delivery 与 thinking lifecycle 两份设计的完成条件；关闭当前 L2 P0/P1，执行受影响的 backend/frontend 测试和 production build，并在真实 Codex Provider 可响应后补回归。当前 finalization/native abort 续测见 [Current Bundle real-task matrix](../evidence/2026-09-08-open-harness-v2-current-bundle-real-task-matrix.md) 的第 5 节。
+1. 以 `6835e43ce855564f5c825c91c58ff2ee718637c9` 为本轮 source anchor；该提交在既有 Codex App Server/Worker delivery、Pi endpoint root 修复、Worker finalization drain ordering 与 native OpenCode abort drain 之上，补齐 pre-Harness repository failure 的 canonical terminal；尚未推送，故候选未签署。
+2. 审阅 Git delivery 与 thinking lifecycle 两份设计的完成条件；关闭当前 L2 P0/P1，执行受影响的 backend/frontend 测试和 production build，并在真实 Codex Provider 可响应后补回归。当前 finalization/native abort/pre-Harness 续测见 [Current Bundle real-task matrix](../evidence/2026-09-08-open-harness-v2-current-bundle-real-task-matrix.md) 的第 5、6 节。
 3. 冻结前若再修改 Worker finalization、delivery、Codex transport、Backend projection 或结果 UI，更新候选 SHA 并从本步骤重新开始。
 4. 不因本工作包升级 Harness CLI、修改 Provider 协议、增加 schema 或扩展产品范围。
 
@@ -176,7 +183,9 @@ receipt。#473/#479/#480 的 OpenCode 页面观察分别落在终态或自然完
 复杂 reconciliation timeout 边界。#455 的 Provider 404 不计入验收。
 #504 在受控 Issue #131 远端分叉下于进入 Harness 前拒绝 merge/overwrite，没有 canonical receipt，
 不计入 Provider/reasoning 行；#505 在 Bundle 206 上完成 Claude 长运行 probe，但 reasoning
-start/end 仅约 2.0 秒，属于正常 terminal/archive evidence，不关闭长思考条件。
+start/end 仅约 2.0 秒，属于正常 terminal/archive evidence，不关闭长思考条件；#508 在 Bundle 207
+完成 Codex App Server 真实 reasoning 与 delivery；#510 在 Bundle 208 验证新的 pre-Harness
+canonical failure finalization。
 
 ### D. R4-RC1 退出条件
 
@@ -189,8 +198,9 @@ start/end 仅约 2.0 秒，属于正常 terminal/archive evidence，不关闭长
 - 无未接受的 P0/P1；形成一份独立、脱敏的 R4-RC1 evidence；
 - 完成后停止技术执行，转入 R4.5 owner closure，不再追加普通 smoke。
 
-本轮退出条件仍未满足：Codex App Server 已部署但没有 canonical reasoning start/end，#461–#463
-均未获得模型响应；Pi Chat #470/#476 是修复前 Bundle 的 Provider 404，#477 已在新 Bundle 201
+本轮退出条件仍未满足：#508 已证明 Codex App Server 有真实 canonical reasoning start/end 和
+正常 delivery，但本次产生 +1/-0，尚未满足精确的零代码变化行，也未覆盖 Codex 取消/长思考；
+Pi Chat #470/#476 是修复前 Bundle 的 Provider 404，#477 已在新 Bundle 201
 正常完成并关闭 Pi Chat 的成功/页面时序子项，#478 补充了活动思考取消后的刷新/重连终态兜底，
 但没有 canonical interrupted receipt；OpenCode Chat #475/#479/#480 只覆盖正常完成，#481
 只覆盖思考完成后的工具阶段取消，未覆盖
@@ -198,8 +208,9 @@ start/end 仅约 2.0 秒，属于正常 terminal/archive evidence，不关闭长
 finalization Bundle 204 上确认了 OpenCode 正常完成、native abort、archive 和 cancelled terminal
 收敛；#499–#503 在 Bundle 205 上补齐正常完成、工具阶段取消与活动 reasoning 的 canonical
 `reasoning_summary.interrupted`，其中 #503 的页面取消后刷新终态稳定；#505 在 Bundle 206 上
-补充 Claude 长运行但短 reasoning 的正常 archive/finalization。可用 Responses
-协议行（#482/#483 为上游 404，#484 为地区 403）、Codex 成功响应和四 Harness 长思考仍未证明。
+补充 Claude 长运行但短 reasoning 的正常 archive/finalization；#510 已修复 pre-Harness 失败缺少
+Task terminal 的边界。可用 Pi/OpenCode Responses 协议行（#482/#483 为上游 404，#484 为地区
+403）、Codex 零变化/取消和四 Harness 长思考仍未证明。
 因此 R4-RC1 保持开放，
 R4.3/R4.4 不签署。
 

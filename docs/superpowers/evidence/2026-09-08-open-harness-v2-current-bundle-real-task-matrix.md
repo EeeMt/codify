@@ -2,29 +2,31 @@
 
 **复核日期：** 2026-09-08
 **Host：** `192.168.50.129`（开发环境，Docker context `remote`）
-**结论：** 真实 reasoning、OpenCode 活动 reasoning canonical interrupted 与部分 Git delivery 已验证；R4.3/R4.4 仍未签署，整体保持 `NO-GO`
+**结论：** Codex 真实模型响应/reasoning/正常 Git delivery，以及 OpenCode 活动 reasoning canonical interrupted 已验证；Worker 仓库前置失败的 canonical terminal 也已补齐。R4.3/R4.4 仍未签署，整体保持 `NO-GO`
 
 本记录补充 [Codex App Server bridge evidence](2026-09-08-open-harness-v2-codex-app-server-bridge.md)，
 记录历史 source/Kit composition 下的 Pi、OpenCode、Claude 真实任务，以及 Pi OpenAI endpoint
 与 Worker finalization、OpenCode native abort drain 修复后新 Bundle 的真实回归。事件来自远端
 `task_harness_event_receipts`，raw/archive 只记录元数据，不复制原始内容。历史 Bundle 保持不可变，
-修复后的 Task 使用独立 Bundle 201/202/203/204/205/206；#482/#483/#484 又在当前 Bundle 上复核了
+修复后的 Task 使用独立 Bundle 201/202/203/204/205/206/207/208；#482/#483/#484 又在当前 Bundle 上复核了
 `openai_responses` 的真实 Provider 失败边界，#485–#488 补齐了 Claude 的正常交付与受控远端
 分叉保护，#490–#498 复核了 OpenCode finalization、native abort、archive 和 cancelled terminal
 收敛边界，#499–#503 在新 Bundle 上完成正常完成、工具阶段取消和活动 reasoning canonical
 interrupted 回归；#504–#505 在 Bundle 206 上补充了受控远端分叉前置失败和 Claude 长运行探针。
+#508 在 Bundle 207 上补齐了 Codex App Server 的真实成功响应、两段 reasoning 与 Git delivery；
+#510 在新的 Bundle 208 上验证了仓库准备早于 Harness 失败时仍能生成完整 V2 canonical terminal。
 
 ## 1. Exact composition
 
 | 项 | 当前值 |
 | --- | --- |
-| Source anchor（当前未推送本地候选） | `90dfe874d155df38909c5d273cf2729b121dded5` |
+| Source anchor（当前未推送本地候选） | `6835e43ce855564f5c825c91c58ff2ee718637c9` |
 | Profile | `4 / v2-canary-0.6.11-four-harness` |
 | Worker Kit | `0.6.15 / 506dbc2c61fbc03144c45fdffcd9a0e264781fe4038ad0ed13b38112580b831b` |
-| Backend image（当前 native abort drain 修复后） | `sha256:459ce6cb448c83c278e440d8ae0a993144037f227363736d03045c5934783210` |
+| Backend image（pre-Harness finalizer 修复后） | `sha256:9c24e529fcd2238d57be93a359ab79a5f4868ed4143f09852c88c92406bba510` |
 | NGINX image | `sha256:ba50f6296e92e426dd445740d7214c6c54aaddd2a79d58d1513a4741379c6e43` |
 | Worker image | `127.0.0.1:5000/codify-worker/java21-maven@sha256:234582c692d1ebb00ba8e882160618c2258463149d968009ac81c545e63a538b` |
-| Profile 4 Verify | generation `94`，四 Harness evidence keys 均存在，状态“已就绪” |
+| Profile 4 Verify | generation `95`，四 Harness evidence keys 均存在，状态“已就绪” |
 
 任务创建时产生的 Bundle 是不可变、任务快照绑定的同组成实例；本轮使用的 Bundle 及 digest 为：
 
@@ -39,12 +41,16 @@ interrupted 回归；#504–#505 在 Bundle 206 上补充了受控远端分叉�
 | 204 | OpenCode（finalization drain 修复后） | `10cfd1acfb5674f14fdc0586a3b84da0be99f6dc28b75fea51e2f8d531260f3b` |
 | 205 | OpenCode（native abort drain 修复后） | `a9992043629103ef544de7250d1817e14cfd5f61653f17a4feab57176c38a2c9` |
 | 206 | Claude（#504/#505；同一当前 composition） | `921d7b53676eb61f4b8c1301802392e8791fe1d912cfddecd1381caddd28dffc` |
+| 207 | Codex（#508；Profile 4 generation 94） | `6dca863dcb69e26bd6ce9db082e7fd5d1827fdfa6b46027322cb8524fd2bda35` |
+| 208 | Codex（#510；pre-Harness finalizer 修复后） | `96341e488faa37bd081169a3c69a91504fbbaa2efa89f0ce890eb2e55114adc7` |
 
 上述 manifest 均保留四 Harness；实际 Task snapshot 分别绑定对应 Harness 的 adapter/CLI：
 Pi `2.1.1/0.84.2`、OpenCode `2.1.0/1.18.19`、Claude `1.1.0/2.1.153`。Bundle 201 的 Pi
 adapter digest 为 `d326e5c4f0bc2eedcbc4d835ef17c804d1b07b959be5a6af9384309d50249c3d`；修复前
 Bundle 198 为 `e619b8464d7b1c6fee08661eb1e2dd3a87da58065f10dc9166d749403a836356`。
-Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image。
+Backend 仅重建/重启 Backend 与 Scheduler；NGINX 保持原 immutable image。部署修复后重新 Verify
+Profile 4 生成 generation `95`，以刷新与新 Runtime source 一致的四 Harness evidence；历史
+Bundle 207 及更早 Bundle 保持不可变。
 
 Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bundle 205 完全一致，
 因此把 206 记录为 #504/#505 的当前任务快照 identity，不把它误计为新的 Adapter source 修复。
@@ -86,12 +92,14 @@ Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bun
 | #503 | OpenCode / 3 / `minimax-m2.7` | 205 | cancelled；1/0/1 reasoning，`run.failed` | 页面 `正在思考 · 2s` 时取消；canonical `reasoning_summary.interrupted(reason=aborted)`，刷新后终态稳定；0 changes |
 | #504 | Claude / 3 / `minimax-m2.7` | 206 | failed；0 reasoning，无 canonical receipt | 受控 Issue #131 远端分叉在进入 Harness 前被拒绝；Worker 未覆盖远端，不能计入 Provider/reasoning 验收 |
 | #505 | Claude / 3 / `minimax-m2.7` | 206 | completed；1/1 reasoning，约 2.0s，`run.completed` | 长运行探针总时长约 2m32s、381 条 `message.delta`；freeform、0 changes、delivery `not_needed`，不能计入长思考 |
+| #508 | Codex / 4 / `gpt-5.6-luna` | 207 | completed；2/2 reasoning，`run.completed` | App Server V2 真实响应；`delivery.completed`/`worker.finalization` confirmed `remote_sha=cc97997fd0e5813398b4c60da0a09003496645cc`，+1/-0 |
+| #510 | Codex / 4 / `gpt-5.6-luna` | 208 | failed；0 reasoning；`run.failed` | checkout/fetch 阶段早于 Harness 失败；canonical `run.started → harness.failed(engine_error) → worker.finalization → run.failed`，无 delivery、0 changes |
 
-除 #504（进入 Harness 前失败且没有 canonical receipt）外，上述 Task 的 attempt 均为
+除 #504（旧 Bundle、进入 Harness 前失败且没有 canonical receipt）外，上述 Task 的 attempt 均为
 `codify.worker.event/v2`，transport 与 adapter identity 来自真实 `run.started` receipt，而非
 手工 fixture。#468/#469/#471 的 `worker.finalization` 均报告
 `push.status=pushed`、精确 `remote_sha` 和 branch，故这些 delivery 不是 artifact metadata 或
-平铺 SHA 推断。
+平铺 SHA 推断；#510 另外证明了没有 Harness 终端时不会再错误地缺少 Task terminal。
 
 ## 3. Raw/archive 结构摘要
 
@@ -130,6 +138,8 @@ Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bun
 | #503 | 4 / 2,581 | 5,829 bytes | `run.failed` / cancelled |
 | #504 | 3 / 1,517 | 1,384 bytes | 无 canonical terminal；Task `failed` |
 | #505 | 66 / 101,140 | 173,301 bytes | `run.completed` |
+| #508 | 6 / 4,476 | 7,407 bytes | `run.completed` |
+| #510 | 2 / 1,518 | 2,103 bytes | `run.failed` / `engine_error` |
 
 所有任务结束后，相关 Worker 容器均已清理；Backend/Scheduler 保持健康。#472 的 attempt 为
 `task-472-attempt-1-9ef92102943b`，`codify.worker.event/v2`、Pi adapter `2.1.1`、CLI
@@ -303,14 +313,25 @@ fail-closed 验收边界。
   harness.failed(cancelled) → worker.finalization → run.failed`，刷新后任务保持 `已取消`。
 - Claude Task #505 在 Bundle 206 上补齐了正常长运行任务的 archive/finalization/terminal 收敛；
   其 reasoning block 约 2.0 秒，不能计入长思考。
+- Codex Task #508 在 Bundle 207 上补齐了真实 `openai_responses` 成功路径：V2 App Server
+  identity 为 adapter `1.2.0` / CLI `0.146.0`，canonical 有两段 reasoning start/end，随后
+  `harness.completed → delivery.completed → worker.finalization → run.completed`；Worker
+  推送了 `cc97997fd0e5813398b4c60da0a09003496645cc`。它证明 Provider 与 Codex transport
+  可用，但本次产生了 `hello.py`，尚未关闭“成功且零代码变化”的精确验收行。
+- Codex Task #510 在 Bundle 208 上使用同一 Provider/Profile 触发受控 Issue #131 远端分叉，
+  在 Harness 启动前失败；新的 finalizer 从 Bundle manifest 补齐 V2 identity，生成
+  `run.started → harness.failed(engine_error) → worker.finalization → run.failed`，页面显示
+  `Worker repository preparation failed before Harness start (phase=checkout, action=fetch, exit_code=1)`，
+  没有 delivery、commit 或远端覆盖。
 
 仍未关闭：
 
-- Codex 尚无真实模型响应，因此没有 App Server reasoning/空完成/取消/最终结果回归；付费
-  slug 仍需明确授权；
+- Codex 的真实成功响应与 reasoning 已由 #508 证明，但尚无零代码变化、取消/刷新和长思考回归；
+  #508 是 +1/-0 的正常 delivery，不满足计划中的 Codex 零变化行；不修改 Provider slug。
 - Pi/OpenCode 的 `openai_responses` 仍未完成：#482/#483 在当前 Bundle 202/201 上均由真实
   OpenRouter 免费模型 404 阻断，#484 在 Bundle 202 上由 Provider 4 地区 403 阻断；不能改用
-  付费 slug 或绕过上游地区策略伪造能力；Codex 成功响应、四 Harness 长思考仍未完成。#488 已关闭 Claude 受控远端 divergence 的
+  付费 slug 或绕过上游地区策略伪造能力；当前仍缺 Pi/OpenCode 可用 Responses、四 Harness
+  长思考和 Codex 取消/零变化验收。#488 已关闭 Claude 受控远端 divergence 的
   fail-closed 边界。#478 的 Pi 取消已覆盖终态
   兜底，但没有 canonical interrupted receipt；#475/#477/#479/#480 是正常完成，#481 是思考完成
   后的取消，#498/#502 是 native reasoning 收尾竞态，#503 已补齐 OpenCode 的 canonical
@@ -320,7 +341,10 @@ fail-closed 验收边界。
 因此本记录是当前 exact composition 的真实推进证据，不是四 Harness 8 行全部通过或 release
 candidate 签署。
 
-## 5. 2026-09-08 finalization 与 native abort drain 修复后的续测
+## 5. 2026-09-08 finalization 与 native abort drain 修复后的历史续测
+
+本节记录 Bundle 204–206 的历史 exact composition；当前 pre-Harness finalizer 修复后的
+generation 95、Bundle 207/208 和 Task #508/#510 见第 6 节。
 
 为验证 Worker finalization 与原生 OpenCode abort 的竞态，本地提交
 `4f42b9d7cbca3b575913745e225c24ff0cc52c8d` 将 `codify_finalize_on_exit` 调整为：先解除
@@ -415,5 +439,45 @@ branch `codify/issue-115` 保持原 head，Git delivery 为 `not_needed`，0 cha
 terminal 能收敛，但没有形成长 reasoning block，不能关闭四 Harness 长思考条件。
 
 当前 OpenCode Chat 的活动思考取消/刷新终态子项已在 Bundle 205 关闭；Bundle 206 的 #505
-补充了 Claude 正常长运行边界，但 Codex 成功、可用 Responses 组合和四 Harness 长思考仍未证明。
+补充了 Claude 正常长运行边界；#508/#510 的 Codex 证据与 pre-Harness finalizer 修复见第 6 节。
 当前仍保持 `NO-GO`，不追加无目的 smoke，不执行 migration 078、`v2_only` 或 R5。
+
+## 6. 2026-09-08 pre-Harness finalizer 修复与 Codex 真实回归
+
+本地提交 `6835e43ce855564f5c825c91c58ff2ee718637c9` 将已有
+`harness/common.sh` 提前加载到 repository preparation 之前；当仓库 checkout/fetch 在
+Harness 初始化前失败时，finalizer 从不可变 Runtime Bundle manifest 读取精确的 V2
+Harness/Adapter/CLI/transport/model-protocol identity，再生成完整 canonical terminal。失败
+信息保留 repository preparation artifact 的 phase/action/exit_code，不合成 Harness 成功或
+delivery。
+
+本地验证：
+
+- `backend/.venv/bin/python -m pytest backend/tests/unit/test_opencode_harness_adapter.py backend/tests/unit/test_claude_harness_adapter.py backend/tests/unit/test_codex_harness_adapter.py backend/tests/unit/test_pi_harness_adapter.py backend/tests/unit/test_worker_coverage.py backend/tests/unit/test_worker_git_delivery.py -q`：`417 passed`；
+- `backend/.venv/bin/ruff check backend/tests/unit/test_worker_coverage.py backend/tests/unit/test_worker_git_delivery.py`：通过；
+- `bash -n deploy/entrypoint.worker.sh deploy/worker-entrypoint/bootstrap.sh deploy/worker-entrypoint/harness/common.sh deploy/worker-entrypoint/harness/adapters/opencode.sh` 与 `git diff --check`：通过。
+
+远端 Backend image 为 `sha256:9c24e529fcd2238d57be93a359ab79a5f4868ed4143f09852c88c92406bba510`，
+本地与 Backend `/opt/codify/runtime-source` 的 entrypoint/common SHA 完全一致。Profile 4
+重新 Verify 为 generation `95`，Kit 仍为 `0.6.15`、manifest SHA
+`506dbc2c61fbc03144c45fdffcd9a0e264781fe4038ad0ed13b38112580b831b`，四 Harness evidence
+均 ready。
+
+Task #508 的 attempt 为 `task-508-attempt-1-f2fffc8c1ab3`，绑定 Bundle 207、Profile 4、
+Provider 4 `opencode-luna / gpt-5.6-luna`，`codify.worker.event/v2`，Codex adapter `1.2.0`、
+CLI `0.146.0`，transport `rpc_stdio/codex-app-server-v2`、model protocol
+`openai_responses`。`last_seq=21`；seq 6/7 与 11/12 为两段 reasoning start/end，seq 17 为
+`harness.completed`，seq 19/20/21 为 `delivery.completed`、`worker.finalization`、
+`run.completed`。真实页面 [Task #508](http://192.168.50.129:8880/tasks/508) 显示 Codex、
+`gpt-5.6-luna`、思考完成、+1/-0 和已推送 commit；raw 为 6 chunks / 4,476 bytes，archive
+为 7,407 bytes。
+
+Task #510 的 attempt 为 `task-510-attempt-1-7ceae3061ae8`，绑定 Bundle 208、digest
+`96341e488faa37bd081169a3c69a91504fbbaa2efa89f0ce890eb2e55114adc7`，同一 Provider/Profile，
+Codex identity 完整写入四个 canonical receipt。seq 1/2/3/4 依次为
+`run.started(startup_phase=repository_preparation)`、`harness.failed(engine_error)`、
+`worker.finalization(exit_code=1)`、`run.failed(engine_error)`；Task error 为
+`Worker repository preparation failed before Harness start (phase=checkout, action=fetch, exit_code=1)`。
+无 `delivery.*`、commit SHA 或远端写入，raw 为 2 chunks / 1,518 bytes，archive 为 2,103 bytes；
+真实页面 [Task #510](http://192.168.50.129:8880/tasks/510) 显示同一失败原因，证明旧 #504 的
+`canonical attempt is missing a Task terminal` 生命周期缺口已修复。
