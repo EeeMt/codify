@@ -43,7 +43,7 @@ Task #348 在 warm Scheduler、无并发排队、仓库准备约 1.2 秒的情�
 | Kit launcher | `verifyKitContent()` 再次遍历完整 content inventory | 包含在约 12.5 秒容器入口阶段 |
 
 前三层主要开销来自远端 Docker archive、tar 解包和 Backend Python SHA-256；第四层直接读取容器文件系统，
-成本较低但仍重复验证同一安装身份。readiness TTL 不能缓解前三层开销，因为当前 V2 Scheduler 和 Worker
+成本较低但仍重复验证同一安装身份。readiness 观察不作为 V2 每次执行许可，因为当前 V2 Scheduler 和 Worker
 明确拒绝把有效 `ready` 结果作为执行许可。
 
 该实现是在“Kit 路径可能被任意原地替换”的假设下关闭 probe-to-container 时间窗口。实际发布链路已经采用
@@ -182,14 +182,14 @@ Verify 已确认的 manifest inventory。缺少任一必需事实时，V2 Task �
 Scheduler 对 V2 mounted Kit 的职责调整为：
 
 - `unavailable`：继续阻止创建/重试；未领取 Task 保持或退回 `PENDING`；
-- 未过期 `ready`：允许继续领取；
-- 无记录、`unknown` 或已过期 `ready`：只要 Task Snapshot 具有完整、有效的冻结 V2 identity，允许继续领取，
+- `ready`：允许继续领取；
+- 无记录或 `unknown`：只要 Task Snapshot 具有完整、有效的冻结 V2 identity，允许继续领取，
   不在 claim 前运行完整 probe；
 - Snapshot identity 不完整或合同不匹配：fail closed；
 - Docker target 连接错误继续使用现有 transient/recovery 语义，不伪装成 Kit 内容错误。
 
-readiness 仍是共享的运维观察和已知失败门禁，但不再是每次执行的内容证明。TTL 到期表示观察不新鲜，
-不表示 content-addressed 安装在后台自动变异，也不触发逐 Task 全量扫描。
+readiness 仍是共享的运维观察和已知失败门禁，但不再是每次执行的内容证明。它不会按时间自动失效，
+也不触发逐 Task 全量扫描；需要刷新结论时由管理员显式 Verify。
 
 ### 5.6 Worker 与 launcher：实际挂载上的轻量 fail-closed
 
@@ -220,8 +220,8 @@ Harness、完整 Nix closure 或其他 content inventory 文件。
 | --- | --- | --- | --- | --- |
 | Profile 验证证据缺失或已失效 | 拒绝 V2 Task | 不应存在新 Task | 不执行 | Profile 保持未验证 |
 | readiness=`unavailable` | `409` | 保持/退回 `PENDING` | 不执行 | 保留确定性失败 |
-| readiness=`ready` | 允许 | 允许 | 轻量校验 | 不逐 Task 刷新 TTL |
-| readiness=`unknown`/过期，Snapshot identity 完整 | 允许 | 允许 | 轻量校验 | 保持 unknown，等待显式 Verify |
+| readiness=`ready` | 允许 | 允许 | 轻量校验 | 不逐 Task 刷新 |
+| readiness=`unknown`，Snapshot identity 完整 | 允许 | 允许 | 轻量校验 | 保持 unknown，等待显式 Verify |
 | Kit mount/manifest/version/platform 不匹配 | 已创建 Task 不改写 Snapshot | 已领取 | Harness 前失败 | 写稳定 Kit 错误并标记 unavailable |
 | 所选 Harness 缺失、不可执行或 digest 不匹配 | 已创建 Task 不改写 Snapshot | 已领取 | Harness 前失败 | 写 `harness_cli_unavailable` 或 identity mismatch |
 | Docker daemon 暂时不可达 | 不凭此删除 readiness 结论 | 使用既有 transient/recovery | 不执行 | 不写 deterministic unavailable |
@@ -253,8 +253,9 @@ Harness、完整 Nix closure 或其他 content inventory 文件。
 - Profile `verify-runtime` 增加 content-addressed install provenance 校验；
 - Task create/update/retry 在 V2 writer 边界验证冻结的 Kit 和所选 CLI identity；
 - Task runtime Verify 仍执行完整检查；
-- readiness API 继续返回 `status`、`checked_at`、`ready_until`、inventory 和 Kit identity；
-- UI 把过期 `ready` 展示为“验证观察已过期/建议重新验证”，不能描述为每个 Task 必须重新扫描；
+- readiness API 继续返回 `status`、`checked_at`、inventory 和 Kit identity；历史 `ready_until` nullable 字段
+  仅为兼容保留并返回 `null`；
+- UI 不展示过期倒计时；需要更新观察时使用显式 Verify，不能描述为每个 Task 必须重新扫描；
 - 已知 `unavailable` 的创建与调度行为保持不变。
 
 ## 8. 实施工作包
@@ -356,7 +357,7 @@ Bundle、协议或事件语义，则按总计划的证据失效规则补跑实�
 获得：
 
 - 正常 Task 消除约两分钟的重复启动开销；
-- readiness TTL 恢复为运维观察，而不是高成本逐 Task 授权；
+- readiness 只作为运维观察和已知失败门禁，而不是高成本逐 Task 授权；
 - 信任边界与现有 content-addressed 安装事实一致；
 - 完整校验集中在低频、可审计的管理员操作；
 - 启动失败更接近实际挂载，减少 probe container 与 Task container 的重复路径。
@@ -366,15 +367,15 @@ Bundle、协议或事件语义，则按总计划的证据失效规则补跑实�
 - 不再逐 Task 发现未选择 Harness 或 Nix closure 的静默损坏；
 - root 绕过安装规则后，系统只保证 manifest 和当前所选 CLI 的启动前校验；
 - Kit 被管理员提前删除时，Task 会在实际 container start 而不是 Scheduler pre-claim 阶段失败；
-- readiness 过期不再自动触发新鲜完整内容证明。
+- readiness 不按时间自动触发新鲜完整内容证明。
 
 这些取舍在“管理员维护 Backend 配置和 Worker Host、Kit 通过 content-addressed 安装发布”的既定前提下可接受。
 
 ## 12. 决策优先级与退出条件
 
 对 V2 installer-managed `mounted_kit`，本文件取代
-[共享配置设计](2026-08-14-worker-profile-shared-configuration-design.md) 中要求 Scheduler 在 unknown/TTL
-过期时执行完整 Kit probe、容器错误后同步严格复查，以及把该 probe 作为每次执行许可的相关条款。
+[共享配置设计](2026-08-14-worker-profile-shared-configuration-design.md) 中要求 Scheduler 在 unknown
+时执行完整 Kit probe、容器错误后同步严格复查，以及把该 probe 作为每次执行许可的相关条款。
 共享配置继承、Snapshot 不可变、generation/CAS 写入、known-unavailable 门禁和管理员 Verify 设计继续有效。
 
 本决策只有在以下条件全部满足后才算实现完成：

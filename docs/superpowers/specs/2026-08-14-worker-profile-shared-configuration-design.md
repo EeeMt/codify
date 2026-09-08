@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-14
 
-**Status:** Draft
+**Status:** Draft; readiness TTL clauses superseded by the 2026-09-08 implementation decision below
 
 **Scope:** 系统 Worker 共享配置、Worker Profile 差异覆盖、Task Worker Snapshot、Worker Kit 可用性、Task 创建与调度阻塞
 
@@ -23,7 +23,7 @@ Codify 应新增一份管理员维护的 **Worker 共享配置**，并让 Worker
 5. Docker Host、TLS、镜像、Harness、Skills、CodeGraph 等继续由 Profile 独立维护。
 6. 保存系统共享配置只做本地静态校验，不要求所有 Docker Host 已安装新 Kit。
 7. Task 创建时如果对应运行时指纹已经确定不可用，直接返回 `409 Conflict`。
-8. 状态未知或 `ready` 已过期时允许创建；首次调度前探测失败的 Task 明确失败，其余同指纹 Task 保持 `PENDING` 并显示 `worker_runtime_unavailable`。
+8. 状态未知时允许创建；首次调度前探测失败的 Task 明确失败，其余同指纹 Task 保持 `PENDING` 并显示 `worker_runtime_unavailable`。
 9. 不原地修改阻塞 Task 的 Snapshot。恢复方式是安装其 Snapshot 指定的 Kit 并重新验证，或者取消后创建新 Task。
 
 ## 2. 背景与问题
@@ -349,14 +349,14 @@ Snapshot 不保存动态继承引用。即使 Profile 使用共享配置，Snaps
 | `failure_code` | 如 `worker_kit_not_found`、`worker_kit_invalid`、`worker_kit_version_mismatch` |
 | `failure_message` | 长度受限、经过敏感信息清理的错误 |
 | `checked_at` | 最近确定性检查时间 |
-| `ready_until` | `ready` 正缓存的过期时间；只对成功检查有值 |
+| `ready_until` | 历史兼容字段；当前实现不参与状态判断 |
 | `check_generation` | 每次开始远端检查时原子递增，用于拒绝迟到结果 |
 | `check_started_at` | 当前 generation 的检查开始时间 |
 | `updated_at` | 记录更新时间 |
 
 不以 `worker_profile_id` 作为就绪身份。同一 Docker daemon、模式、版本和路径组合可以被多个 Profile 或历史 Task Snapshot 复用；Profile 删除也不应让历史 Task 的诊断信息消失。
 
-`status=ready` 且 `ready_until > now` 才是有效的 ready；无记录、`status=unknown` 或 ready 已过期都按 `unknown` 处理。`unavailable` 不自动过期，成功的后续检查才能替换它。
+`status=ready` 即表示有效 ready；无记录或 `status=unknown` 才表示未知。`unavailable` 和 `ready` 都只有显式后续检查才能被替换。
 
 ## 10. 摘要与指纹
 
@@ -471,7 +471,7 @@ Profile 挂载保存时先规范化 `container_path`，再拒绝任何同时存�
 4. 计算有效配置摘要和运行时定位指纹；
 5. 查询该指纹的就绪状态；
 6. 如果有效状态为 `unavailable`，在插入 Task 和分配 `issue_sequence` 前返回 `409 Conflict`；
-7. 如果有效状态为 `unknown` 或未过期的 `ready`，创建 Task 并保存完整 Snapshot；
+7. 如果有效状态为 `unknown` 或 `ready`，创建 Task 并保存完整 Snapshot；
 8. 从 Snapshot 选择运行指令模板并持久化最终 Prompt。
 
 结构化错误示例：
@@ -495,7 +495,7 @@ Profile 挂载保存时先规范化 `container_path`，再拒绝任何同时存�
 
 重试继续复制来源 Task Snapshot，而不是重新解析当前系统或 Profile。复制前查询来源 Snapshot 的运行时指纹：
 
-- 未过期的 `ready` 或 `unknown`：允许创建重试；
+- `ready` 或 `unknown`：允许创建重试；
 - `unavailable`：返回同样的 `409`。
 
 不能把普通“重试”偷偷变成使用当前 Profile 的重新执行。如果未来增加“使用当前运行时重新创建”，它必须创建新 Snapshot，并用独立的 `supersedes_task_id` 或等价关系表达。
@@ -523,14 +523,14 @@ PENDING -> QUEUED -> RUNNING -> COMPLETED | FAILED | CANCELLED
 Scheduler 在提升和领取 Task 时都必须检查 Snapshot 的运行时定位指纹：
 
 - `unavailable`：不提升为 `QUEUED`；
-- 未过期的 `ready`：正常调度；
-- 无记录、`unknown` 或已过期的 `ready`：在正式 Worker 容器创建前执行一次确定性 Kit 探测。
+- 已记录的 `ready`：正常调度；
+- 无记录或 `unknown`：在正式 Worker 容器创建前执行一次确定性 Kit 探测。
 
 `baked_image` 不依赖 mounted Worker Kit，直接跳过 Kit readiness 门禁；它仍接受现有镜像和 Harness 验证流程。
 
 若数据库中已有同指纹 `QUEUED` Task，而指纹刚被标记为 `unavailable`，Scheduler 将尚未领取的 Task 退回 `PENDING`。
 
-第一期增加平台级 `worker_runtime_readiness_ttl_seconds`，默认 `900` 秒。它只控制成功观察的正缓存，不自动解除 `unavailable`。Task 创建时过期的 ready 按 unknown 处理，因此仍允许创建，由 Scheduler 在执行前延迟探测。
+当前实现不采用 readiness TTL：V1/V2 的 `ready` 结论不会按时间自动失效，只有显式 Verify/探测写入新的结论才会改变状态。历史 `ready_until` 数据库列保留为兼容字段但不参与判断；`check_generation` 仅用于并发探测的 CAS，避免迟到结果覆盖较新的结果。
 
 ### 13.3 单指纹并发探测
 
@@ -552,11 +552,11 @@ Scheduler 的进程内指纹锁仍保留以减少同一实例内部的重复 Doc
 
 探测成功后：
 
-- 仅当 generation 仍为当前值时写入 `status=ready`、`checked_at=now`、`ready_until=now + ttl` 并清除失败字段；
+- 仅当 generation 仍为当前值时写入 `status=ready`、`checked_at=now` 并清除失败字段；
 - 当前 Task 继续正常领取和执行；
 - 同指纹的其他 Task 在后续调度周期自动恢复。
 
-ready 过期不需要后台任务批量改行；读取时根据 `ready_until` 派生为 unknown。若 Kit 在 TTL 内被删除，正式容器创建或启动出现 Kit mount/entrypoint 相关错误时必须立即运行同一个严格探测：确认 Kit 不可用后写入 unavailable，并用结构化 Kit 错误替换含糊的容器错误；若严格探测仍成功，则保留 ready，把原错误作为 Profile/镜像运行错误处理。
+ready 不会按时间自动失效。若 Kit 在两次显式检查之间被删除，正式容器创建或启动出现 Kit mount/entrypoint 相关错误时仍按运行时错误处理；管理员可通过 Verify/探测写入新的 `unavailable` 或 `ready` 结论。
 
 ### 13.5 探测失败
 
@@ -569,13 +569,13 @@ ready 过期不需要后台任务批量改行；读取时根据 `ready_until` �
 
 失败处理：
 
-1. 仅当 generation 仍为当前值时写入 `status=unavailable`、失败字段并清除 `ready_until`；
+1. 仅当 generation 仍为当前值时写入 `status=unavailable`、失败字段并清除历史 `ready_until`；
 2. 当前负责首次探测的 Task 只有在该失败结果成功提交时才变为 `FAILED`；
 3. 写入明确、已清理的 `error_message`；
 4. 同指纹其他未领取 Task 保持或退回 `PENDING`；
 5. 后续新建和重试请求返回 `409`。
 
-Docker daemon 临时不可达、超时、认证失败或探测所用镜像不可用都不证明 Kit 不存在，不应持久化为 `unavailable`。当前 generation 可以记录独立的 attempt diagnostics，但必须保留此前 readiness 结论；过期 ready 仍按 unknown 读取，已有 unavailable 仍保持 unavailable。
+Docker daemon 临时不可达、超时、认证失败或探测所用镜像不可用都不证明 Kit 不存在，不应持久化为 `unavailable`。当前 generation 可以记录独立的 attempt diagnostics，但必须保留此前 readiness 结论；已有 `ready` 或 `unavailable` 都保持原结论。
 
 ### 13.6 避免 Docker bind mount 假阳性
 
@@ -724,7 +724,7 @@ Profile 管理 API 应区分覆盖与有效值，避免客户端把继承值误�
 }
 ```
 
-`runtime_readiness.status` 返回读取时派生的有效状态；数据库中已经过期的 `ready` 必须返回为 `unknown`，不能要求前端自行修正过期状态。`ready_until` 只用于解释最近一次正缓存和驱动倒计时/刷新提示，不改变服务端判定。
+`runtime_readiness.status` 返回当前持久化的有效状态；历史 `ready_until` 不参与服务端判定，也不用于前端倒计时或刷新提示。
 
 ### 16.3 Task 错误
 
@@ -808,7 +808,7 @@ Worker Kit 0.4.0 未安装在该 Task 指定的 Worker 上。
 
 迁移目标是零行为漂移。
 
-1. 创建共享配置、共享环境变量和带 generation/TTL 字段的运行时就绪表，并增加平台级 readiness TTL 配置。
+1. 创建共享配置、共享环境变量和带 generation/CAS 字段的运行时就绪表；不增加 readiness TTL 配置。
 2. 从当前 **系统默认 Worker Profile** 初始化共享配置，而不是直接相信可能已经漂移的旧全局 Worker 字段。
 3. 所有现有 Profile 默认保持 `worker_kit_source=profile`，脚本、模板、挂载和环境变量继续作为显式覆盖，因此升级后有效配置不变。
 4. 现有 Profile 环境变量迁移为 `operation=set`，mask 为空。
@@ -830,7 +830,7 @@ Worker Kit 0.4.0 未安装在该 Task 指定的 Worker 上。
 - 所有 readiness 写入都必须经过 `begin_runtime_check` generation 和 `finish_runtime_check` CAS；
 - Scheduler 进程内锁只减少重复 I/O，不能替代 generation；
 - 迟到 generation 的结果不改变 readiness，也不改变 Task 状态；
-- 有效 ready 由 `status` 和 `ready_until` 共同决定；
+- 有效 ready 由持久化 `status` 决定；历史 `ready_until` 不参与判断；
 - Profile 完整验证写入前重新比较运行时验证输入摘要，拒绝已经过期的成功结果；
 - Task 创建检查与 readiness 变化存在正常竞态：创建时为 `unknown` 可以成功，执行前仍必须重检；
 - 已创建 Snapshot 永不因为共享 revision 变化而自动刷新。
@@ -895,8 +895,7 @@ Worker Kit 0.4.0 未安装在该 Task 指定的 Worker 上。
 - 同指纹未领取 Task 保持或退回 `PENDING`；
 - readiness 为 unavailable 的 Task 不被提升或领取；
 - 恢复为 ready 后 Task 自动恢复；
-- ready TTL 过期后按 unknown 延迟重新探测；
-- TTL 内 Kit 被删除并触发容器错误时，严格复查将指纹降级为 unavailable 并返回结构化错误；
+- 已记录 ready 持续有效，直到显式探测改写结论；
 - 严格 Mount 探测缺失 source 不创建宿主机目录，并能区分 missing、invalid、version mismatch 与 transient failure；
 - 同一 Issue 队首显示 runtime unavailable，后续显示 predecessor；
 - 使用旧但 ready 指纹的 Task 不受当前 Profile 新指纹状态影响；
@@ -930,7 +929,7 @@ Worker Kit 0.4.0 未安装在该 Task 指定的 Worker 上。
 
 ### Phase 2：运行时就绪门禁
 
-- 新增运行时定位指纹和带 generation/TTL 的 readiness 表；
+- 新增运行时定位指纹和带 generation/CAS 的 readiness 表；
 - 实现严格 Mount + 停止容器 archive 的无副作用 Kit 探测，并完成远程 Linux daemon smoke；
 - 扩展 Profile verify-runtime；
 - 新增 Task Snapshot 验证接口；
@@ -963,7 +962,7 @@ Worker Kit 0.4.0 未安装在该 Task 指定的 Worker 上。
 - 只对环境变量和挂载做单项 overlay/mask；
 - 运行时指纹只追踪 Kit 定位，不因普通配置变化重复探测；
 - 使用进程内锁减少单 Scheduler 重复探测，同时用数据库 generation/CAS 保证所有写入者的正确性；
-- ready 只做带 TTL 的正缓存，unavailable 保持管理员可控恢复；
+- ready 和 unavailable 均由显式探测结果控制，避免时间缓存策略；
 - 不实现 Snapshot 原地重绑定和批量重建。
 
 相比模板方案，本设计的数据模型和解析器成本更高，但它直接消除长期同步成本，并保证后续共享配置更新不会再次退化为逐 Profile 手工操作。相比直接批量更新 Profile，本设计还保留了清晰的来源、覆盖和恢复继承语义。
@@ -983,7 +982,7 @@ Worker Kit 0.4.0 未安装在该 Task 指定的 Worker 上。
 11. 系统不会自动回退旧 Kit、切换 Profile 或修改 Task Snapshot。
 12. 共享配置、Profile 覆盖、Task Snapshot 和 readiness 全链路不泄漏 secret。
 13. Scheduler、Profile 验证和 Task Snapshot 验证并发时，迟到结果不能覆盖较新 readiness，也不能错误改变 Task 状态。
-14. ready 过期后会延迟重新探测；TTL 内 Kit 被删除也能在容器错误路径中被严格复查并转换为明确 Kit 错误。
+14. readiness 不按时间自动失效；显式 Verify/探测能把结论更新为 ready 或 unavailable。
 15. Kit 探测不会因缺失 bind source 在 Docker Host 上创建目录，也不会把 Profile-specific 或 transient 错误写成全局 unavailable。
 16. `effective_configuration_digest` 只用于审计，Profile 已验证状态只由匹配的 `verified_runtime_configuration_digest` 决定。
 17. 复制 Profile 保留继承/覆盖/mask 意图并重置验证观察；挂载 set/mask 冲突在保存时被拒绝。

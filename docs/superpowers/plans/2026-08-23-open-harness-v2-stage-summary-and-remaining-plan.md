@@ -29,12 +29,34 @@ Bundle 216，显式快照 `{"codex":{"reasoning_effort":"high"}}`；11 个 reaso
 技术 evidence 已形成预期结果；R4.3/R4.4 剩余为正式 identity/验收签署，R4.5 仍等待 owner closure。详见同一
 [Codex Go Provider reasoning probe evidence](../evidence/2026-09-08-open-harness-v2-codex-long-thinking-probes.md)。
 
-**2026-09-08 readiness TTL 复核：** 在继续推进 release gate 前，对同一开发 Host 的 Profile 4 做了显式管理员
+**2026-09-08 readiness TTL 复核（TTL 移除前的历史证据）：** 在继续推进 release gate 前，对同一开发 Host 的 Profile 4 做了显式管理员
 Verify。四个 Harness 均通过，Profile generation 更新为 `102`，readiness 检查于 `2026-09-08 13:56:52 UTC`
 完成并有效至 `2026-09-08 14:11:52 UTC`；
 Worker image、Kit `0.6.16`、manifest SHA 和 Harness inventory 均未变化，验证容器已清理，未产生新的 Bundle。
 Task #539 / Bundle 216 保留为 generation `99` 下的不可变真实 Task 证据；由于没有实际 runtime artifact 漂移，
 不追加重复 smoke，当前 release identity 以 generation `102` 为准。
+
+**2026-09-08 readiness TTL 简化（当前实现，等待用户确认影响范围）：** V1/V2 均不再按时间让
+`ready` 自动失效，也不再读取或写入 `worker_runtime_readiness_ttl_seconds`；`unavailable` 仍只能由显式
+Verify/探测后的新结论替换。`check_generation` 只保留为并发探测的 CAS，防止迟到结果覆盖较新的结果；历史
+`ready_until` 数据库列、API/前端 nullable 字段暂不删除，仅作为惰性兼容字段且始终返回 `null`。
+实现已提交为 `079513e0`；当前提交尚未部署。
+本地按当前 Worker image、Kit 0.6.16 和 Bundle 216 的 exact identity 重建 Runtime Bundle，结果仍为
+digest `c374ef5a009c53d2fc469a262e5cabcb23efff97f9d6176655992198bba946a7`、archive SHA
+`45dbf460e4c3a9fe07896a19b647cff241bb291af95ca9eeda159a27b66ad80c`；readiness 属于 Backend/Scheduler
+受控文件之外，因此没有人为创建新的 Bundle 编号。
+
+**本次变更的受影响场景（先评估，未开始运行时验证）：**
+
+- 直接受影响：Profile/Task Verify 的 readiness 返回、V1 Scheduler 的“unknown 时探测”分支、V1/V2
+  readiness 状态读取，以及 readiness 单元/管理 API 契约测试。
+- 行为变化：已记录的 `ready` 会持续放行，Kit 在两次显式检查之间被删除时不再由 TTL 提前发现；实际
+  创建/启动错误和管理员 Verify 仍是发现入口。`unavailable`、首次 unknown 探测、V2 frozen identity
+  和 launcher 轻量检查保持不变。
+- 不受影响：Provider/模型协议、四 Harness Adapter、Canonical Event/思考事件、Task Snapshot、Git
+  finalization/delivery、Worker Kit 内容和 Runtime Bundle 受控文件。
+- 尚未执行：远端部署/重启、Profile Verify、真实 Task、浏览器验收、Docker 清理和 release sign-off；
+  等用户确认上述影响后再开始。
 
 ## 1. 当前结论
 
@@ -47,9 +69,9 @@ Task #539 / Bundle 216 保留为 generation `99` 下的不可变真实 Task 证�
 | R2：四 Harness hard-cut conformance | **完成，受影响场景重开** | 历史 8 个适用 Harness×protocol 行及 lifecycle/command/recovery 已闭合；`c089b67a`、`7fd0939c` 及 `5d2fad8e` 修改 reasoning lifecycle、共享 delivery 隔离边界和 Codex App Server transport，仍须在同一 candidate 上重验受影响组合 |
 | R3：正式 20-scenario benchmark | **完成** | Pi/OpenCode 20/20 formal pair 与 Pi 非劣性门槛已通过；当前变化未升级 CLI 或修改 model endpoint protocol，但切换了 Codex control transport，故不整体重跑 benchmark、改由 R2/R4 重验 Codex；真实验收若发现 terminal、质量或性能回归再按影响重开 |
 | R4.1：可信 Kit 启动边界 | **完成** | content-addressed 安装、管理员完整 Verify、Task 热路径轻量校验与 warm-start 已有 L2–L4 证据 |
-| R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 overlay 已推进到 source `4249fcc4`、Profile 4 generation `102`、Worker Kit 0.6.16、Backend image `sha256:029384d710497c768bd6ca23ef6fa62fcd4751670d03d7aa0c35d990e91ed81e`、NGINX image `sha256:aa09c11639f0f5838c085006c0690344f32536c1dcbd91dda37681cd6e253f2`；Task #539 的 Bundle 216 是 generation `99` 下的不可变真实 Task 证据，历史 Bundle 198–215 保持不可变；镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
+| R4.2：冻结 exact candidate | **已形成，未签署；TTL 简化后待重新冻结** | 当前调试 overlay 的历史 identity 为 source `4249fcc4`、Profile 4 generation `102`、Worker Kit 0.6.16、Backend image `sha256:029384d710497c768bd6ca23ef6fa62fcd4751670d03d7aa0c35d990e91ed81e`、NGINX image `sha256:aa09c11639f0f5838c085006c0690344f32536c1dcbd91dda37681cd6e253f2`；TTL 简化后的新 Backend 尚未部署，Bundle 内容地址重建仍等于 Bundle 216，历史 Bundle 保持不可变；镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
 | R4.3：正式交互验收 | **技术 evidence 已闭合，未签署** | 固定 8 行由 #468/#469/#488/#513/#517/#521/#523 与 generation `99` 快照下的 #539 组成，覆盖四 Harness 的真实占位、完成/中断、刷新/重连、正文边界和受控 fail-closed；Task #539 在 Bundle 216 上补齐 Provider 4 + Codex 的 `reasoning_effort=high`、11 个 `started → completed` 生命周期和 `5.204–6.349s` 页面/TaskLog 时序。reasoning 空 summary 仍保持状态-only，不伪造正文；5–6 秒已是当前口径。剩余是固定 8 行整体 identity 与正式签署，移动设备验收不作为本轮技术执行项 |
-| R4.4：运维与真实 Task 验收 | **技术 evidence 已闭合，未签署** | #468/#469/#488/#513/#517/#521/#523 与 generation `99` 快照下的 #539 已覆盖 delivery、finalization、archive、取消、零变化、Codex reasoning 和受控远端 divergence；#488 的失败是预期 fail-closed。Task #539 的 canonical receipt `1..34` 连续、`+0/-0`、`commit_sha=null`，无远端写入。当前不再以 30s 单段 reasoning 作为技术门槛；generation `102` Verify 未改变这些 runtime artifact。剩余是 exact identity/owner 签署，而不是追加普通 smoke |
+| R4.4：运维与真实 Task 验收 | **历史 evidence 保留；TTL 简化影响待确认** | 既有 #468/#469/#488/#513/#517/#521/#523/#539 的 delivery、finalization、archive、取消、零变化、Codex reasoning 和受控远端 divergence 仍不可变；但它们不能证明 TTL 移除后的 readiness/scheduler 行为。待用户确认影响范围后，只验证上面列出的 readiness 受影响场景，不扩大到无关 Harness/Provider |
 | R4.5：安全与发布审计 | **技术审计已收敛，阻塞于 owner 输入** | 当前 candidate 的 identity、测试、Provider credential-ref 边界、Docker/Kit 状态和未执行项已记录在 [R4.5 current-candidate audit](../evidence/2026-09-08-open-harness-v2-r4.5-current-candidate-audit.md)；最小权限/轮换、migration 078 决定、签名发布包、retention、维护窗口与独立 P0/P1 审阅仍未签署 |
 | R4.6：hard-cut go/no-go | **未执行** | R4.2–R4.5 全部闭合后才能形成独立 `GO` 或 `NO-GO` |
 | R5：L6 `v2_only` hard cut | **未执行** | 仅在 R4.6 `GO` 且获得单独执行批准后进入维护窗口 |
@@ -64,8 +86,8 @@ Task #539 / Bundle 216 保留为 generation `99` 下的不可变真实 Task 证�
 
 | 项 | 当前值 |
 | --- | --- |
-| Git revision | `4249fcc4` (`feat(codex): forward configured reasoning effort`)；保留 `b7cacd47` 的思考正文入口修复 |
-| 分支状态 | `dev` 的运行时 candidate 仍以 `4249fcc4` 为 source anchor；本轮另补齐严格 `git_delivery` contract 的旧测试夹具与当前 evidence，候选及关联文档仍未推送；既有 security audit 仍按独立路径处理 |
+| Git revision | `079513e0` (`refactor(runtime): remove readiness TTL`)；其父提交保留 `4249fcc4` 的 Codex reasoning effort 与 `b7cacd47` 的思考正文入口修复 |
+| 分支状态 | `dev` 的新 runtime candidate 以 `079513e0` 为 source anchor；本轮实现尚未部署或推送，关联文档随后单独提交；既有 security audit 仍按独立路径处理 |
 | 影响面 | 思考占位/预览/完整内容入口、Codex App Server explicit `summary_text`/`summaryTextDelta` 投影、`turn/start.effort` options、Adapter/manifest/runtime digest 与既有 Canonical reasoning 投影；不读取 Codex 原始隐藏 `content`/`textDelta` |
 | 设计基线 | [Task Git delivery reconciliation design](../specs/2026-09-04-task-git-delivery-reconciliation-design.md)；[four-Harness thinking lifecycle plan](2026-09-04-thinking-event-placeholder-plan.md) |
 | 当前聚焦 L2 | 当前 Backend unit suite `3419 passed, 4 skipped, 99 subtests`；Frontend unit suite `1748 passed`（80 files），`npm run build`、Backend lint、受影响 106 tests、shell/diff check 均通过；生产部署仍保持既有 Runtime identity |
@@ -201,7 +223,7 @@ R4-RC1 已在开发 Host 形成当前 source/Kit composition，并完成固定 8
 
 ### A. 冻结源码与变更范围
 
-1. 以 `4249fcc4` 为本轮 source anchor；该提交在既有 Codex App Server/Worker delivery、外部取消 reasoning 收尾和思考正文入口修复之上，补齐 Codex `reasoning_effort` 的 Profile options、Worker adapter 校验/导出和 App Server `turn/start.effort`；尚未推送，故候选未签署。
+1. 以 `079513e0` 为本轮 source anchor；该提交在既有 Codex App Server/Worker delivery、外部取消 reasoning 收尾和思考正文入口修复之上，移除 V1/V2 readiness TTL，保留 generation/CAS 并发保护；尚未部署或推送，故候选未签署。
 2. 审阅 Git delivery 与 thinking lifecycle 两份设计的完成条件；关闭当前 L2 P0/P1，执行受影响的 backend/frontend 测试和 production build，并在真实 Codex Provider 可响应后补回归。当前 finalization/native abort/pre-Harness/外部取消续测见 [Current Bundle real-task matrix](../evidence/2026-09-08-open-harness-v2-current-bundle-real-task-matrix.md) 的第 5–7 节。
 3. 冻结前若再修改 Worker finalization、delivery、Codex transport、Backend projection 或结果 UI，更新候选 SHA 并从本步骤重新开始。
 4. 不因本工作包升级 Harness CLI、修改 Provider 协议、增加 schema 或扩展产品范围。
@@ -211,7 +233,7 @@ R4-RC1 已在开发 Host 形成当前 source/Kit composition，并完成固定 8
 1. 从冻结提交构建 Backend/Frontend，并记录可回溯的 revision/image identity。
 2. 生成包含当前 `worker-entrypoint` 的新 Runtime Bundle；不得原地修改历史 Bundle。
 3. 当前 Worker image 与 Kit 0.6.16 已通过 Verify；内容未变时继续使用 immutable identity，不为 generation 数字重建 Kit。
-4. 在真实 Task 前只做一次管理员 Verify，记录有效 TTL、Profile、Kit、Worker image 和各 Harness Bundle identity。
+4. 在真实 Task 前只做一次管理员 Verify，记录 Profile、Kit、Worker image 和各 Harness Bundle identity；不再记录 readiness TTL。
 
 ### C. 固定 8 条合并验收
 
@@ -338,7 +360,7 @@ R4.6 只接受两种结论：
 | Runtime Bundle/finalization/delivery/terminal/archive 变化 | 生成新 Bundle，更新 L2/L3，补跑受影响 R2/R4.4 场景 |
 | Adapter、Canonical Event 或 reasoning 投影变化 | 生成新 Bundle，重验受影响 Harness×protocol 行和 R4.3 页面时序；不自动重跑无关 benchmark |
 | Harness CLI、Provider protocol/model 或 execution options 变化 | 生成新 immutable identity，重做受影响 L3/L4/R2/R3 evidence |
-| readiness TTL 过期 | 状态派生为 `unknown`；发布前重新 Verify，不重跑历史里程碑 |
+| readiness 结论或 Scheduler readiness gate 逻辑变化 | 先评估 V1/V2 readiness、Verify、unknown/unavailable 和容器错误场景；用户确认后再做最小验证，不重跑无关历史里程碑 |
 
 出现以下任一情况立即停止当前 candidate：identity 漂移、mutable artifact、隐式 CLI 回退、
 跨 Task session/config 串线、command/terminal/receipt 不变量破坏、凭据泄漏、错误成功判定、远端覆盖、
