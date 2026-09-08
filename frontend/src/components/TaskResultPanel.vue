@@ -164,7 +164,7 @@
 
       <!-- Commit Record Card -->
       <div
-        v-if="task.commit_sha || task.commit_message || hasChanges || task.git_delivery"
+        v-if="showCommitRecord"
         class="result-card result-card--commit"
       >
         <div class="result-card__title">
@@ -561,17 +561,40 @@ const commitUrl = computed(() => {
   return `${props.task.project_url}/-/commit/${props.task.commit_sha}`
 })
 
-const hasChanges = computed(() =>
-  props.task.additions !== undefined || props.task.deletions !== undefined
-)
+const hasChanges = computed(() => (
+  Number(props.task.additions ?? 0) > 0
+  || Number(props.task.deletions ?? 0) > 0
+  || Number(props.task.total_changes ?? 0) > 0
+))
 
 // git_delivery block — normalized delivery detail for this task (see backend contract).
 type GitDeliveryPushStatus = NonNullable<TaskGitDelivery['push']>['status']
 
 const message = useMessage()
 const gitDelivery = computed(() => (props.task.git_delivery ? props.task.git_delivery : null))
-const gitDeliveryHeadSha = computed(() => gitDelivery.value?.head_sha || null)
+const gitDeliveryCommits = computed(() => commitRows('commits'))
+const gitDeliveryRecovered = computed(() => commitRows('recovered'))
+const gitDeliveryHasContent = computed(() => (
+  gitDeliveryCommits.value.length > 0 || gitDeliveryRecovered.value.length > 0
+))
+const gitDeliveryPushFailed = computed(() => gitDelivery.value?.push?.status === 'failed')
+
+// A recovered-only delivery has a valid final branch head, but that SHA is not
+// a commit created by this task. Keep it in the API contract for delivery and
+// MR logic, but do not present it as this task's commit in the result card.
+const gitDeliveryHeadSha = computed(() => (
+  gitDeliveryCommits.value.length > 0 ? gitDelivery.value?.head_sha || null : null
+))
 const gitDeliveryCommitUrl = computed(() => gitDelivery.value?.commit_url || null)
+
+// A canonical no-content delivery is represented by git_delivery with
+// push=not_needed. It is not a commit record and should not create an empty
+// card. Failed delivery remains visible for diagnostics even when the worker
+// could not produce a commit list.
+const showCommitRecord = computed(() => {
+  if (gitDelivery.value) return gitDeliveryHasContent.value || gitDeliveryPushFailed.value
+  return Boolean(props.task.commit_sha || props.task.commit_message || hasChanges.value)
+})
 
 function commitRows(which: 'commits' | 'recovered'): TaskGitDeliveryCommit[] {
   const rows = which === 'commits'
@@ -580,9 +603,6 @@ function commitRows(which: 'commits' | 'recovered'): TaskGitDeliveryCommit[] {
   if (!Array.isArray(rows) || rows.length === 0) return []
   return rows
 }
-
-const gitDeliveryCommits = computed(() => commitRows('commits'))
-const gitDeliveryRecovered = computed(() => commitRows('recovered'))
 
 function visibleCommitRows(
   rows: TaskGitDeliveryCommit[],

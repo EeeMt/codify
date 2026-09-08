@@ -335,6 +335,45 @@ describe('TaskResultPanel git delivery', () => {
     expect(text).toContain('feat: inherited earlier work')
     expect(text).toContain('Already on remote')
     expect(text).not.toContain('This task commits')
+    // The final head is a recovered delivery endpoint, not a commit created
+    // by this task, so it must not appear as a standalone task commit chip.
+    expect(wrapper.find('.git-delivery__head').exists()).toBe(false)
+    expect(wrapper.findAll('.git-delivery__commit-row')).toHaveLength(1)
+  })
+
+  it('does not render a commit record for a canonical no-change delivery', () => {
+    const wrapper = mountGitTask(makeGitDelivery({
+      head_sha: 'dddddddddddddddddddddddddddddddddddddddd',
+      diff: {
+        additions: 0,
+        deletions: 0,
+        total: 0,
+        new_files: [],
+        modified_files: [],
+        deleted_files: [],
+      },
+      push: { status: 'not_needed', remote_sha: null, error: null },
+    }))
+
+    expect(wrapper.find('.result-card--commit').exists()).toBe(false)
+  })
+
+  it('does not render a commit record for a task without commit or changes', () => {
+    const wrapper = mount(TaskResultPanel, {
+      props: {
+        task: createMockTask({
+          status: 'completed',
+          commit_sha: null,
+          commit_message: null,
+          additions: 0,
+          deletions: 0,
+          total_changes: 0,
+          git_delivery: null,
+        }),
+      },
+    })
+
+    expect(wrapper.find('.result-card--commit').exists()).toBe(false)
   })
 
   it('shows the failed push chip together with the remote error message', () => {
