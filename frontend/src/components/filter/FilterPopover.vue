@@ -218,9 +218,11 @@ function clearCurrent() {
 
 <style scoped>
 .filter-popover {
-  width: 240px;
+  width: min(240px, calc(100vw - 24px));
+  box-sizing: border-box;
   max-height: 360px;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--n-color, #fff);
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.1);
@@ -334,6 +336,7 @@ function clearCurrent() {
   color: var(--n-text-color-3, #888);
 }
 .filter-popover__search {
+  width: calc(100% - 16px);
   margin: 4px 8px 8px;
 }
 .filter-popover__state {

@@ -227,16 +227,21 @@ const filterChips = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
 }
 .filter-toolbar__row {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
 }
 .filter-toolbar__search {
-  width: 200px;
-  flex-shrink: 0;
+  width: min(200px, 100%);
+  max-width: 100%;
+  flex: 0 1 200px;
 }
 .filter-toolbar__search-hint {
   margin-left: -2px;
@@ -247,9 +252,15 @@ const filterChips = computed(() => {
   font-size: 11px;
   color: var(--n-text-color-3, #888);
   margin-left: 4px;
+  min-width: 0;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .filter-toolbar__spacer {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .filter-toolbar__count {
   font-size: 12px;
@@ -269,5 +280,20 @@ const filterChips = computed(() => {
 }
 .filter-toolbar__clear-all:hover {
   color: var(--n-text-color, #fff);
+}
+
+@media (max-width: 767px) {
+  .filter-toolbar__search {
+    width: 100%;
+    flex: 1 0 100%;
+  }
+
+  .filter-toolbar__spacer {
+    display: none;
+  }
+
+  .filter-toolbar__count {
+    margin-left: auto;
+  }
 }
 </style>
