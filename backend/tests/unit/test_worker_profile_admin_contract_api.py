@@ -4,7 +4,7 @@ Covers F4: the Profile management API distinguishes overrides/effective/sources
 and returns the current shared revision plus runtime sections. ``matches_current_input``
 is recomputed server-side from the current shared baseline + Profile overrides +
 resolved Docker target, and ``runtime_readiness.status`` is the read-time derived
-status (an expired ``ready`` row reads as ``unknown``).
+status (a stored ``ready`` row remains ``ready`` until an explicit re-check).
 """
 
 from __future__ import annotations
@@ -271,7 +271,7 @@ async def test_matches_current_input_false_when_no_digest(db_factory):
 
 
 @pytest.mark.asyncio
-async def test_runtime_readiness_unknown_for_expired_ready_row(db_factory):
+async def test_runtime_readiness_keeps_ready_for_legacy_expired_row(db_factory):
     session_factory = await db_factory()
     async with session_factory() as db:
         await _seed_shared(db)
@@ -302,8 +302,9 @@ async def test_runtime_readiness_unknown_for_expired_ready_row(db_factory):
 
         payload = (await _admin_list(db))[0]
 
-    # F4: an expired ready row must read back as unknown, never stale-ready.
-    assert payload["runtime_readiness"]["status"] == "unknown"
+    # Legacy deadlines are inert; only an explicit re-check changes status.
+    assert payload["runtime_readiness"]["status"] == "ready"
+    assert payload["runtime_readiness"]["ready_until"] is None
     assert payload["runtime_readiness"]["checked_at"] is not None
 
 

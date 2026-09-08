@@ -1408,7 +1408,8 @@ class Scheduler:
         logger.info("Executing task %s for issue %s", task_id, issue_id)
 
         # Runtime readiness gate (§13): a mounted-kit task must be confirmed
-        # (ready via TTL or a successful deterministic first-probe) before a
+        # (ready via explicit verification or a successful deterministic first
+        # probe) before a
         # worker container is created. A deterministic unavailable conclusion
         # fails the probed task and parks unclaimed same-fingerprint tasks.
         if await self._apply_runtime_readiness_gate(db, task):
@@ -1656,7 +1657,6 @@ class Scheduler:
                 runtime_mode=snapshot.runtime_mode,
                 worker_kit_version=snapshot.worker_kit_version or "",
                 worker_kit_path=snapshot.worker_kit_path or "",
-                ttl_seconds=settings.worker_runtime_readiness_ttl_seconds,
                 require_content_inventory=requires_full_content_identity,
             )
         except RuntimeProbeTransientError as exc:

@@ -353,7 +353,6 @@ async def test_create_execute_container_uses_snapshot_runtime(tmp_path):
         worker_skip_image_pull=False,
         worker_network="bridge",
         docker_host="unix:///var/run/docker.sock",
-        worker_runtime_readiness_ttl_seconds=900,
         harness_execution_mode="dual_canary",
     )
     db = MagicMock()
@@ -496,7 +495,6 @@ async def test_create_execute_container_v1_dual_canary_uses_legacy_cli_path(tmp_
         worker_skip_image_pull=False,
         worker_network="bridge",
         harness_execution_mode="dual_canary",
-        worker_runtime_readiness_ttl_seconds=900,
     )
     db = MagicMock()
     db.commit = AsyncMock()
@@ -717,7 +715,6 @@ async def test_create_execute_container_freeform_defers_mr_and_omits_mr_iid(tmp_
         worker_skip_image_pull=False,
         worker_network="bridge",
         docker_host="unix:///var/run/docker.sock",
-        worker_runtime_readiness_ttl_seconds=900,
         harness_execution_mode="dual_canary",
     )
     db = MagicMock()
@@ -777,7 +774,6 @@ def _kit_runtime_and_settings():
         worker_image="old-worker:latest",
         worker_skip_image_pull=False,
         worker_network="bridge",
-        worker_runtime_readiness_ttl_seconds=900,
         harness_execution_mode="dual_canary",
     )
     return runtime, settings

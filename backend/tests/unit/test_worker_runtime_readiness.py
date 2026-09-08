@@ -1,9 +1,9 @@
 """Unit tests for worker runtime locator fingerprints, readiness records, and
 the strict-Mount Kit probe (§9.6, §10.3, §13.3-§13.6, §19).
 
-Covers the generation/CAS protocol, TTL-only ready caching, never-expiring
-unavailable, and the side-effect-free strict-Mount probe that reads Kit
-contents through the archive API from a stopped container.
+Covers the generation/CAS protocol, persistent readiness conclusions, explicit
+unavailable recovery, and the side-effect-free strict-Mount probe that reads
+Kit contents through the archive API from a stopped container.
 """
 import asyncio
 import hashlib
@@ -369,7 +369,7 @@ def test_read_missing_fingerprint_is_unknown():
     assert readiness.status == READINESS_UNKNOWN
 
 
-def test_read_ready_within_ttl_is_ready():
+def test_read_ready_is_ready_even_with_legacy_deadline():
     row = WorkerRuntimeReadiness(
         runtime_locator_fingerprint="fp",
         status=READINESS_READY,
@@ -381,7 +381,7 @@ def test_read_ready_within_ttl_is_ready():
     assert readiness.status == READINESS_READY
 
 
-def test_read_expired_ready_is_unknown():
+def test_read_ready_ignores_legacy_deadline():
     row = WorkerRuntimeReadiness(
         runtime_locator_fingerprint="fp",
         status=READINESS_READY,
@@ -390,7 +390,8 @@ def test_read_expired_ready_is_unknown():
     db = AsyncMock()
     db.get = AsyncMock(return_value=row)
     readiness = asyncio.run(read_runtime_readiness(db, "fp"))
-    assert readiness.status == READINESS_UNKNOWN
+    assert readiness.status == READINESS_READY
+    assert readiness.ready_until is None
 
 
 def test_read_unavailable_never_auto_expires():
@@ -444,7 +445,6 @@ async def test_begin_and_finish_runtime_check_cas_roundtrip():
                 fingerprint="fp1",
                 generation=generation,
                 status=READINESS_READY,
-                ready_until=utcnow() + timedelta(minutes=5),
             )
             await db.commit()
             assert written is True
@@ -489,7 +489,6 @@ async def test_finish_runtime_check_discards_stale_generation():
                 fingerprint="fp2",
                 generation=generation,
                 status=READINESS_READY,
-                ready_until=utcnow() + timedelta(minutes=5),
             )
             await db.commit()
             assert written is False
@@ -945,11 +944,10 @@ async def test_run_deterministic_kit_probe_persists_ready_through_cas():
                     runtime_mode="mounted_kit",
                     worker_kit_version="0.3.5",
                     worker_kit_path="/opt/kit",
-                    ttl_seconds=900,
                 )
         assert outcome.committed is True
         assert outcome.readiness.status == READINESS_READY
-        assert outcome.readiness.ready_until is not None
+        assert outcome.readiness.ready_until is None
         async with session_factory() as db:
             stored = await read_runtime_readiness(db, fingerprint)
         assert stored.status == READINESS_READY
@@ -988,7 +986,6 @@ async def test_v2_unavailable_readiness_does_not_contaminate_v1_scope():
                     runtime_mode="mounted_kit",
                     worker_kit_version="0.3.5",
                     worker_kit_path="/opt/kit",
-                    ttl_seconds=900,
                     require_content_inventory=True,
                 )
         assert outcome.readiness.status == READINESS_UNAVAILABLE
@@ -1059,7 +1056,6 @@ async def test_run_deterministic_kit_probe_superseded_reports_not_committed():
                     runtime_mode="mounted_kit",
                     worker_kit_version="0.3.5",
                     worker_kit_path="/opt/kit",
-                    ttl_seconds=900,
                 )
 
         with patch(
@@ -1112,7 +1108,6 @@ async def test_run_deterministic_kit_probe_transient_leaves_no_orphan_row():
                         runtime_mode="mounted_kit",
                         worker_kit_version="0.3.5",
                         worker_kit_path="/opt/kit",
-                        ttl_seconds=900,
                     )
         async with session_factory() as db:
             row = await db.get(WorkerRuntimeReadiness, fingerprint)
@@ -1160,7 +1155,6 @@ async def test_run_deterministic_kit_probe_transient_preserves_existing_conclusi
                         runtime_mode="mounted_kit",
                         worker_kit_version="0.3.5",
                         worker_kit_path="/opt/kit",
-                        ttl_seconds=900,
                     )
         async with session_factory() as db:
             stored = await read_runtime_readiness(db, fingerprint)

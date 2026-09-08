@@ -8,7 +8,8 @@ Implements design §9.6, §10.3, §13.3-§13.6 and §19:
 - ``begin_runtime_check`` / ``finish_runtime_check`` implement the generation/CAS
   protocol: the check generation is incremented atomically before remote Docker
   I/O and a result is written only while the generation is still current. Later
-  started checks win; late results are discarded.
+  started checks win; late results are discarded. A committed ``ready`` result
+  remains effective until an explicit re-check changes it.
 - ``probe_worker_kit`` performs the side-effect-free strict-Mount probe (§13.6):
   a stopped container with ``Mount(type="bind", read_only=True)`` validates the
   bind source exists (missing source is rejected at create) and the Kit manifest
@@ -29,7 +30,7 @@ import tarfile
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 import docker
@@ -103,10 +104,11 @@ class RuntimeCheckResult:
 
 @dataclass(frozen=True)
 class RuntimeReadiness:
-    """Derived readiness for one locator fingerprint at read time.
+    """Effective readiness for one locator fingerprint at read time.
 
-    ``status`` is the effective status: an expired ``ready`` is returned as
-    ``unknown`` so callers never need to interpret ``ready_until`` themselves.
+    ``ready_until`` is retained as a nullable compatibility field for older
+    callers and rows. It is no longer used to derive status and new probe
+    results leave it empty.
     """
 
     status: str
@@ -164,7 +166,9 @@ def serialize_runtime_readiness(readiness: RuntimeReadiness) -> dict[str, Any]:
         "failure_code": readiness.failure_code,
         "failure_message": readiness.failure_message,
         "checked_at": readiness.checked_at.isoformat() if readiness.checked_at else None,
-        "ready_until": readiness.ready_until.isoformat() if readiness.ready_until else None,
+        # ``ready_until`` is a legacy response field. Readiness is no longer
+        # time-limited, so never expose an old deadline as an active contract.
+        "ready_until": None,
         "harness_inventory": readiness.harness_inventory,
         "kit_identity": readiness.kit_identity,
     }
@@ -388,16 +392,7 @@ async def read_runtime_readiness(
     row = await db.get(WorkerRuntimeReadiness, readiness_fingerprint)
     if row is None:
         return RuntimeReadiness(status=READINESS_UNKNOWN)
-    now = utcnow()
-    if row.status == READINESS_READY:
-        if row.ready_until is not None and row.ready_until > now:
-            status = READINESS_READY
-        else:
-            status = READINESS_UNKNOWN
-    elif row.status == READINESS_UNAVAILABLE:
-        status = READINESS_UNAVAILABLE
-    else:
-        status = READINESS_UNKNOWN
+    status = row.status if row.status in READINESS_STATUSES else READINESS_UNKNOWN
     return RuntimeReadiness(
         status=status,
         docker_daemon_key=row.docker_daemon_key,
@@ -407,7 +402,9 @@ async def read_runtime_readiness(
         failure_code=row.failure_code,
         failure_message=row.failure_message,
         checked_at=row.checked_at,
-        ready_until=row.ready_until,
+        # Historical deadlines are intentionally ignored. The nullable model
+        # column remains only so existing databases need no cleanup migration.
+        ready_until=None,
         check_generation=row.check_generation,
         check_started_at=row.check_started_at,
         updated_at=row.updated_at,
@@ -555,7 +552,6 @@ async def finish_runtime_check(
     status: str,
     failure_code: str | None = None,
     failure_message: str | None = None,
-    ready_until: datetime | None = None,
     harness_inventory: dict[str, Any] | None = None,
     kit_identity: dict[str, Any] | None = None,
     require_content_inventory: bool = False,
@@ -587,7 +583,9 @@ async def finish_runtime_check(
             checked_at=utcnow(),
             failure_code=failure_code,
             failure_message=failure_message,
-            ready_until=ready_until if status == READINESS_READY else None,
+            # The historical column is deliberately inert; readiness changes
+            # only through an explicit probe result.
+            ready_until=None,
             harness_inventory=harness_inventory,
             kit_identity=kit_identity,
         )
@@ -1230,7 +1228,6 @@ async def run_deterministic_kit_probe(
     runtime_mode: str,
     worker_kit_version: str,
     worker_kit_path: str,
-    ttl_seconds: int,
     require_content_inventory: bool = False,
 ) -> RuntimeProbeOutcome:
     """Run the full generation/CAS Kit probe and return the derived readiness.
@@ -1281,8 +1278,6 @@ async def run_deterministic_kit_probe(
             require_content_inventory=require_content_inventory,
         )
         raise
-    now = utcnow()
-    ready_until = now + timedelta(seconds=ttl_seconds) if result.status == READINESS_READY else None
     committed = await finish_runtime_check(
         db,
         fingerprint=fingerprint,
@@ -1290,7 +1285,6 @@ async def run_deterministic_kit_probe(
         status=result.status,
         failure_code=result.failure_code,
         failure_message=result.failure_message,
-        ready_until=ready_until,
         harness_inventory=result.harness_inventory,
         kit_identity=result.kit_identity,
         require_content_inventory=require_content_inventory,
@@ -1481,7 +1475,6 @@ async def recheck_runtime_on_container_error(
     runtime_mode: str,
     worker_kit_version: str,
     worker_kit_path: str,
-    ttl_seconds: int,
     original_error: Exception,
     require_content_inventory: bool = False,
 ) -> Exception:
@@ -1502,7 +1495,6 @@ async def recheck_runtime_on_container_error(
             runtime_mode=runtime_mode,
             worker_kit_version=worker_kit_version,
             worker_kit_path=worker_kit_path,
-            ttl_seconds=ttl_seconds,
             require_content_inventory=require_content_inventory,
         )
     except RuntimeProbeTransientError:

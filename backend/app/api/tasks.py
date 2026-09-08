@@ -822,7 +822,6 @@ async def verify_task_worker_runtime(
             runtime_mode=snapshot.runtime_mode,
             worker_kit_version=snapshot.worker_kit_version or "",
             worker_kit_path=snapshot.worker_kit_path or "",
-            ttl_seconds=settings.worker_runtime_readiness_ttl_seconds,
             require_content_inventory=(
                 getattr(snapshot, "runtime_contract_version", None)
                 == HARNESS_CONTRACT_VERSION_V2

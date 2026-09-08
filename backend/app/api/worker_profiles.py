@@ -481,8 +481,8 @@ async def _profile_api_sections(
     the current shared baseline + Profile overrides + resolved Docker target and
     compares it to the stored digest, so a Profile whose verification inputs have
     changed since the last successful verification reports ``False`` without the
-    client having to diff anything. ``runtime_readiness.status`` is the
-    read-time derived status: an expired ``ready`` row reads as ``unknown``.
+    client having to diff anything. ``runtime_readiness.status`` is the stored
+    readiness conclusion until an explicit re-check changes it.
     """
     shared = shared if shared is not None else await load_shared_configuration(db)
     try:
@@ -580,7 +580,7 @@ async def _profile_api_sections(
         "runtime_readiness": {
             "status": readiness.status,
             "checked_at": readiness.checked_at.isoformat() if readiness.checked_at else None,
-            "ready_until": readiness.ready_until.isoformat() if readiness.ready_until else None,
+            "ready_until": None,
         },
     }
 
@@ -866,7 +866,6 @@ async def verify_worker_profile_runtime(
             runtime_mode=runtime.runtime_mode,
             worker_kit_version=runtime.worker_kit_version or "",
             worker_kit_path=runtime.worker_kit_path or "",
-            ttl_seconds=settings.worker_runtime_readiness_ttl_seconds,
             require_content_inventory=requires_v2_identity,
         )
     except RuntimeProbeTransientError as exc:

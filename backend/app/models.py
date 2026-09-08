@@ -1326,10 +1326,11 @@ class WorkerRuntimeReadiness(Base):
     The primary key is the historical locator fingerprint for the V1 probe, or
     a scoped derivative for V2's full content-inventory probe. This keeps
     readiness shared by Profiles and historical Task snapshots without letting
-    a stricter V2 conclusion contaminate the V1 dual-canary path. ``status=ready``
-    is only effective while ``ready_until > now``; a missing row, ``unknown``, or
-    an expired ``ready`` all read as ``unknown``. ``unavailable`` never
-    auto-expires and requires a successful re-check to be replaced.
+    a stricter V2 conclusion contaminate the V1 dual-canary path. A committed
+    ``status=ready`` remains effective until an explicit re-check changes it;
+    ``unavailable`` also requires a successful re-check to be replaced. The
+    nullable ``ready_until`` column is retained only for existing databases and
+    is no longer part of the readiness decision.
     """
 
     __tablename__ = "worker_runtime_readiness"
@@ -1343,6 +1344,8 @@ class WorkerRuntimeReadiness(Base):
     failure_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     failure_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Legacy TTL column; intentionally inert. Retained to avoid a cleanup
+    # migration for historical readiness rows.
     ready_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     check_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Observed Kit harness inventory (availability/reason per key) and the
