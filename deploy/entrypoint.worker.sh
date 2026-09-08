@@ -123,13 +123,13 @@ for module in \
     bootstrap \
     repository-helpers \
     git-delivery \
+    harness/common \
     repository \
     gitlab \
     delivery \
     task-environment \
     codegraph \
     runtime \
-    harness/common \
     harness/runner \
     main
 do

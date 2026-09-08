@@ -1250,6 +1250,7 @@ def _run_finalize_scenario(tmp_path: Path, scenario: str) -> subprocess.Complete
         "ENTRYPOINT_LIB_DIR": str(REPO_ROOT / "deploy/worker-entrypoint"),
         "CODIFY_ORCHESTRATION_DIR": str(REPO_ROOT / "deploy"),
         "CODIFY_RUNTIME_DIR": str(runtime),
+        "REPOSITORY_PREPARATION_FILE": str(runtime / "repository-preparation.json"),
         "TASK_ID": "42",
         "CODIFY_ATTEMPT_ID": "task-42-attempt-1",
         "CODIFY_HARNESS_KEY": "claude",
@@ -1425,6 +1426,67 @@ codify_harness_finalize_attempt 1
     types = [event["type"] for event in events]
     assert "worker.finalization" in types
     assert types[-1] == "run.failed"
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")
+def test_finalizer_synthesizes_v2_failure_when_repository_preparation_stops_first(
+    tmp_path: Path,
+):
+    """A pre-Harness repository failure still produces a complete V2 attempt."""
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    (runtime / "repository-preparation.json").write_text(
+        json.dumps({"status": "failed", "phase": "checkout", "action": "reuse", "exit_code": 1}),
+        encoding="utf-8",
+    )
+    env = {
+        **os.environ,
+        "HOME": str(tmp_path / "home"),
+        "PATH": os.environ["PATH"],
+        "ENTRYPOINT_LIB_DIR": str(REPO_ROOT / "deploy/worker-entrypoint"),
+        "CODIFY_ORCHESTRATION_DIR": str(REPO_ROOT / "deploy"),
+        "CODIFY_RUNTIME_DIR": str(runtime),
+        "REPOSITORY_PREPARATION_FILE": str(runtime / "repository-preparation.json"),
+        "TASK_ID": "42",
+        "CODIFY_ATTEMPT_ID": "task-42-attempt-1",
+        "CODIFY_HARNESS_KEY": "claude",
+        "CODIFY_ADAPTER_VERSION": "1.1.0",
+        "CODIFY_CLI_VERSION": "",
+        "CODIFY_RUNTIME_CONTRACT_VERSION": "codify.worker.harness/v2",
+        "CODIFY_EVENT_SCHEMA": "codify.worker.event/v2",
+    }
+    (tmp_path / "home").mkdir()
+    harness = f"""
+set -e
+codify_chown() {{ :; }}
+export CODIFY_RUNTIME_DIR TASK_ID CODIFY_ATTEMPT_ID CODIFY_HARNESS_KEY
+export CODIFY_ADAPTER_VERSION CODIFY_CLI_VERSION CODIFY_RUNTIME_CONTRACT_VERSION CODIFY_EVENT_SCHEMA
+source "{REPO_ROOT / "deploy/worker-entrypoint/harness/common.sh"}"
+codify_harness_finalize_attempt 1
+"""
+    result = subprocess.run(
+        ["bash", "-c", harness], env=env, text=True, capture_output=True, check=False
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    events = _read_events(runtime)
+    assert [event["type"] for event in events] == [
+        "run.started",
+        "harness.failed",
+        "worker.finalization",
+        "run.failed",
+    ]
+    assert events[0]["schema"] == "codify.worker.event/v2"
+    assert events[0]["harness"] == {
+        "key": "claude",
+        "adapter_version": "1.1.0",
+        "cli_version": "2.1.153",
+        "control_transport": {"kind": "cli_stream_json", "protocol": "claude-json"},
+        "model_protocols": ["anthropic_messages"],
+    }
+    assert events[1]["payload"]["failure"]["kind"] == "engine_error"
+    assert "phase=checkout" in events[1]["payload"]["failure"]["message"]
+    assert events[-1]["payload"]["failure"]["kind"] == "engine_error"
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="helpers require jq")

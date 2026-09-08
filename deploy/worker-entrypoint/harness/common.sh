@@ -157,6 +157,76 @@ codify_harness_ensure_result() {
     mv "${CODIFY_HARNESS_RESULT_FILE}.tmp" "${CODIFY_HARNESS_RESULT_FILE}"
 }
 
+codify_harness_prepare_fallback_identity() {
+    # Repository preparation runs before the adapter is initialized.  V2 still
+    # needs the exact frozen envelope identity before the EXIT finalizer can
+    # synthesize a canonical failure, so read it from the immutable Bundle
+    # manifest rather than inventing adapter/CLI metadata.
+    if [ "${CODIFY_RUNTIME_CONTRACT_VERSION:-}" != "codify.worker.harness/v2" ]; then
+        return 0
+    fi
+
+    local manifest_path="${CODIFY_ORCHESTRATION_DIR}/manifest.json"
+    if [ ! -r "${manifest_path}" ]; then
+        manifest_path="${ENTRYPOINT_LIB_DIR:-}/harness/manifest.json"
+    fi
+    if [ ! -r "${manifest_path}" ]; then
+        echo "Cannot synthesize V2 canonical failure without the Bundle manifest" >&2
+        return 1
+    fi
+
+    local adapter_meta
+    adapter_meta=$(jq -c --arg key "${CODIFY_HARNESS_KEY:-}" \
+        '.adapters[$key] // {}' "${manifest_path}" 2>/dev/null || printf '{}')
+    if [ "${adapter_meta}" = "{}" ]; then
+        echo "Cannot synthesize V2 canonical failure for unknown Harness: ${CODIFY_HARNESS_KEY:-}" >&2
+        return 1
+    fi
+
+    if [ -z "${CODIFY_ADAPTER_VERSION:-}" ]; then
+        CODIFY_ADAPTER_VERSION=$(printf '%s' "${adapter_meta}" | jq -r \
+            '.adapter.version // .version // empty')
+    fi
+    if [ -z "${CODIFY_CLI_VERSION:-}" ]; then
+        CODIFY_CLI_VERSION=$(printf '%s' "${adapter_meta}" | jq -r \
+            '.cli_version // .source.artifact_version // empty')
+    fi
+    if [ -z "${CODIFY_HARNESS_CONTROL_TRANSPORT_KIND:-}" ]; then
+        CODIFY_HARNESS_CONTROL_TRANSPORT_KIND=$(printf '%s' "${adapter_meta}" | jq -r \
+            '.control_transport.kind // empty')
+    fi
+    if [ -z "${CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL:-}" ]; then
+        CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL=$(printf '%s' "${adapter_meta}" | jq -r \
+            '.control_transport.protocol // empty')
+    fi
+    if [ -z "${CODIFY_HARNESS_MODEL_PROTOCOLS:-}" ]; then
+        CODIFY_HARNESS_MODEL_PROTOCOLS=$(printf '%s' "${adapter_meta}" | jq -r \
+            '(.model_protocols // []) | join(",")')
+    fi
+    if [ -z "${CODIFY_ADAPTER_VERSION:-}" ] \
+        || [ -z "${CODIFY_CLI_VERSION:-}" ] \
+        || [ -z "${CODIFY_HARNESS_CONTROL_TRANSPORT_KIND:-}" ] \
+        || [ -z "${CODIFY_HARNESS_MODEL_PROTOCOLS:-}" ]; then
+        echo "Bundle manifest is missing V2 Harness identity for ${CODIFY_HARNESS_KEY:-}" >&2
+        return 1
+    fi
+    export CODIFY_ADAPTER_VERSION CODIFY_CLI_VERSION
+    export CODIFY_HARNESS_CONTROL_TRANSPORT_KIND CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL
+    export CODIFY_HARNESS_MODEL_PROTOCOLS
+}
+
+codify_harness_preparation_failure_message() {
+    local message="Worker repository preparation failed before Harness start"
+    if [ -r "${REPOSITORY_PREPARATION_FILE:-}" ]; then
+        local detail
+        detail=$(jq -r \
+            '"phase=" + (.phase // "unknown") + ", action=" + (.action // "unknown") + ", exit_code=" + ((.exit_code // 1) | tostring)' \
+            "${REPOSITORY_PREPARATION_FILE}" 2>/dev/null || true)
+        [ -z "${detail}" ] || message="${message} (${detail})"
+    fi
+    printf '%s\n' "${message}"
+}
+
 codify_harness_finalize_attempt() {
     local exit_code="${1:-1}"
     local delivery_payload finalization_payload terminal_payload git_snapshot
@@ -179,9 +249,23 @@ codify_harness_finalize_attempt() {
         fi
     fi
     if ! codify_event_type_exists "run.started"; then
-        echo "Canonical attempt has no run.started event; refusing terminal synthesis" >&2
-        codify_harness_ensure_result "${exit_code}"
-        return 1
+        if ! codify_harness_prepare_fallback_identity; then
+            echo "Canonical attempt has no run.started event; refusing terminal synthesis" >&2
+            codify_harness_ensure_result "${exit_code}"
+            return 1
+        fi
+        if ! codify_emit_event "run.started" \
+            "$(jq -nc --arg runtime_bundle_digest "${CODIFY_RUNTIME_BUNDLE_DIGEST:-}" \
+                --arg startup_phase "repository_preparation" \
+                '{runtime_bundle_digest:$runtime_bundle_digest,startup_phase:$startup_phase}')"; then
+            echo "Could not initialize canonical attempt during finalization" >&2
+            codify_harness_ensure_result "${exit_code}"
+            return 1
+        fi
+        codify_emit_event "harness.failed" \
+            "$(jq -nc \
+                --arg message "$(codify_harness_preparation_failure_message)" \
+                '{failure:{kind:"engine_error",message:$message}}')" || true
     fi
     if [ "${CODIFY_HARNESS_TERMINAL_SEEN}" -eq 0 ]; then
         if codify_event_type_exists "harness.completed" || codify_event_type_exists "harness.failed"; then
