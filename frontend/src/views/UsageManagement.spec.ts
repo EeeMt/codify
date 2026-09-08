@@ -279,6 +279,19 @@ describe('UsageManagement', () => {
     })
   })
 
+  it('disables list animations for large user sets', async () => {
+    const users = Array.from({ length: 21 }, (_, index) =>
+      makeUserRow({ user_id: index + 1, username: `user-${index + 1}` })
+    )
+    ;(mockApi.listAdminUsageLimitUsers as Mock).mockResolvedValue(users)
+
+    wrapper = mountComponent()
+    await flushPromises()
+
+    expect(wrapper.find('.usage-user-grid').classes()).toContain('usage-user-grid--static')
+    expect(wrapper.find('[data-testid="usage-management-user-card"]').attributes('style')).toBeUndefined()
+  })
+
   it('saves the system default limits', async () => {
     ;(mockApi.updateAdminUsageLimitDefault as Mock).mockResolvedValue({
       ...defaultPolicy,

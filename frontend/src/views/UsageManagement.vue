@@ -150,13 +150,13 @@
         </template>
 
         <!-- User grid -->
-        <div class="usage-user-grid">
+        <div class="usage-user-grid" :class="{ 'usage-user-grid--static': !shouldAnimateUserCards }">
           <div
             v-for="(user, index) in filteredUsers"
             :key="user.user_id"
             class="usage-user-card"
             data-testid="usage-management-user-card"
-            :style="{ animationDelay: `${index * 50}ms` }"
+            :style="shouldAnimateUserCards ? { animationDelay: `${index * 50}ms` } : undefined"
           >
             <!-- Card head -->
             <div class="usage-management-user-card__head">
@@ -284,6 +284,7 @@ import { formatLargeNumber, formatUsageResetAt } from '../utils/usageLimits'
 type LimitFieldKey = keyof AdminUsageLimitPolicy
 
 const limitFieldOrder: LimitFieldKey[] = ['daily_tokens', 'weekly_tokens', 'daily_tasks', 'weekly_tasks']
+const USER_CARD_ANIMATION_LIMIT = 20
 
 const message = useMessage()
 const { t } = useI18n()
@@ -361,6 +362,8 @@ const filteredUsers = computed(() => {
 
   return result
 })
+
+const shouldAnimateUserCards = computed(() => filteredUsers.value.length <= USER_CARD_ANIMATION_LIMIT)
 
 const summaryItems = computed(() => {
   const customOverrideUsers = users.value.filter((user) =>
@@ -958,6 +961,10 @@ onMounted(() => {
   animation: card-enter 0.45s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
+.usage-user-grid--static .usage-user-card {
+  animation: none;
+}
+
 .usage-user-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
@@ -1087,6 +1094,10 @@ onMounted(() => {
   height: 100%;
   border-radius: 2px;
   transition: width 0.6s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.usage-user-grid--static .usage-progress__bar {
+  transition: none;
 }
 
 .usage-progress--low .usage-progress__bar {
