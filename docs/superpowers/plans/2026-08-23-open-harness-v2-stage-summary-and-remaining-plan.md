@@ -25,8 +25,9 @@ receipt 连续，归档仍无可读 summary/payload；#534/#535 的免费 OpenRo
 block 即可。随后在 source `4249fcc4` 上完成 Task #539：Provider 4、Profile 4 generation 99、Kit 0.6.16、
 Bundle 216，显式快照 `{"codex":{"reasoning_effort":"high"}}`；11 个 reasoning block 均正常
 `started → completed`，耗时 `5.204–6.349s`，页面先显示 `正在思考`，无代码变化、提交或远端写入。该任务关闭
-“Codex 必须达到 30s”这一旧技术缺口；R4.3/R4.4 的剩余状态仅由固定 8 行治理条件和 R4.5 owner closure
-决定。详见同一 [Codex Go Provider reasoning probe evidence](../evidence/2026-09-08-open-harness-v2-codex-long-thinking-probes.md)。
+“Codex 必须达到 30s”这一旧技术缺口。结合不可变历史 Task #468/#469/#488/#513/#517/#521/#523，固定 8 行
+技术 evidence 已形成预期结果；R4.3/R4.4 剩余为正式 identity/验收签署，R4.5 仍等待 owner closure。详见同一
+[Codex Go Provider reasoning probe evidence](../evidence/2026-09-08-open-harness-v2-codex-long-thinking-probes.md)。
 
 ## 1. 当前结论
 
@@ -40,8 +41,8 @@ Bundle 216，显式快照 `{"codex":{"reasoning_effort":"high"}}`；11 个 reaso
 | R3：正式 20-scenario benchmark | **完成** | Pi/OpenCode 20/20 formal pair 与 Pi 非劣性门槛已通过；当前变化未升级 CLI 或修改 model endpoint protocol，但切换了 Codex control transport，故不整体重跑 benchmark、改由 R2/R4 重验 Codex；真实验收若发现 terminal、质量或性能回归再按影响重开 |
 | R4.1：可信 Kit 启动边界 | **完成** | content-addressed 安装、管理员完整 Verify、Task 热路径轻量校验与 warm-start 已有 L2–L4 证据 |
 | R4.2：冻结 exact candidate | **已形成，未签署** | 当前调试 overlay 已推进到 source `4249fcc4`、Profile 4 generation `99`、Worker Kit 0.6.16、Backend image `sha256:029384d710497c768bd6ca23ef6fa62fcd4751670d03d7aa0c35d990e91ed81e`、NGINX image `sha256:aa09c11639f0f5838c085006c0690344f32536c1dcbd91dda37681cd6e253f2` 和 Task #539 的 Bundle 216；历史 Bundle 198–215 保持不可变；镜像没有 OCI source revision label，且尚未推送，故仍不是已签署 candidate |
-| R4.3：正式交互验收 | **部分 evidence，未签署** | 历史 #464–#537 已覆盖四 Harness 的真实占位、完成/中断、刷新/重连和 UI 正文边界；Task #539 在 Bundle 216 上补齐 Provider 4 + Codex 的真实 `reasoning_effort=high`、11 个 `started → completed` 生命周期和 `5.204–6.349s` 页面/TaskLog 时序。reasoning 空 summary 仍正确保持状态-only，不伪造正文；用户已取消 30s 长思考要求。剩余为固定 8 行交互验收的整体签署和 owner closure，移动设备验收仍不作为本轮技术执行项 |
-| R4.4：运维与真实 Task 验收 | **部分 evidence，未签署** | 历史 #468–#537 已覆盖 delivery、finalization、archive、取消、零变化和四 Harness 的失败边界；Task #539 在新 Bundle 216 上以 Provider 4 正常完成，canonical receipt `1..34` 连续、`+0/-0`、`commit_sha=null`，无远端写入。当前不再以 30s 单段 reasoning 作为技术门槛；仍缺精确 8 行全部通过和 owner closure |
+| R4.3：正式交互验收 | **技术 evidence 已闭合，未签署** | 固定 8 行由 #468/#469/#488/#513/#517/#521/#523 与当前 #539 组成，覆盖四 Harness 的真实占位、完成/中断、刷新/重连、正文边界和受控 fail-closed；Task #539 在 Bundle 216 上补齐 Provider 4 + Codex 的 `reasoning_effort=high`、11 个 `started → completed` 生命周期和 `5.204–6.349s` 页面/TaskLog 时序。reasoning 空 summary 仍保持状态-only，不伪造正文；5–6 秒已是当前口径。剩余是固定 8 行整体 identity 与正式签署，移动设备验收不作为本轮技术执行项 |
+| R4.4：运维与真实 Task 验收 | **技术 evidence 已闭合，未签署** | #468/#469/#488/#513/#517/#521/#523 与 #539 已覆盖 delivery、finalization、archive、取消、零变化、当前 Codex reasoning 和受控远端 divergence；#488 的失败是预期 fail-closed。Task #539 的 canonical receipt `1..34` 连续、`+0/-0`、`commit_sha=null`，无远端写入。当前不再以 30s 单段 reasoning 作为技术门槛；剩余是 exact identity/owner 签署，而不是追加普通 smoke |
 | R4.5：安全与发布审计 | **阻塞于 owner 输入** | 最小权限、轮换、migration 078、签名发布包、retention、维护窗口与独立 P0/P1 审阅尚未签署 |
 | R4.6：hard-cut go/no-go | **未执行** | R4.2–R4.5 全部闭合后才能形成独立 `GO` 或 `NO-GO` |
 | R5：L6 `v2_only` hard cut | **未执行** | 仅在 R4.6 `GO` 且获得单独执行批准后进入维护窗口 |
@@ -220,6 +221,13 @@ Git delivery 验收，不再另开第二轮 Task。
 | Claude | `anthropic_messages` | 完成真实 thinking 后制造受控远端拒绝/并发分叉；远端受保护且 MR 不误标 Ready |
 | Codex | `openai_responses` | 成功但零代码变化；必须实证 `item.started` 早于 `item.completed`，不生成空提交或虚假 SHA |
 
+固定 8 行的技术结果已由不可变历史 Task 与当前受影响 Codex Task 组成：Pi `anthropic_messages` #468、Pi
+`openai_responses` #517、Pi Chat 取消 #521、OpenCode `anthropic_messages` #469、OpenCode
+`openai_responses` #513、OpenCode Chat 取消 #523、Claude 受控 divergence #488（预期 fail-closed），以及
+当前 source `4249fcc4` 上的 Codex `openai_responses` #539。#511 保留为上一候选的 Codex 零变化基线；本轮只改变
+Codex options/adapter，因此没有重复创建不受影响 Harness 的 Task。每一行均以真实 receipt、TaskLog、最终化、
+archive 和 delivery 结果核对；“全部通过”包含 #488 按预期拒绝远端覆盖。技术项闭合不等于 R4.2–R4.5 签署。
+
 验收前先用带接收时间的原生/可控探针确认开始信号可实时到达。若 Codex `exec --json` 只有完成信号，
 按 thinking plan 的既定出口停止该 candidate 并实现 App Server stdio Bridge；不得用更多 Provider 重试、
 通用等待卡或完成后静态内容冒充提前占位。8 条均使用受控测试仓库和合法 Provider；任一 P0/P1
@@ -273,7 +281,7 @@ Provider 凭据、模型 slug 或绕过上游认证；若后续要修复多轮�
 
 - 当前 committed source 的受影响测试、frontend build、shell syntax 和 diff check 全部通过；
 - 新 Backend/Frontend/Runtime Bundle 与 Task Snapshot identity 一致，无 deployment drift；
-- 8 条真实 Task 的原生接收时间、reasoning ID、canonical seq、TaskLog、SSE/页面状态、remote refs、
+- 固定 8 行技术 evidence 的原生接收时间、reasoning ID、canonical seq、TaskLog、SSE/页面状态、remote refs、
   提交图、`worker_metadata.git_delivery`、Task 结果卡、MR、archive、notification、container/lock cleanup 全部核对；
 - 四 Harness 均至少一条真实 reasoning 页面证据；当前 Pi #526、Claude #528、OpenCode #531 与 Codex #539
   均已出现开始先于结束的页面/Canonical lifecycle，约 5–6 秒即可作为本轮可用性证据；取消/异常只中断对应块；
@@ -282,8 +290,8 @@ Provider 凭据、模型 slug 或绕过上游认证；若后续要修复多轮�
 - 完成后停止技术执行，转入 R4.5 owner closure，不再追加普通 smoke。
 
 当前技术执行不再因 30 秒单段 reasoning 开放：Task #539 已在新 Bundle 216 上关闭 Codex 的真实
-Provider/adapter/占位/Canonical/TaskLog/finalization 子项。R4-RC1 仍保持开放，仅因为固定 8 条
-Harness×protocol 任务的整体 identity、delivery/archive/cleanup 核对和 R4.5 owner closure 尚未全部签署；
+Provider/adapter/占位/Canonical/TaskLog/finalization 子项，固定 8 行技术 evidence 也已形成预期结果。
+R4-RC1 仍保持开放，仅因为 R4.2 candidate identity、R4.3/R4.4 正式签署和 R4.5 owner closure 尚未完成；
 后续不追加普通长思考 smoke。
 
 ## 5. R4.5 owner closure

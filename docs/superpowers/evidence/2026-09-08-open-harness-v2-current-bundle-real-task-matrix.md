@@ -2,7 +2,27 @@
 
 **复核日期：** 2026-09-08
 **Host：** `192.168.50.129`（开发环境，Docker context `remote`）
-**结论：** 当前 exact composition 已形成四 Harness 的真实 reasoning/terminal 闭环。Pi #526（Bundle 211）、Claude #528（Bundle 214）和 OpenCode #531（Bundle 212）各有真实长 reasoning block，分别达到 63.864s、469.513s/213.294s 与 1,040.182s；Codex #525、#529、#532（Bundle 213）虽正常完成，但最大 block 仅 7.635s、7.116s、6.938s，不能满足至少 30s 的长思考门槛。因此长思考验收已关闭 Pi/Claude/OpenCode 三行，Codex 仍是唯一明确缺口；Codex 真实响应、零变化 delivery、取消/刷新终态、OpenCode 活动 reasoning canonical interrupted、当前 Bundle 的 OpenCode `openai_responses` durable lifecycle，以及 Worker 仓库前置失败的 canonical terminal 均已验证。Pi `openai_responses` 已由 #517 完成正常 reasoning 与 terminal，#516 另完成无 reasoning 的基础响应；#521 在 Bundle 211 上补齐 Pi Chat 外部取消的 canonical `reasoning_summary.interrupted` 与刷新后 `已取消`，#523 在 Bundle 212 上补齐 OpenCode Chat 同一闭环，#524 在 Bundle 213 上补齐 Codex 活动 reasoning 取消/刷新闭环；#514 的多轮工具链仍保留真实 401/活动 tool fail-closed 边界，不能把该失败误记为成功。R4.3/R4.4 仍未签署，整体保持 `NO-GO`
+**结论：** 当前候选已形成四 Harness 的真实 reasoning/terminal 闭环，固定 8 行技术 evidence 已全部形成预期结果：正常成功、零变化交付、活动思考取消，或受控远端分叉的 fail-closed。当前 source `4249fcc4` 的 Codex 受影响行由 Task #539（Bundle 216）重新验证：Provider 4、`reasoning_effort=high`、11 个 `started → completed` block，单段 `5.204–6.349s`，页面先出现占位，最终 `+0/-0`。用户已取消“必须 30s”的旧门槛；历史 #525/#529/#532 只保留为短 reasoning 对照，不再是当前缺口。Pi/Claude/OpenCode 的固定行仍引用不可变历史 Bundle，因为本轮源码变化只影响 Codex options/adapter；#468/#469/#488/#513/#517/#521/#523 的证据边界保持有效。R4.3/R4.4 尚未完成正式签署，R4.5 owner closure 仍未提供，整体保持 `NO-GO`
+
+> 本记录第 2 节及后续历史段落中的“30s 长思考”“未关闭长思考”等文字，是当时任务的历史验收口径和负探针描述，不代表当前 release gate。当前口径是：真实 `started → completed`/`interrupted` 生命周期、页面占位先于终态，以及 5–6 秒量级的可观察 reasoning 即可；Provider 没有投影可读 summary 时仍只记录状态，不伪造正文。
+
+## Current candidate overlay
+
+当前开发 Host 的 source、部署和受影响 Codex Task 以本节为准；下面的历史 exact composition 和 Task 快照均不可变，不因本次 overlay 改写。
+
+| 项 | 当前值 |
+| --- | --- |
+| Source anchor | `4249fcc4` (`feat(codex): forward configured reasoning effort`) |
+| Profile | `4 / v2-canary-0.6.11-four-harness`，generation `99` |
+| Worker Kit | `0.6.16-linux-amd64-4866812149bd`，manifest SHA `4866812149bd240af4802ab1aa11b8364cc49b400a8d4a71d2721b8ac9ef5f9c` |
+| Backend / NGINX | `sha256:029384d710497c768bd6ca23ef6fa62fcd4751670d03d7aa0c35d990e91ed81e` / `sha256:aa09c11639f0f5838c085006c0690344f32536c1dcbd91dda37681cd6e253f2` |
+| Runtime Bundle | `216` / `c374ef5a009c53d2fc469a262e5cabcb23efff97f9d6176655992198bba946a7` |
+| Codex adapter | `1.2.0` / `9cc9dfe316cbba7f93ae1aad751f95f729e67706de365206671d6e485ae247b0` |
+| Task | `#539`，Provider 4 `opencode-luna / gpt-5.6-luna`，`openai_responses` |
+| Reasoning snapshot | `{"codex":{"reasoning_effort":"high"}}`；11/11 completed，`5.204–6.349s` |
+| Canonical / delivery | receipts `1..34` 连续；`+0/-0`，`commit_sha=null`，无远端写入 |
+
+固定 8 行的技术 evidence 现在是：Pi `anthropic_messages` #468、Pi `openai_responses` #517、Pi Chat 取消 #521、OpenCode `anthropic_messages` #469、OpenCode `openai_responses` #513、OpenCode Chat 取消 #523、Claude 受控 divergence #488（预期 fail-closed），以及当前 Codex `openai_responses` #539（#511 保留为上一候选的零变化基线）。这不是要求 8 个 Task 共用同一个 Bundle：不可变历史行只有在其受影响 Harness/协议未被本次提交改变时继续有效；本次 Codex adapter/options 变化由 #539 重新验证。技术 evidence 已闭合，剩余是 R4.2–R4.4 的正式身份/签署和 R4.5 owner closure。
 
 本记录补充 [Codex App Server bridge evidence](2026-09-08-open-harness-v2-codex-app-server-bridge.md)，
 记录历史 source/Kit composition 下的 Pi、OpenCode、Claude 真实任务，以及 Pi OpenAI endpoint
@@ -23,7 +43,7 @@ interrupted 回归；#504–#505 在 Bundle 206 上补充了受控远端分叉�
 在同一 Bundle 210 上分别完成 Pi Responses 无 reasoning 基础响应与正常 reasoning 成功终态；#518
 在 Bundle 208 上补充 Codex 长 reasoning 负证据，四个 reasoning block 的最大 canonical 持续约 4.139s；#521
 在 Bundle 211 上补齐 Pi Chat 外部取消的 canonical interrupted、页面刷新终态与清理证据；#523 在 Bundle 212
-上补齐 OpenCode Chat 同一闭环；#524 在 Bundle 213 上补齐 Codex 活动 reasoning 取消/刷新闭环；#525 在同一 Bundle 上完成 Codex 长思考负探针，最大 reasoning block 为 7.635s；#526 在 Bundle 211 上完成 Pi 长思考正证据，最大 block 为 63.864s；#527 在 Bundle 212 上完成 OpenCode 长思考负探针，最大 block 为 15.580s；#528 在新 Bundle 214 上完成 Claude 长思考正证据，两个 block 为 469.513s 与 213.294s；#529 在 Bundle 213 上完成 Codex 10m32s 全量求解但最大 block 仅 7.116s；#531 在 Bundle 212 上完成 Provider 5 OpenCode 长思考正证据，单块 1,040.182s；#532 在 Bundle 213 上完成禁止工具的 Codex 对照，唯一 block 6.938s。#530 因界面自动选择了错误的 Provider 3 OpenCode 组合而在早期取消，不计入固定验收矩阵。当前只缺 Codex 的 30s 长思考证据。
+上补齐 OpenCode Chat 同一闭环；#524 在 Bundle 213 上补齐 Codex 活动 reasoning 取消/刷新闭环；#525 在同一 Bundle 上完成 Codex 长思考负探针，最大 reasoning block 为 7.635s；#526 在 Bundle 211 上完成 Pi 长思考正证据，最大 block 为 63.864s；#527 在 Bundle 212 上完成 OpenCode 长思考负探针，最大 block 为 15.580s；#528 在新 Bundle 214 上完成 Claude 长思考正证据，两个 block 为 469.513s 与 213.294s；#529 在 Bundle 213 上完成 Codex 10m32s 全量求解但最大 block 仅 7.116s；#531 在 Bundle 212 上完成 Provider 5 OpenCode 长思考正证据，单块 1,040.182s；#532 在 Bundle 213 上完成禁止工具的 Codex 对照，唯一 block 6.938s。#530 因界面自动选择了错误的 Provider 3 OpenCode 组合而在早期取消，不计入固定验收矩阵。上述 30s 结论均为历史口径，当前由 #539 的 5–6 秒 reasoning 证据取代。
 
 ## 1. Exact composition
 
@@ -124,9 +144,10 @@ Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bun
 | #526 | Pi / 6 / `deepseek-v4-flash` | 211 | completed；3/3 reasoning，`run.completed` | 真实长思考正证据；第三个 block `63.864s`，页面在完成前显示活动思考，`+0/-0`，无提交 |
 | #527 | OpenCode / 5 / `mimo-v2.5` | 212 | completed；4/4 reasoning，`run.completed` | 真实长思考负探针；最大 block `15.580s`，总运行时长不能替代 30s 单一 block，`+0/-0` |
 | #528 | Claude / 3 / `minimax-m2.7` | 214 | completed；2/2 reasoning，`run.completed` | 真实长思考正证据；两个 block 分别 `469.513s` 与 `213.294s`，总时长 12m25s，`+0/-0` |
-| #529 | Codex / 4 / `gpt-5.6-luna` | 213 | completed；36/36 reasoning，`run.completed` | 真实 20 项全量求解；总时长 10m32s，但最大 block `7.116s`，`+0/-0`，仍未达 30s |
+| #529 | Codex / 4 / `gpt-5.6-luna` | 213 | completed；36/36 reasoning，`run.completed` | 真实 20 项全量求解的历史负探针；总时长 10m32s，最大 block `7.116s`，`+0/-0`；不再作为当前门槛 |
 | #531 | OpenCode / 5 / `mimo-v2.5` | 212 | completed；4/4 reasoning，`run.completed` | 真实长思考正证据；单 block `1,040.182s`，总时长 17m57s，`+0/-0` |
-| #532 | Codex / 4 / `gpt-5.6-luna` | 213 | completed；1/1 reasoning，`run.completed` | 禁止工具的单段对照；唯一 block `6.938s`，总时长 45s，`+0/-0`，仍未达 30s |
+| #532 | Codex / 4 / `gpt-5.6-luna` | 213 | completed；1/1 reasoning，`run.completed` | 禁止工具的单段历史对照；唯一 block `6.938s`，总时长 45s，`+0/-0`；不再作为当前门槛 |
+| #539 | Codex / 4 / `gpt-5.6-luna` | 216 | completed；11/11 reasoning，`run.completed` | 当前 source `4249fcc4` / `reasoning_effort=high`；单段 `5.204–6.349s`，receipts `1..34` 连续，`+0/-0`，无提交或远端写入 |
 
 除 #504（旧 Bundle、进入 Harness 前失败且没有 canonical receipt）外，上述 Task 的 attempt 均为
 `codify.worker.event/v2`，transport 与 adapter identity 来自真实 `run.started` receipt，而非
@@ -420,29 +441,17 @@ fail-closed 验收边界。
   基础请求作为无 reasoning 对照保留；二者均无代码变化或提交。该任务关闭了固定 8 条中的 Pi
   `openai_responses` 正常 reasoning 成功行。
 
-仍未关闭：
+仍未签署或执行：
 
-- Codex 的真实成功响应与 reasoning 已由 #508 证明，精确零代码变化、无空提交和无虚假远端 SHA
-  已由 #511 关闭；#512/#525/#529/#532 的长运行/长思考探针最大分别仅 4.139s、7.635s、7.116s、6.938s，#524 已补齐活动
-  取消/刷新窗口，仍缺 Codex 30s 长思考回归，不修改 Provider slug。
-- Pi/OpenCode 的 `openai_responses` 基础可用行已由 #513/#517 分别关闭：#513 是 OpenCode
-  durable lifecycle，#517 是 Pi 正常 reasoning start/end 与正常 terminal；#516 仅作为 Pi 无
-  reasoning 的基础请求控制证据。#482/#483 在当前 Bundle 202/201 上仍保留真实 OpenRouter
-  免费模型 404，#484 在 Bundle 202 上保留 Provider 4 地区 403；不能改用付费 slug 或绕过
-  上游策略伪造能力。#514 则显示同一 Provider 的 Pi 多轮工具链仍会在上游 401 后以活动 tool
-  `protocol_error` fail-closed，不能据此修改凭据、模型 slug 或把失败升级为成功。Pi #526 与 Claude #528
-  已分别关闭 Pi/Claude 的 30s 长思考行，OpenCode #531 也已达到 1,040.182s；Codex #525/#529/#532 的最大 block 仍低于门槛。
-  #488 已关闭 Claude 受控远端 divergence 的 fail-closed
-  边界。#478 的 Pi 取消已覆盖终态兜底，但没有 canonical interrupted receipt；#521 已在 Bundle 211
-  关闭 Pi Chat 的 canonical interrupted/刷新子项，#523 已在 Bundle 212 关闭 OpenCode Chat 的同一子项，#524 已在 Bundle 213
-  关闭 Codex 活动 reasoning 取消/刷新子项；#475/#477/#479/#480
-  是正常完成，#481 是思考完成后的取消，#498/#502 是 native reasoning 收尾竞态，#503 已补齐
-  OpenCode 的 canonical interrupted，但单个思考块耗时也很短；#505 的 Claude 长运行探针同样
-  只有约 2.0 秒思考，不能替代第 8 节长思考要求；
-- R4.5 owner closure、R4.6 独立 GO/NO-GO 和 R5/L6 仍未执行。
+- R4.2 exact candidate 仍未由 release owner 冻结签署；当前 source/Backend/NGINX/Kit/Profile/Bundle
+  identity 已记录，但镜像没有 OCI source revision label，且尚未推送。
+- R4.3/R4.4 的固定 8 行技术 evidence 已具备：#468/#469/#488/#513/#517/#521/#523 与当前 #539
+  分别覆盖 delivery、durable lifecycle、取消/刷新、受控 divergence、零变化和当前 Codex reasoning；
+  正式验收签字、整包 identity 核对和 owner closure 仍未完成。
+- R4.5 owner closure、R4.6 独立 GO/NO-GO 和 R5/L6 仍未执行。Provider 404/403/401、历史短 reasoning
+  负探针和 #488 的受控失败继续作为 fail-closed 边界保留，不授权修改 Provider 凭据或绕过上游策略。
 
-因此本记录是当前 exact composition 的真实推进证据，不是四 Harness 8 行全部通过或 release
-candidate 签署。
+因此本记录现在可以证明固定 8 行的技术结果已闭合，但不是 release candidate 签署，也不是 R4.6 `GO`。
 
 ## 5. 2026-09-08 finalization 与 native abort drain 修复后的历史续测
 
