@@ -71,8 +71,16 @@ Task #533 的 archive `harness-events/codex.jsonl` 中每个 reasoning item 都�
 `payload_id=null`、`preview=""` 是 Provider 没有发送可读 summary 的真实结果，不是前端按钮被隐藏。
 该任务同时证明新 Kit、真实 Provider 和 Codex App Server transport 可以正常完成。
 
+### Task #539：当前 OpenCode Go/Codex 页面与无变更提交边界
+
+当前 Bundle 216 的 Task #539 在浏览器中显示 11 条 `思考完成 · 耗时 5–6s`；由于同样没有可读
+`summary`/payload，页面只保留状态和耗时，不伪造“完整内容”入口。该任务的结果页没有“提交记录”卡或
+commit SHA，和 `+0/-0`、`commit_sha=null` 的 API/TaskLog 结果一致。它不再要求单段 30 秒思考，稳定的
+5–6 秒 reasoning 生命周期即为本轮验收口径。
+
 ## 边界与后续
 
 本证据关闭“已有正文因占位优化而不可展开”的 UI 回归；不把 Codex Provider 当前没有发送 summary
-误报为“Codex 正文已展示”。若要让该 Provider 出现可展开 Codex 摘要，必须先观察到上游提供
+误报为“Codex 正文已展示”。当前 Task #539 进一步确认了无正文时的状态-only 与无变更提交展示边界。
+若要让该 Provider 出现可展开 Codex 摘要，必须先观察到上游提供
 `summary_text` 或 `summaryTextDelta`，再用同一 immutable identity 补真实页面证据。

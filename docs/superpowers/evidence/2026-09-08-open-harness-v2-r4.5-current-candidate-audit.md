@@ -28,6 +28,11 @@ identity 误当作当前发布包。
 - Task #539 有连续 Canonical receipts `1..34`，11/11 reasoning `started → completed`，单段
   `5.204–6.349s`，最终 `+0/-0`、`commit_sha=null`，无远端写入；固定 8 行技术 evidence 见
   [当前真实 Task 矩阵](2026-09-08-open-harness-v2-current-bundle-real-task-matrix.md)。
+- 真实浏览器验收补齐了两个 UI 边界：有可读正文的 Task #526 仍显示并可展开“完整内容”；当前
+  OpenCode Go/Codex Task #539 的 reasoning 行只显示 `思考完成 · 耗时 5–6s`，因为其
+  `payload_id=null`、preview 为空，页面没有伪造全文入口。#539 的结果页同时没有“提交记录”卡、
+  `.commit-sha-chip` 或虚假 SHA，与 `+0/-0`、`commit_sha=null` 一致；详见
+  [思考详情回归证据](2026-09-08-open-harness-v2-thinking-detail-regression.md)。
 - 当前 source 的 Backend lint、完整 Backend unit suite（`3419 passed, 4 skipped, 99 subtests`）、
   Frontend unit suite（`1748 passed`）、Frontend production build、受影响 Harness tests、shell
   syntax 和 `git diff --check` 均通过。
