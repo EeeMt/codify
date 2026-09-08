@@ -6,6 +6,14 @@
 candidate, and repository-side release checks. This is an audit record, not a
 security approval or an independent R4.6 go/no-go decision.
 
+> **Current status (2026-09-06):** every generation-77/78/81 identity below is
+> historical evidence, not the current release candidate. `dev` has advanced to
+> `c089b67afa3c0471a6dc452ebc6c3a3316c074de` with new Git delivery and
+> four-Harness reasoning lifecycle changes that are not deployed in those
+> snapshots. Do not sign this audit or authorize R5 until R4-RC1 in the
+> [current tracker](../plans/2026-08-23-open-harness-v2-stage-summary-and-remaining-plan.md)
+> produces a new exact identity and replaces the unsigned owner handoff.
+
 The prior Profile-4 candidate was superseded after runtime commits `8110afa0`
 and `810f9fcb` changed the Codex and Pi Adapter projections. The exact
 composition was initially rebuilt from committed tree `40235196` and deployed
