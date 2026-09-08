@@ -71,6 +71,7 @@
                     :output-failed="hasPayloadLoadError(asToolRow(row).toolCall.output_payload_id ?? null)"
                     :input-expanded-text="getExpandedPayloadText(asToolRow(row).toolCall.input_payload_id ?? null)"
                     :output-expanded-text="getExpandedPayloadText(asToolRow(row).toolCall.output_payload_id ?? null)"
+                    :task-active="props.isActive"
                     @collapse-change="(names) => onCollapseChange(names, index)"
                   />
                   <div v-else-if="isCompactRow(row)" class="context-compact-divider">

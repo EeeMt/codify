@@ -175,6 +175,16 @@ describe('taskProcessUtils', () => {
     expect(parseControlEntry({ type: 'control.command.delivered' }).text).toBe('')
   })
 
+  it('filters internal control audit events from the visible event stream', () => {
+    const log = createTaskLog({
+      id: 43,
+      log_type: 'control_event',
+      metadata: JSON.stringify({ type: 'agent_settled', aborted: false, settled_line: 193 }),
+    })
+
+    expect(normalizeTaskProcessRows([log])).toEqual([])
+  })
+
   it('formats Edit input using old_string and new_string keys', () => {
     const formatted = formatInput({
       name: 'Edit',
@@ -372,6 +382,26 @@ describe('taskProcessUtils', () => {
 })
 
 describe('TaskProcessToolRow', () => {
+  it('shows an execution spinner for a pending tool while the task is active', () => {
+    const wrapper = mount(TaskProcessToolRow, {
+      props: {
+        row: {
+          kind: 'tool_call',
+          event: createTaskLog({ metadata: JSON.stringify({ name: 'Bash', input: { command: 'sleep 1' }, error: false }) }),
+          toolCall: { name: 'Bash', input: { command: 'sleep 1' }, error: false },
+        },
+        inputLoaded: false,
+        outputLoaded: false,
+        inputLoading: false,
+        outputLoading: false,
+        taskActive: true,
+      },
+    })
+
+    expect(wrapper.find('.tool-spinner').exists()).toBe(true)
+    expect(wrapper.findAll('button').some((button) => button.text().includes('taskView.toolOutput'))).toBe(false)
+  })
+
   it('shows the output section when tool output is an empty string', () => {
     const wrapper = mount(TaskProcessToolRow, {
       props: {

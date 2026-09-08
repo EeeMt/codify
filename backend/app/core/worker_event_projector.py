@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import tarfile
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -97,7 +97,7 @@ class WorkerEventProjector:
     def reset(self) -> None:
         self._message_parts: list[str] = []
         self._reasoning_parts: list[str] = []
-        self._pending_tool_log_by_id: dict[str, tuple[int, datetime]] = {}
+        self._pending_tool_log_by_id: dict[str, int] = {}
 
     async def load_resume_runtime_state(self, *, container: Any) -> None:
         """Compatibility no-op: attempts, not Claude init records, define replay state."""
@@ -265,6 +265,7 @@ class WorkerEventProjector:
         *,
         task_id: int,
         payload: dict,
+        occurred_at: str,
         db: AsyncSession,
     ) -> None:
         tool_id = str(payload.get("tool_id") or "")
@@ -286,6 +287,7 @@ class WorkerEventProjector:
                 {
                     "tool_use_id": tool_id,
                     "name": name,
+                    "started_at": occurred_at,
                     "input": payload.get("input") or {},
                     "input_payload_id": body.id,
                     "input_preview": preview,
@@ -296,12 +298,12 @@ class WorkerEventProjector:
         db.add(log)
         await db.flush()
         if tool_id and log.id:
-            self._pending_tool_log_by_id[tool_id] = (log.id, datetime.now(UTC))
+            self._pending_tool_log_by_id[tool_id] = log.id
 
     async def _find_tool_log(self, db: AsyncSession, task_id: int, tool_id: str) -> TaskLog | None:
         pending = self._pending_tool_log_by_id.pop(tool_id, None)
         if pending is not None:
-            return await db.get(TaskLog, pending[0])
+            return await db.get(TaskLog, pending)
         candidates = list(
             (
                 await db.execute(
@@ -326,6 +328,7 @@ class WorkerEventProjector:
         *,
         task_id: int,
         payload: dict,
+        occurred_at: str,
         db: AsyncSession,
     ) -> None:
         tool_id = str(payload.get("tool_id") or "")
@@ -357,6 +360,14 @@ class WorkerEventProjector:
                 "error": bool(payload.get("error", False)),
             }
         )
+        started_at = metadata.get("started_at")
+        duration = (
+            _duration_ms(started_at, occurred_at)
+            if isinstance(started_at, str)
+            else None
+        )
+        if duration is not None:
+            metadata["duration_ms"] = duration
         if payload.get("exit_code") is not None:
             metadata["exit_code"] = payload["exit_code"]
         if payload.get("error_message"):
@@ -530,9 +541,19 @@ class WorkerEventProjector:
                         )
                         row.log_metadata = _dumps(metadata)
         elif event_type == "tool.started":
-            await self._project_tool_started(task_id=task_id, payload=payload, db=db)
+            await self._project_tool_started(
+                task_id=task_id,
+                payload=payload,
+                occurred_at=normalized["occurred_at"],
+                db=db,
+            )
         elif event_type == "tool.completed":
-            await self._project_tool_completed(task_id=task_id, payload=payload, db=db)
+            await self._project_tool_completed(
+                task_id=task_id,
+                payload=payload,
+                occurred_at=normalized["occurred_at"],
+                db=db,
+            )
         elif event_type == "context.compacted":
             compact_metadata = {
                 key: payload.get(key)

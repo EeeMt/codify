@@ -159,11 +159,13 @@ class EventProjectionTests(unittest.IsolatedAsyncioTestCase):
                         2,
                         "tool.started",
                         {"tool_id": "t1", "name": "Bash", "input": {"command": "ls"}},
+                        occurred_at="2026-08-01T00:00:02Z",
                     ),
                     self._event(
                         3,
                         "tool.completed",
                         {"tool_id": "t1", "output": "file.txt", "error": False},
+                        occurred_at="2026-08-01T00:00:03.500Z",
                     ),
                 ],
             )
@@ -172,6 +174,8 @@ class EventProjectionTests(unittest.IsolatedAsyncioTestCase):
         metadata = json.loads(log.log_metadata)
         assert log.log_type == "tool_call"
         assert metadata["tool_use_id"] == "t1"
+        assert metadata["started_at"] == "2026-08-01T00:00:02Z"
+        assert metadata["duration_ms"] == 1500
         assert metadata["output_payload_id"] == payloads[1].id
         assert payloads[1].content == b"file.txt"
 

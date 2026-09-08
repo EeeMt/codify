@@ -10,6 +10,11 @@
         </span>
         <span v-if="showPreview" class="event-preview">{{ preview }}</span>
       </div>
+      <span
+        v-if="completedDuration !== null"
+        class="event-duration"
+        :title="`Thinking duration: ${completedDuration}`"
+      >{{ completedDuration }}</span>
       <span class="event-ts">{{ formatTimestamp(row.event.created_at) }}</span>
     </div>
     <div v-if="showFullTextControls" class="tool-sections">
@@ -52,7 +57,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { NIcon } from 'naive-ui'
 import { BulbOutline, ChatboxOutline, ChevronForward } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
-import { formatTimestamp, renderMarkdown, type NormalizedTextEventRow } from './taskProcessUtils'
+import { formatEventDuration, formatTimestamp, renderMarkdown, type NormalizedTextEventRow } from './taskProcessUtils'
 import { formatDurationSec } from '../../utils/format'
 
 const props = withDefaults(defineProps<{
@@ -109,20 +114,20 @@ const elapsedText = computed<string | null>(() => {
   return formatDurationSec(seconds)
 })
 
+const completedDuration = computed<string | null>(() => {
+  if (lifecycleStatus.value !== 'completed') return null
+  const durationMs = props.row.textEntry.durationMs
+  return durationMs !== null && durationMs !== undefined
+    ? formatEventDuration(durationMs)
+    : null
+})
+
 const nameLabel = computed<string>(() => {
   if (!isLifecycleRow.value) {
     return props.row.kind === 'thinking' ? t('taskView.thinkingLabel') : t('taskView.assistantLabel')
   }
   const status = lifecycleStatus.value
-  if (status === 'completed') {
-    const durationMs = props.row.textEntry.durationMs
-    // 0 is a valid server-authoritative duration; null/undefined means unknown.
-    if (durationMs !== null && durationMs !== undefined) {
-      const seconds = Math.max(0, Math.round(durationMs / 1000))
-      return t('taskView.thinkingCompletedWithTime', { time: formatDurationSec(seconds) })
-    }
-    return t('taskView.thinkingCompleted')
-  }
+  if (status === 'completed') return t('taskView.thinkingLabel')
   if (status === 'interrupted') return t('taskView.thinkingInterrupted')
   // in_progress
   if (!props.taskActive) return t('taskView.thinkingInterrupted')
@@ -263,6 +268,17 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   font-family: var(--n-font-family-mono, monospace);
   margin-left: auto;
+}
+.event-duration {
+  font-size: 10px;
+  color: #7c3aed;
+  flex-shrink: 0;
+  font-family: var(--n-font-family-mono, monospace);
+  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: 3px;
+  padding: 0 4px;
+  line-height: 1.6;
 }
 .tool-sections {
   margin: 4px 8px 2px 28px;

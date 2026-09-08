@@ -265,7 +265,7 @@ describe('TaskProcessTextRow', () => {
     expect(wrapper.find('.event-preview').exists()).toBe(false)
   })
 
-  it('shows completed thinking with the server duration even for empty content', () => {
+  it('shows completed thinking as a thinking row with a duration badge', () => {
     const wrapper = mount(TaskProcessTextRow, {
       props: {
         row: {
@@ -291,11 +291,10 @@ describe('TaskProcessTextRow', () => {
       },
     })
 
-    // '思考完成 · 耗时 X'-style label is asserted through the message key plus
-    // the interpolated time — not hardcoded zh text.
     const nameText = wrapper.get('.event-name').text()
-    expect(nameText).toContain('taskView.thinkingCompletedWithTime')
-    expect(nameText).toContain('48s')
+    expect(nameText).toBe('taskView.thinkingLabel')
+    expect(wrapper.get('.event-duration').text()).toBe('48.0s')
+    expect(wrapper.get('.event-duration').attributes('title')).toBe('Thinking duration: 48.0s')
     expect(wrapper.find('.thinking-spinner').exists()).toBe(false)
     // Empty completion: no full-text entry point.
     expect(wrapper.find('button.tool-badge').exists()).toBe(false)
@@ -329,7 +328,8 @@ describe('TaskProcessTextRow', () => {
     })
 
     const nameText = wrapper.get('.event-name').text()
-    expect(nameText).toBe('taskView.thinkingCompleted')
+    expect(nameText).toBe('taskView.thinkingLabel')
+    expect(wrapper.find('.event-duration').exists()).toBe(false)
     expect(wrapper.find('button.tool-badge').exists()).toBe(false)
   })
 

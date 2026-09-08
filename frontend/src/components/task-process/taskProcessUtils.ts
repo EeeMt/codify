@@ -387,6 +387,12 @@ export function formatTimestamp(iso: string): string {
   }
 }
 
+export function formatEventDuration(ms: number): string {
+  const clamped = Math.max(0, ms)
+  if (clamped < 1000) return `${clamped}ms`
+  return `${(clamped / 1000).toFixed(1)}s`
+}
+
 export function parseToolCall(log: TaskLog): ToolCall {
   const metadata = parseJsonMetadata(log.metadata)
   const call = (metadata && typeof metadata === 'object' && !Array.isArray(metadata))
@@ -467,7 +473,10 @@ export function normalizeTaskProcessRows(taskLogs: TaskLog[]): NormalizedTaskPro
     } else if (event.log_type === 'context_compact') {
       rows.push({ kind: 'context_compact', event })
     } else if (event.log_type === 'control_event') {
-      rows.push({ kind: 'control_event', event, controlEntry: parseControlEntry(event.metadata) })
+      const controlEntry = parseControlEntry(event.metadata)
+      // Internal audit signals such as `agent_settled` share the storage type
+      // but do not have a user-facing event representation.
+      if (controlEntry.eventType) rows.push({ kind: 'control_event', event, controlEntry })
     }
   }
   return rows

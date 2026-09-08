@@ -5,15 +5,17 @@
         <n-icon size="15"><component :is="getToolIcon(row.toolCall.name)" /></n-icon>
       </div>
       <div class="event-info">
-        <span class="event-name">{{ row.toolCall.name }}</span>
+        <span class="event-name">
+          <span v-if="isExecuting" class="tool-spinner" aria-hidden="true"></span>{{ row.toolCall.name }}
+        </span>
         <span v-if="summary" class="event-preview">{{ summary }}</span>
       </div>
       <n-tag v-if="row.toolCall.error" type="error" size="small" round>Error</n-tag>
       <span
         v-if="row.toolCall.duration_ms !== undefined"
         class="event-duration"
-        :title="`Tool duration: ${formatDuration(row.toolCall.duration_ms)}`"
-      >{{ formatDuration(row.toolCall.duration_ms) }}</span>
+        :title="`Tool duration: ${formatEventDuration(row.toolCall.duration_ms)}`"
+      >{{ formatEventDuration(row.toolCall.duration_ms) }}</span>
       <span class="event-ts">{{ formatTimestamp(row.event.created_at) }}</span>
     </div>
     <div v-if="hasDetailedToolInput || hasToolEventOutput" class="tool-sections">
@@ -74,15 +76,9 @@ import { computed, ref, watch } from 'vue'
 import { NIcon, NTag } from 'naive-ui'
 import { ChevronForward } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
-import { formatInput, formatTimestamp, getInputSummary, getToolColor, getToolIcon, hasDetailedInput, type NormalizedToolEventRow } from './taskProcessUtils'
+import { formatEventDuration, formatInput, formatTimestamp, getInputSummary, getToolColor, getToolIcon, hasDetailedInput, type NormalizedToolEventRow } from './taskProcessUtils'
 
-function formatDuration(ms: number): string {
-  const clamped = Math.max(0, ms)
-  if (clamped < 1000) return `${clamped}ms`
-  return `${(clamped / 1000).toFixed(1)}s`
-}
-
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   row: NormalizedToolEventRow
   inputLoaded: boolean
   outputLoaded: boolean
@@ -92,7 +88,10 @@ const props = defineProps<{
   outputFailed?: boolean
   inputExpandedText?: string
   outputExpandedText?: string
-}>()
+  taskActive?: boolean
+}>(), {
+  taskActive: false,
+})
 
 const emit = defineEmits<{
   (e: 'collapse-change', names: (string | number)[]): void
@@ -134,7 +133,12 @@ watch(() => props.row.toolCall.output_payload_id, (newId) => {
 watch(() => props.row.toolCall.input_payload_id, (newId) => {
   if (newId && showInput.value) emitCollapseChange()
 })
-const hasToolEventOutput = computed(() => props.row.toolCall.output !== null || !!props.row.toolCall.output_payload_id || !!props.row.toolCall.output_preview)
+const hasToolEventOutput = computed(() => (
+  props.row.toolCall.output !== undefined
+  || props.row.toolCall.output_payload_id !== undefined
+  || props.row.toolCall.output_preview !== undefined
+))
+const isExecuting = computed(() => props.taskActive && !hasToolEventOutput.value && !props.row.toolCall.error)
 
 // Content is ready when: not loading AND (no payload OR payload is done)
 const showInputContent = computed(() => {
@@ -242,6 +246,20 @@ const outputIsPlaceholder = computed(() => {
   font-weight: 500;
   font-size: 13px;
   flex-shrink: 0;
+}
+.tool-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  vertical-align: -1px;
+  animation: tool-spin 0.8s linear infinite;
+}
+@keyframes tool-spin {
+  to { transform: rotate(360deg); }
 }
 .event-preview {
   display: block;
@@ -382,6 +400,12 @@ const outputIsPlaceholder = computed(() => {
 @media (max-width: 768px) {
   .tool-badge {
     min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-spinner {
+    display: none;
   }
 }
 </style>

@@ -307,7 +307,7 @@ export interface TaskLog {
 export interface ToolCall {
   name: string
   input: Record<string, unknown>
-  output: string | null
+  output?: string | null
   error: boolean
   timestamp?: string
   duration_ms?: number
