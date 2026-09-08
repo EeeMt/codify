@@ -2,13 +2,13 @@
 
 **复核日期：** 2026-09-08
 **Host：** `192.168.50.129`（开发环境，Docker context `remote`）
-**结论：** Codex 真实模型响应/reasoning/正常 Git delivery、零变化 delivery，以及 OpenCode 活动 reasoning canonical interrupted 已验证；Worker 仓库前置失败的 canonical terminal 也已补齐。R4.3/R4.4 仍未签署，整体保持 `NO-GO`
+**结论：** Codex 真实模型响应/reasoning/正常 Git delivery、零变化 delivery、OpenCode 活动 reasoning canonical interrupted，以及当前 Bundle 的 OpenCode `openai_responses` durable lifecycle 已验证；Worker 仓库前置失败的 canonical terminal 也已补齐。Pi `openai_responses` 在同一 Provider 上仍以真实 401/活动 tool fail-closed 边界失败，不能计入成功行。R4.3/R4.4 仍未签署，整体保持 `NO-GO`
 
 本记录补充 [Codex App Server bridge evidence](2026-09-08-open-harness-v2-codex-app-server-bridge.md)，
 记录历史 source/Kit composition 下的 Pi、OpenCode、Claude 真实任务，以及 Pi OpenAI endpoint
 与 Worker finalization、OpenCode native abort drain 修复后新 Bundle 的真实回归。事件来自远端
 `task_harness_event_receipts`，raw/archive 只记录元数据，不复制原始内容。历史 Bundle 保持不可变，
-修复后的 Task 使用独立 Bundle 201/202/203/204/205/206/207/208；#482/#483/#484 又在当前 Bundle 上复核了
+修复后的 Task 使用独立 Bundle 201/202/203/204/205/206/207/208/209/210；#482/#483/#484 又在当前 Bundle 上复核了
 `openai_responses` 的真实 Provider 失败边界，#485–#488 补齐了 Claude 的正常交付与受控远端
 分叉保护，#490–#498 复核了 OpenCode finalization、native abort、archive 和 cancelled terminal
 收敛边界，#499–#503 在新 Bundle 上完成正常完成、工具阶段取消和活动 reasoning canonical
@@ -16,7 +16,9 @@ interrupted 回归；#504–#505 在 Bundle 206 上补充了受控远端分叉�
 #508 在 Bundle 207 上补齐了 Codex App Server 的真实成功响应、两段 reasoning 与 Git delivery；
 #510 在新的 Bundle 208 上验证了仓库准备早于 Harness 失败时仍能生成完整 V2 canonical terminal；
 #511 在同一 Bundle 208 上补齐了 Codex 零变化成功、无空提交与无远端虚假 SHA 的真实边界；
-#512 作为同一 Provider 的长运行取消探针，证明总运行时间不能替代长 reasoning 或活动取消证据。
+#512 作为同一 Provider 的长运行取消探针，证明总运行时间不能替代长 reasoning 或活动取消证据；#513 在 Bundle 209
+验证了 OpenCode `openai_responses` 的真实成功生命周期；#514 在 Bundle 210 复核 Pi `openai_responses`，
+保留了上游 401 与活动 tool 的 fail-closed 终态，未伪造成功。
 
 ## 1. Exact composition
 
@@ -45,6 +47,8 @@ interrupted 回归；#504–#505 在 Bundle 206 上补充了受控远端分叉�
 | 206 | Claude（#504/#505；同一当前 composition） | `921d7b53676eb61f4b8c1301802392e8791fe1d912cfddecd1381caddd28dffc` |
 | 207 | Codex（#508；Profile 4 generation 94） | `6dca863dcb69e26bd6ce9db082e7fd5d1827fdfa6b46027322cb8524fd2bda35` |
 | 208 | Codex（#510/#511；pre-Harness finalizer 修复后） | `96341e488faa37bd081169a3c69a91504fbbaa2efa89f0ce890eb2e55114adc7` |
+| 209 | OpenCode（#513；当前 Profile 4 generation 95） | `1788f343846af0ea05de39a45276640e49d92f62a990fdd30b2c571416f6a91c` |
+| 210 | Pi（#514；当前 Profile 4 generation 95） | `9d206d5c90fb8ddbdb850f92e19976b46e749fb0ab736ccb1ccf23ed71806030` |
 
 上述 manifest 均保留四 Harness；实际 Task snapshot 分别绑定对应 Harness 的 adapter/CLI：
 Pi `2.1.1/0.84.2`、OpenCode `2.1.0/1.18.19`、Claude `1.1.0/2.1.153`。Bundle 201 的 Pi
@@ -98,6 +102,8 @@ Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bun
 | #510 | Codex / 4 / `gpt-5.6-luna` | 208 | failed；0 reasoning；`run.failed` | checkout/fetch 阶段早于 Harness 失败；canonical `run.started → harness.failed(engine_error) → worker.finalization → run.failed`，无 delivery、0 changes |
 | #511 | Codex / 4 / `gpt-5.6-luna` | 208 | completed；6/6 reasoning，`run.completed` | 分析模式真实 `openai_responses` 成功；`+0/-0`，`delivery.completed.commit_sha=null`，`worker.finalization` 为零 diff；GitLab `codify/issue-133` 分支返回 Not Found，无空提交或远端虚假 SHA |
 | #512 | Codex / 4 / `gpt-5.6-luna` | 208 | completed；8/8 reasoning，`run.completed` | 只读长运行探针总时长 1m9s；8 个 reasoning block 为 0.011–2.252s，未捕获活动 reasoning 取消；`+0/-0` |
+| #513 | OpenCode / 4 / `gpt-5.6-luna` | 209 | completed；5/5 reasoning，`run.completed` | 当前 Provider 4 `openai_responses` 真实成功；5 个 reasoning block（2.177/7.769/0.017/7.872/2.219s），`+0/-0`，delivery/finalization 无提交 |
+| #514 | Pi / 4 / `gpt-5.6-luna` | 210 | failed；6/6 reasoning，`run.failed` | Pi 归档正文报告上游 401 `invalid_api_key`；canonical seq 279 以活动 tool fail-closed 为 `protocol_error`，11 started/10 completed，0 changes；不计入 Pi Responses 成功 |
 
 除 #504（旧 Bundle、进入 Harness 前失败且没有 canonical receipt）外，上述 Task 的 attempt 均为
 `codify.worker.event/v2`，transport 与 adapter identity 来自真实 `run.started` receipt，而非
@@ -146,6 +152,8 @@ Bundle 206 的 `size_bytes=655360`；数据库中的四 Harness manifest 与 Bun
 | #510 | 2 / 1,518 | 2,103 bytes | `run.failed` / `engine_error` |
 | #511 | 6 / 3,087 | 26,236 bytes | `run.completed` |
 | #512 | 6 / 3,881 | 46,212 bytes | `run.completed` |
+| #513 | 5 / 2,540 | 117,940 bytes | `run.completed` |
+| #514 | 3 / 2,215 | 135,463 bytes | `run.failed` / `protocol_error` |
 
 所有任务结束后，相关 Worker 容器均已清理；Backend/Scheduler 保持健康。#472 的 attempt 为
 `task-472-attempt-1-9ef92102943b`，`codify.worker.event/v2`、Pi adapter `2.1.1`、CLI
@@ -515,3 +523,29 @@ Codex adapter `1.2.0`、CLI `0.146.0`，`last_seq=43`、`control=closed`。这�
 raw 为 6 chunks / 3,881 bytes，archive 为 46,212 bytes。它是有界负证据：总任务耗时和较多
 只读工具调用没有产生长 reasoning，也没有提供活动 reasoning 取消窗口；不关闭 Codex 长思考或
 取消验收，也不授权增加等待卡或静态伪造。
+
+## 7. Current Bundle Responses recheck: #513/#514
+
+Task #513 的 attempt 为 `task-513-attempt-1-b97b9dc7fbf2`，绑定 Bundle 209、Profile 4、Provider 4
+`opencode-luna / gpt-5.6-luna`，`codify.worker.event/v2`，OpenCode adapter `2.1.0`、CLI
+`1.18.19`，`last_seq=1214`、`control=closed`。它以全新会话、分析模式执行严格只读
+`openai_responses` probe；canonical 有 5 对 reasoning start/end，receipt 间隔分别为
+`2.177s/7.769s/0.017s/7.872s/2.219s`，均为同一 reasoning ID 且 start 早于 end。seq 1210/1211/1212/1213/1214
+依次为 `harness.completed`、`delivery.started`、`delivery.completed(exit_code=0, commit_sha=null)`、
+`worker.finalization(diff total=0, additions=0, deletions=0, commit_sha=null)`、`run.completed`。
+真实页面 [Task #513](http://192.168.50.129:8880/tasks/513) 显示 OpenCode、`+0/-0` 和完成状态；
+raw 为 5 chunks / 2,540 bytes，archive 为 117,940 bytes。GitLab 对其 `codify/issue-134` 分支
+返回 Not Found，未产生远端提交。该任务关闭了当前 exact composition 的 OpenCode Responses
+“可用 Provider + durable terminal”子项，但不关闭页面长思考、取消/刷新或四 Harness 全覆盖。
+
+Task #514 的 attempt 为 `task-514-attempt-1-5d6b64feed50`，绑定 Bundle 210、Profile 4、Provider 4
+`opencode-luna / gpt-5.6-luna`，`codify.worker.event/v2`，Pi adapter `2.1.1`、CLI `0.84.2`，
+`last_seq=281`、`control=closed`。它同样是全新会话、分析模式的严格只读 `openai_responses` probe；
+canonical 有 6 对 reasoning start/end，receipt 间隔为
+`2.177s/2.213s/2.187s/0.014s/2.185s/0.014s`。真实归档中的脱敏 Pi 输出报告了上游
+`401 invalid_api_key`，但至少一个 tool execution 只有 `tool.started` 而没有对应结束记录；因此
+seq 279/280/281 依次为 `harness.failed(protocol_error)`、`worker.finalization(exit_code=1, diff=0)`、
+`run.failed(protocol_error)`，canonical failure 保留了活动 tool ID，未把它升级成 Provider 成功或
+自动闭合为成功。raw 为 3 chunks / 2,215 bytes，archive 为 135,463 bytes，未产生提交或远端写入。
+该结果是 Pi 当前 Provider/流终态的真实失败边界，不计入 Pi Responses 成功，也不授权修改 Provider
+凭据、模型 slug 或绕过上游认证策略；应在后续有明确修复方案时重新生成新 Bundle，而不是覆盖 Bundle 210。
