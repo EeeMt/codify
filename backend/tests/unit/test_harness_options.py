@@ -5,12 +5,26 @@ from __future__ import annotations
 import pytest
 
 from app.core.harness_options import (
+    CODEX_REASONING_EFFORTS,
     TASK_OVERRIDE_KEYS,
     HarnessOptionsError,
     deep_merge_options,
     validate_namespaced_options,
     validate_task_overrides,
 )
+
+# ── codex/v1 typed validator ──────────────────────────────────────────────────
+
+def test_codex_v1_validates_reasoning_effort():
+    options = validate_namespaced_options({"codex": {"reasoning_effort": "high"}})
+    assert options["codex"] == {"reasoning_effort": "high"}
+    assert {
+        "minimal", "low", "medium", "high", "xhigh", "ultra"
+    } == CODEX_REASONING_EFFORTS
+
+    with pytest.raises(HarnessOptionsError):
+        validate_namespaced_options({"codex": {"reasoning_effort": "maximum"}})
+
 
 # ── pi/v1 typed validator ─────────────────────────────────────────────────────
 

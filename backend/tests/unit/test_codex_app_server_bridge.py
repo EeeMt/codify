@@ -13,13 +13,19 @@ BRIDGE = REPO_ROOT / "deploy/worker-entrypoint/harness/adapters/codex_bridge.py"
 
 def test_bridge_completes_one_thread_and_forwards_native_messages(tmp_path: Path) -> None:
     fake_codex = tmp_path / "fake-codex"
+    request_log = tmp_path / "requests.jsonl"
     fake_codex.write_text(
         """#!/usr/bin/env python3
 import json
+import os
 import sys
 
 for line in sys.stdin:
     message = json.loads(line)
+    request_log = os.environ.get("CODEX_REQUEST_LOG")
+    if request_log:
+        with open(request_log, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(message) + "\\n")
     method = message.get("method")
     if message.get("id") == 1:
         print(json.dumps({"id": 1, "result": {"platformOs": "linux"}}), flush=True)
@@ -55,7 +61,12 @@ for line in sys.stdin:
             "--prompt-file",
             str(prompt),
         ],
-        env={**os.environ, "OPENAI_MODEL": "test-model"},
+        env={
+            **os.environ,
+            "OPENAI_MODEL": "test-model",
+            "CODIFY_CODEX_REASONING_EFFORT": "high",
+            "CODEX_REQUEST_LOG": str(request_log),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -67,3 +78,6 @@ for line in sys.stdin:
     assert "item/started" in methods
     assert "item/completed" in methods
     assert methods[-1] == "turn/completed"
+    requests = [json.loads(line) for line in request_log.read_text().splitlines()]
+    turn_start = next(message for message in requests if message.get("method") == "turn/start")
+    assert turn_start["params"]["effort"] == "high"

@@ -185,6 +185,33 @@ def _codex_config_sandbox(tmp_path: Path, *, frozen: str | None, override: str |
     return result.stdout
 
 
+def _codex_reasoning_effort(tmp_path: Path, options: str) -> subprocess.CompletedProcess[str]:
+    env = {
+        **os.environ,
+        "CODIFY_RUNTIME_DIR": str(tmp_path),
+        "CODIFY_ORCHESTRATION_DIR": str(REPO_ROOT / "deploy"),
+        "OPENAI_BASE_URL": "https://api.deepseek.com",
+        "OPENAI_MODEL": "deepseek-v4-flash",
+        "CODIFY_HARNESS_OPTIONS_JSON": options,
+    }
+    script = (
+        f'source "{HARNESS_DIR}/adapters/codex.sh" '
+        f"&& codex_adapter_prepare_config "
+        f'&& printf "%s" "${{CODIFY_CODEX_REASONING_EFFORT:-}}"'
+    )
+    return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+
+
+def test_codex_options_export_reasoning_effort_and_fail_closed(tmp_path):
+    result = _codex_reasoning_effort(tmp_path, '{"reasoning_effort":"high"}')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "high"
+
+    invalid = _codex_reasoning_effort(tmp_path / "invalid", '{"reasoning_effort":"maximum"}')
+    assert invalid.returncode != 0
+    assert "invalid reasoning_effort" in invalid.stderr
+
+
 def test_codex_config_maps_frozen_sandbox_to_codex_enum(tmp_path):
     # container-boundary (system default) = danger-full-access because Codex's
     # bwrap sandbox cannot create userns inside the worker container; an

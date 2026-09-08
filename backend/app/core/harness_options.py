@@ -4,12 +4,11 @@ Worker Profiles store namespaced ``harness_options`` like::
 
     {"pi": {...}, "opencode": {...}, "claude": ..., "codex": ...}
 
-Each known options-schema namespace (``pi/v1``, ``opencode/v1``) is validated
+Each known options-schema namespace (``codex/v1``, ``pi/v1``, ``opencode/v1``) is validated
 with a typed Pydantic validator that rejects unknown keys and invalid enum
 values. Unknown schema names are *tolerated* for forward-compatibility — Phase 1
-declares the catalog but later harnesses (e.g. ``claude``/``codex``) do not yet
-ship a typed validator — so a profile may carry extra namespaces that are passed
-through untouched.
+declares the catalog, while a profile may still carry future namespaces that are
+passed through untouched.
 
 Task creation only accepts overrides for fields the manifest marks
 ``task_override=true``.  Because the V2 runtime manifest is not yet wired into
@@ -29,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 # namespace (Profile key) -> options-schema name (manifest `options_schema`)
 NS_TO_OPTIONS_SCHEMA = {
+    "codex": "codex/v1",
     "pi": "pi/v1",
     "opencode": "opencode/v1",
 }
@@ -37,16 +37,34 @@ NS_TO_OPTIONS_SCHEMA = {
 # `task_override=true` flag.  These are deliberately small, fixed-version
 # allowlists: arbitrary OpenCode config is never accepted from a Task request.
 TASK_OVERRIDE_KEYS: dict[str, frozenset[str]] = {
+    "codex/v1": frozenset({"reasoning_effort"}),
     "pi/v1": frozenset({"thinking_level", "steering_mode", "follow_up_mode"}),
     "opencode/v1": frozenset({"agent", "command", "model_variant"}),
 }
 
+CODEX_REASONING_EFFORTS = frozenset({"minimal", "low", "medium", "high", "xhigh", "ultra"})
 OPENCODE_AGENT_ALLOWLIST = frozenset({"build", "plan", "general", "explore"})
 OPENCODE_COMMAND_ALLOWLIST = frozenset({"codify"})
 _OPENCODE_MODEL_VARIANT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
 
 
 # ── Typed validators ───────────────────────────────────────────────────────────
+
+class CodexV1Options(BaseModel):
+    """Options schema ``codex/v1`` for the App Server turn effort override."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reasoning_effort: str = Field(default="medium")
+
+    @field_validator("reasoning_effort")
+    @classmethod
+    def _reasoning_effort(cls, value: str) -> str:
+        if value not in CODEX_REASONING_EFFORTS:
+            raise ValueError(
+                f"reasoning_effort must be one of {sorted(CODEX_REASONING_EFFORTS)}"
+            )
+        return value
 
 class PiV1Options(BaseModel):
     """Options schema ``pi/v1`` (see open-harness-v2 phase1 design §5.4)."""
@@ -119,6 +137,7 @@ class OpenCodeV1Options(BaseModel):
 
 
 OPTION_VALIDATORS: dict[str, type[BaseModel]] = {
+    "codex/v1": CodexV1Options,
     "pi/v1": PiV1Options,
     "opencode/v1": OpenCodeV1Options,
 }

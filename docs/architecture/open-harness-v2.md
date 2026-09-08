@@ -480,6 +480,9 @@ Harness 兼容性校验。运行环境可以同时提供协议中立的 Snapshot
     "agent": "build",
     "command": null,
     "model_variant": null
+  },
+  "codex": {
+    "reasoning_effort": "medium"
   }
 }
 ```
@@ -487,6 +490,9 @@ Harness 兼容性校验。运行环境可以同时提供协议中立的 Snapshot
 Worker Profile 保存默认值；Create Task 只允许 manifest 明确列出的高频 override；创建事务把合并结果
 写入现有 `harness_config_snapshot`。低频选项继续由可信仓库的 Harness 原生配置提供。首版不提供任意
 JSON 编辑器。
+
+Codex `codex/v1` 的 `reasoning_effort` 只允许 `minimal`、`low`、`medium`、`high`、`xhigh`、`ultra`；
+它作为冻结 Snapshot 的显式 `turn/start.effort` 传给 App Server，未配置时保留 CLI/model 默认行为。
 
 新建 Worker Profile 的默认值是：
 

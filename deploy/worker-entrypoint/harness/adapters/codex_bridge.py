@@ -123,6 +123,16 @@ class AppServerBridge:
         )
         return params
 
+    def _turn_params(self) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "threadId": self.thread_id,
+            "input": [{"type": "text", "text": self.prompt_file.read_text()}],
+        }
+        effort = os.environ.get("CODIFY_CODEX_REASONING_EFFORT", "").strip()
+        if effort:
+            params["effort"] = effort
+        return params
+
     def _launch(self) -> None:
         command = [self.codex_bin, "app-server", "--stdio"]
         launcher = os.environ.get("CODIFY_CODEX_RUN_AS", "").strip()
@@ -207,10 +217,7 @@ class AppServerBridge:
                 {
                     "id": turn_request_id,
                     "method": "turn/start",
-                    "params": {
-                        "threadId": self.thread_id,
-                        "input": [{"type": "text", "text": self.prompt_file.read_text()}],
-                    },
+                    "params": self._turn_params(),
                 }
             )
             turn_response_seen = False

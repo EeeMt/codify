@@ -119,6 +119,28 @@ codex_adapter_prepare_config() {
     # OPENAI_BASE_URL for the Responses API, so write an explicit config).
     local base_url="${OPENAI_BASE_URL:-}"
     local model="${OPENAI_MODEL:-}"
+    local options_json="${CODIFY_HARNESS_OPTIONS_JSON:-}"
+    if [ -n "${options_json}" ]; then
+        if ! printf '%s' "${options_json}" | jq -e \
+            'type == "object"
+             and ((keys - ["reasoning_effort"]) | length == 0)
+             and ((.reasoning_effort // "medium")
+                  | type == "string"
+                  and IN("minimal", "low", "medium", "high", "xhigh", "ultra"))' \
+            >/dev/null 2>&1; then
+            echo "Codex harness options contain an invalid reasoning_effort" >&2
+            return 1
+        fi
+        local reasoning_effort
+        reasoning_effort="$(printf '%s' "${options_json}" | jq -r '.reasoning_effort // empty')"
+        if [ -n "${reasoning_effort}" ]; then
+            export CODIFY_CODEX_REASONING_EFFORT="${reasoning_effort}"
+        else
+            unset CODIFY_CODEX_REASONING_EFFORT
+        fi
+    else
+        unset CODIFY_CODEX_REASONING_EFFORT
+    fi
     if [ -n "${base_url}" ] && [ -n "${model}" ]; then
         # Sandbox: the worker container IS the isolation boundary (container-
         # boundary mode, matching the Claude harness). Codex's own bwrap sandbox
