@@ -13,6 +13,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
+import json
 import unittest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -134,6 +135,11 @@ class TestCodifySystemInitParsing(unittest.TestCase):
                             stmt_str = str(stmt)
 
                         result = MagicMock()
+                        if "FROM task_harness_attempts" in stmt_str:
+                            result.scalar_one_or_none.return_value = (
+                                f"task-{task.id}-attempt-1-0123456789ab"
+                            )
+                            return result
                         for log_type, metadata in metadata_by_type.items():
                             if log_type in stmt_str:
                                 if metadata is None:
@@ -148,7 +154,13 @@ class TestCodifySystemInitParsing(unittest.TestCase):
                         return result
 
                     mock_db.execute = mock_execute
-                    await self.worker._parse_task_result(task, logs, mock_db, exit_code=exit_code)
+                    await self.worker._parse_task_result(
+                        task,
+                        logs,
+                        mock_db,
+                        exit_code=exit_code,
+                        issue=task.issue,
+                    )
         asyncio.run(run())
 
     def test_updates_model_name_from_structured_entry(self):
@@ -246,10 +258,40 @@ class TestCodifySystemInitParsing(unittest.TestCase):
             run_result_metadata=(
                 '{"type":"run.completed","status":"completed","success":true}'
             ),
-            worker_finalization_metadata=(
-                '{"commit_sha":"0123456789abcdef0123456789abcdef01234567",'
-                '"diff":{"additions":12,"deletions":3,"total":15},'
-                '"commit_message":"Fix worker result parsing"}'
+            worker_finalization_metadata=json.dumps(
+                {
+                    "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+                    "diff": {"additions": 12, "deletions": 3, "total": 15},
+                    "commit_message": "Fix worker result parsing",
+                    "git_delivery": {
+                        "schema": "codify.git-delivery.v1",
+                        "attempt_id": "task-1-attempt-1-0123456789ab",
+                        "branch": "test-branch",
+                        "start_sha": "0" * 40,
+                        "start_remote_sha": "1" * 40,
+                        "head_sha": "0123456789abcdef0123456789abcdef01234567",
+                        "commits": [
+                            {
+                                "sha": "0123456789abcdef0123456789abcdef01234567",
+                                "subject": "Fix worker result parsing",
+                            }
+                        ],
+                        "recovered_commits": [],
+                        "diff": {
+                            "additions": 12,
+                            "deletions": 3,
+                            "total": 15,
+                            "new_files": [],
+                            "modified_files": ["worker.py"],
+                            "deleted_files": [],
+                        },
+                        "push": {
+                            "status": "pushed",
+                            "remote_sha": "0123456789abcdef0123456789abcdef01234567",
+                            "error": None,
+                        },
+                    },
+                }
             ),
         )
         self.assertEqual(task.commit_sha, "0123456789abcdef0123456789abcdef01234567")

@@ -58,10 +58,10 @@ Bundle 216，显式快照 `{"codex":{"reasoning_effort":"high"}}`；11 个 reaso
 | 项 | 当前值 |
 | --- | --- |
 | Git revision | `4249fcc4` (`feat(codex): forward configured reasoning effort`)；保留 `b7cacd47` 的思考正文入口修复 |
-| 分支状态 | `dev` 已提交思考占位正文入口恢复、Codex explicit summary 投影及回归测试，候选及关联文档证据仍在本地、尚未推送；既有 security audit 仍按独立路径处理 |
+| 分支状态 | `dev` 的运行时 candidate 仍以 `4249fcc4` 为 source anchor；本轮另补齐严格 `git_delivery` contract 的旧测试夹具与当前 evidence，候选及关联文档仍未推送；既有 security audit 仍按独立路径处理 |
 | 影响面 | 思考占位/预览/完整内容入口、Codex App Server explicit `summary_text`/`summaryTextDelta` 投影、`turn/start.effort` options、Adapter/manifest/runtime digest 与既有 Canonical reasoning 投影；不读取 Codex 原始隐藏 `content`/`textDelta` |
 | 设计基线 | [Task Git delivery reconciliation design](../specs/2026-09-04-task-git-delivery-reconciliation-design.md)；[four-Harness thinking lifecycle plan](2026-09-04-thinking-event-placeholder-plan.md) |
-| 当前聚焦 L2 | 本轮外部取消收尾相关聚焦集合为 `217 passed`；此前 pre-Harness/finalization 组合的 `417 passed`、相关 shell `bash -n` 与 `git diff --check` 均保持通过；既有 frontend production build 已通过 |
+| 当前聚焦 L2 | 当前 Backend unit suite `3419 passed, 4 skipped, 99 subtests`；Frontend unit suite `1748 passed`（80 files），`npm run build`、Backend lint、受影响 106 tests、shell/diff check 均通过；生产部署仍保持既有 Runtime identity |
 
 本轮提交不升级 Harness CLI、不修改 Provider 协议、Scheduler 排队规则或既有 Task Snapshot schema；
 除既有 Codex App Server Bridge/Pi endpoint 变更外，`4f42b9d7` 调整 Worker finalization 的

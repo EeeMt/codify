@@ -9,6 +9,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -53,6 +54,12 @@ def create_mock_db(task, issue=None, *, worker_finalization_metadata=None):
 
     async def mock_execute(query, *args, **kwargs):
         query_str = str(query)
+        if "FROM task_harness_attempts" in query_str:
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = (
+                f"task-{task.id}-attempt-1-0123456789ab"
+            )
+            return result
         if "FROM task_logs" in query_str:
             task_log_query_count[0] += 1
             result = MagicMock()
@@ -130,9 +137,36 @@ def test_worker_saves_mr_stats_after_completion():
             task,
             issue=mock_issue,
             worker_finalization_metadata=(
-                '{"commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
-                '"diff":{"additions":100,"deletions":50,"total":150},'
-                '"commit_message":"Structured title"}'
+                json.dumps(
+                    {
+                        "commit_sha": "a" * 40,
+                        "diff": {"additions": 100, "deletions": 50, "total": 150},
+                        "commit_message": "Structured title",
+                        "git_delivery": {
+                            "schema": "codify.git-delivery.v1",
+                            "attempt_id": "task-3-attempt-1-0123456789ab",
+                            "branch": "codify-3-p123-i456",
+                            "start_sha": "0" * 40,
+                            "start_remote_sha": "1" * 40,
+                            "head_sha": "a" * 40,
+                            "commits": [{"sha": "a" * 40, "subject": "Structured title"}],
+                            "recovered_commits": [],
+                            "diff": {
+                                "additions": 100,
+                                "deletions": 50,
+                                "total": 150,
+                                "new_files": [],
+                                "modified_files": ["feature.py"],
+                                "deleted_files": [],
+                            },
+                            "push": {
+                                "status": "pushed",
+                                "remote_sha": "a" * 40,
+                                "error": None,
+                            },
+                        },
+                    }
+                )
             ),
         )
 
@@ -210,7 +244,24 @@ def test_worker_handles_missing_mr_stats():
         mock_db = create_mock_db(
             task,
             issue=mock_issue,
-            worker_finalization_metadata='{"commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commit_message":""}',
+            worker_finalization_metadata=json.dumps(
+                {
+                    "commit_sha": "a" * 40,
+                    "commit_message": "",
+                    "git_delivery": {
+                        "schema": "codify.git-delivery.v1",
+                        "attempt_id": "task-4-attempt-1-0123456789ab",
+                        "branch": "codify-4-p123-i456",
+                        "start_sha": "0" * 40,
+                        "start_remote_sha": "1" * 40,
+                        "head_sha": "a" * 40,
+                        "commits": [{"sha": "a" * 40, "subject": "Existing delivery"}],
+                        "recovered_commits": [],
+                        "diff": None,
+                        "push": {"status": "pushed", "remote_sha": "a" * 40, "error": None},
+                    },
+                }
+            ),
         )
 
         # Logs with MR URL; commit SHA comes from structured metadata, diff falls back to API.
