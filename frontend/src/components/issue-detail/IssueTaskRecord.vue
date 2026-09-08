@@ -335,13 +335,31 @@ const queueContextLabel = computed(() => {
 
 .task-history-record__queue-context {
   grid-column: 1 / -1;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: rgba(32, 128, 240, 0.07);
-  color: rgba(29, 78, 216, 0.9);
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 3px 9px 3px 8px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 7px;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.035));
+  color: rgba(29, 78, 216, 0.92);
   font-size: 11px;
   line-height: 1.35;
   white-space: nowrap;
+}
+
+.task-history-record__queue-context::before {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  content: '';
 }
 
 .task-history-record__meta-label {
@@ -435,6 +453,11 @@ const queueContextLabel = computed(() => {
   .task-history-record__meta {
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
+  }
+
+  .task-history-record__queue-context {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .task-history-record__controls {
