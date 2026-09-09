@@ -307,6 +307,24 @@ const mockProjects = [
   { id: 2, name: 'Project B', path_with_namespace: 'group/project-b' }
 ]
 
+const mockAnalyticsWithDurationTrend: AnalyticsResponse = {
+  ...mockAnalytics,
+  trends: [{
+    date: '2026-01-01',
+    task_count: 2,
+    completed_tasks: 2,
+    failed_tasks: 0,
+    cancelled_tasks: 0,
+    additions: 0,
+    deletions: 0,
+    total_changes: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    total_execution_seconds: 300
+  }]
+}
+
 const mockAnalyticsEmptyProviders: AnalyticsResponse = {
   ...mockAnalytics,
   provider_summary: {
@@ -652,6 +670,18 @@ describe('Analytics', () => {
 
     expect(wrapper.vm.selectedTrendMetric).toBe('duration')
     expect(wrapper.text()).toContain('analytics.executionDurationTrend')
+  })
+
+  it('uses total execution seconds for the duration trend', async () => {
+    ;(mockApi.getAnalytics as Mock).mockResolvedValue(mockAnalyticsWithDurationTrend)
+    wrapper = mount(Analytics, mountOptions)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="trend-metric-duration"]').trigger('click')
+    await nextTick()
+
+    expect((wrapper.vm.durationTrendBars as any[])[0].value).toBe(300)
+    expect(wrapper.find('.trend-chart__count').text()).toBe('5m')
   })
 
 

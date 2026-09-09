@@ -591,7 +591,7 @@ export interface AnalyticsTrendPoint {
   input_tokens: number
   output_tokens: number
   total_tokens: number
-  avg_execution_seconds: number | null
+  total_execution_seconds: number | null
 }
 
 export interface AnalyticsPriorityWaitRow {

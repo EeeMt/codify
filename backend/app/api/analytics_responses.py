@@ -344,9 +344,9 @@ def _serialize_trends(rows: list, *, since: datetime, days: int) -> list[dict]:
                 "input_tokens": int(row.input_tokens) if row else 0,
                 "output_tokens": int(row.output_tokens) if row else 0,
                 "total_tokens": int(row.total_tokens) if row else 0,
-                "avg_execution_seconds": (
-                    float(row.avg_execution_seconds)
-                    if row and row.avg_execution_seconds is not None
+                "total_execution_seconds": (
+                    float(row.total_execution_seconds)
+                    if row and row.total_execution_seconds is not None
                     else None
                 ),
             }

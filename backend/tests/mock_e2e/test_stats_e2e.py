@@ -613,6 +613,7 @@ class TestGetAnalytics:
         assert len(matching) == 1
         assert matching[0]["task_count"] == 1
         assert matching[0]["completed_tasks"] == 1
+        assert "total_execution_seconds" in matching[0]
 
     async def test_error_breakdown_categorisation(self, client, db_session):
         """Failed tasks are categorised into error buckets."""

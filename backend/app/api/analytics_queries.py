@@ -307,7 +307,7 @@ def _build_trend_query(
                 func.sum(func.coalesce(Task.input_tokens, 0) + func.coalesce(Task.output_tokens, 0)),
                 0,
             ).label("total_tokens"),
-            func.avg(expressions.execution_seconds).label("avg_execution_seconds"),
+            func.sum(expressions.execution_seconds).label("total_execution_seconds"),
         )
         .where(Task.created_at >= since)
         .group_by(func.date(Task.created_at))

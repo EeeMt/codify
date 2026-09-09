@@ -915,8 +915,8 @@ const durationTrendBars = computed(() =>
     (analytics.value?.trends || []).map((point) => ({
       key: `${point.date}-duration`,
       label: formatShortDate(point.date),
-      value: point.avg_execution_seconds ?? 0,
-      displayValue: formatDurationSec(point.avg_execution_seconds)
+      value: point.total_execution_seconds ?? 0,
+      displayValue: formatDurationSec(point.total_execution_seconds)
     }))
   )
 )
