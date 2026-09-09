@@ -11,7 +11,7 @@ Task receipt、runtime archive、数据库和 GitLab MR 为准。
 
 - 代码 RC source anchor：`504f937d1bc11450a07069235501d8614c8c37d8`。
 - 本轮相关提交：`f50f901a`（Analytics fixture）、`504f937d`（开发环境切换 `v2_only`）、
-  `36d2543b`（开发 GitLab 地址修正）。
+  `36d2543b`（开发 GitLab 地址修正）、`5bd12616`（Scheduler 启动自动迁移与 NGINX health gate）。
 - `dev` 未 push；文档提交前相对 `origin/dev` 为 ahead 66。
 - Backend unit suite 分拆结果：主单元集 `3411 passed, 4 skipped`；Scheduler `5 passed`；Migration 068
   `6 passed`，合计 `3422 passed, 4 skipped`。
@@ -46,8 +46,10 @@ Kit inventory：
 
 - Backend、Scheduler、NGINX 使用开发 RC；Backend/Scheduler `/health` 均报告
   `harness_execution_mode=v2_only`，preflight 返回 `PREFLIGHT OK`。
-- 长期服务 `AUTO_MIGRATE=false`；数据库 revision 从 `077_v2_worker_kit_identity` 迁移到
-  `078_remove_provider_driver`。
+- R4.6 首次切换时数据库 revision 从 `077_v2_worker_kit_identity` 迁移到
+  `078_remove_provider_driver`；随后提交 `5bd12616` 将正常启动拓扑收敛为 Backend
+  `AUTO_MIGRATE=false`、Scheduler `AUTO_MIGRATE=true`，并让 NGINX 等待 Scheduler health。远端重启验证中
+  Scheduler 日志执行了 migration 检查并报告 database up to date，未重复改动 078 数据。
 - PostgreSQL 备份保留在远端 `/tmp/codify-r4-6-precut.dump`：49,003,240 bytes，SHA256
   `1cca441b4e42d7d9c0aab38a8dbc785acaedfaed0736f67554f8e1a132dd5212`；`pg_restore -l` 输出 463 行，
   其中 448 行为非注释 TOC entry。

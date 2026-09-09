@@ -46,6 +46,8 @@ create/execute/schedule/retry/resume/Scheduler/Worker 启动路径的 `v2_only` 
   `f50f901a`（Analytics fixture）和 `504f937d`（开发环境切换 `v2_only`）。
 - 开发主机 GitLab 地址修正为 `192.168.50.129:8080`，独立提交为 `36d2543b`；它是运行时环境配置修正，
   不改变已构建 Backend/NGINX image 的代码内容。
+- 启动迁移拓扑修正提交为 `5bd12616`：Backend 保持 `AUTO_MIGRATE=false`，Scheduler 作为唯一启动迁移
+  owner 使用 `AUTO_MIGRATE=true`，NGINX 等待 Scheduler healthy 后开放入口。
 - 完整 Backend unit suite 分拆执行后为 `3422 passed, 4 skipped`：主单元集 `3411 passed, 4 skipped`，
   Scheduler `5 passed`，Migration 068 `6 passed`；Frontend `80 files / 1753 passed`，production build
   和 Backend lint 均通过，shell syntax 与 `git diff --check` 通过。
@@ -55,8 +57,9 @@ create/execute/schedule/retry/resume/Scheduler/Worker 启动路径的 `v2_only` 
 ### 3.2 开发环境
 
 - Docker context 为 `remote`；Backend/Scheduler/NGINX 已用开发 RC 运行，Backend/Scheduler 均报告
-  `HARNESS_EXECUTION_MODE=v2_only`，长期服务 `AUTO_MIGRATE=false`，数据库 revision 为
-  `078_remove_provider_driver`。
+  `HARNESS_EXECUTION_MODE=v2_only`，Backend `AUTO_MIGRATE=false`、Scheduler `AUTO_MIGRATE=true`，数据库
+  revision 为 `078_remove_provider_driver`。R4.6 首次切换时已执行过一次 reviewed migration；之后已验证
+  新版启动路径在当前 078 数据库上自动检查并报告 up to date。
 - Backend image ID 为 `sha256:2d6b8ebab2d9a9b51704918817bae007de20530fa50e9140d5f2045eba8dfad3`，
   NGINX image ID 为 `sha256:d0247713acfa678eb22463f13aecc1a77f3acb663bb7a4df06027c1f7a7d36e3`；两者没有
   OCI Git revision label，因此通过构建时 source anchor 记录映射。远端缺少 `nginx:alpine`，NGINX 使用
@@ -190,14 +193,16 @@ release owner 确认以下五项：
 
 安全、凭据和备份检查不能省略；不再为内测环境增加 release-signing 基础设施或复杂 rollback state。
 
-## 8. 线上内测环境硬切
+## 8. 线上内测环境硬切（自动排空与自动迁移）
 
 开发环境达到退出条件后，线上环境使用完全相同的 Git SHA、Backend/NGINX image、Worker image、Kit 和
 Runtime Bundle，不重新构建：
 
-1. 公告停机窗口，暂停创建/调度并排空任务；
-2. 备份数据库，执行 migration 078；
-3. 切换 `v2_only` 并启动服务；
+1. 公告停机窗口，由上线编排先阻断入口和新 Task 写入，并自动等待 `RUNNING/QUEUED=0`；超时则中止上线，
+   不进入备份或迁移，不要求人工逐条排空；
+2. 排空完成后备份 PostgreSQL；
+3. 启动新版 Backend、Scheduler、NGINX。Scheduler 是唯一启动迁移 owner，自动执行 Alembic upgrade；
+   迁移成功并通过 health 后 NGINX 才开放入口，不再单独运行 `migrate` profile；
 4. 执行与开发环境相同的四 Harness release smoke；
 5. 验证 V1 写拒绝、历史只读和服务健康后开放访问。
 
