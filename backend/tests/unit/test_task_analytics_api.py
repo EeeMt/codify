@@ -616,6 +616,7 @@ async def test_get_analytics_returns_project_initiator_and_trend_breakdowns():
                     input_tokens=100,
                     output_tokens=200,
                     total_tokens=300,
+                    total_execution_seconds=300.0,
                     avg_execution_seconds=300.0,
                 ),
                 SimpleNamespace(
@@ -630,6 +631,7 @@ async def test_get_analytics_returns_project_initiator_and_trend_breakdowns():
                     input_tokens=500,
                     output_tokens=1000,
                     total_tokens=1500,
+                    total_execution_seconds=2160.0,
                     avg_execution_seconds=720.0,
                 ),
             ])
@@ -708,7 +710,7 @@ async def test_get_analytics_returns_project_initiator_and_trend_breakdowns():
     assert response["trends"][0]["date"] == "2026-03-08"
     assert response["trends"][-1]["date"] == "2026-03-14"
     assert response["trends"][-1]["task_count"] == 3
-    assert response["trends"][-1]["avg_execution_seconds"] == pytest.approx(720.0)
+    assert response["trends"][-1]["total_execution_seconds"] == pytest.approx(2160.0)
     assert response["priority_waits"][0]["priority"] == 0
     assert response["priority_waits"][1]["avg_queue_wait_seconds"] == pytest.approx(300.0)
     assert response["issue_status_breakdown"] == [
