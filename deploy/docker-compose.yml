@@ -12,6 +12,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      scheduler:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - codify-network
@@ -86,7 +88,9 @@ services:
       - DOCKER_TLS_CERT=
       - DOCKER_TLS_KEY=
       - WORKER_WORKSPACE_HOST_PATH=${WORKER_WORKSPACE_HOST_PATH:-/opt/codify-workspaces}
-      - AUTO_MIGRATE=false
+      # Scheduler is the single startup migration owner. Backend remains
+      # disabled so two long-running processes never race on Alembic.
+      - AUTO_MIGRATE=true
       # Must match the Backend value; the preflight script compares both.
       - HARNESS_EXECUTION_MODE=${HARNESS_EXECUTION_MODE:?set HARNESS_EXECUTION_MODE to dual_canary or v2_only}
       # Custom CA certificate is mounted from local file (not baked into image).
@@ -126,9 +130,15 @@ services:
     restart: unless-stopped
     networks:
       - codify-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
-  # Maintenance-window migration owner. Run exactly once with a reviewed
-  # revision, for example:
+  # Explicit migration fallback for recovery/testing. Normal release startup
+  # uses the Scheduler's AUTO_MIGRATE=true path above.
   # MIGRATION_TARGET=075_xxx docker compose --profile maintenance run --rm migrate
   migrate:
     profiles: ["maintenance"]
@@ -139,7 +149,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://codify:codify_password@postgres:5432/codify
       - AUTO_MIGRATE=false
       # Blank is harmless during ordinary `docker compose config`; the
-      # migration-owner command rejects blank/head/unreviewed targets at run.
+      # migration-owner command rejects blank/head/unreviewed targets if used.
       - MIGRATION_TARGET=${MIGRATION_TARGET:-}
     command: ["/usr/local/bin/run-migration-owner"]
     depends_on:

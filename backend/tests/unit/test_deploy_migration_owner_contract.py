@@ -1,4 +1,4 @@
-"""Static contracts for the one-shot migration owner Compose topology."""
+"""Static contracts for the startup migration-owner Compose topology."""
 
 import hashlib
 import io
@@ -32,11 +32,16 @@ def _service(content: str, name: str) -> str:
         REPO_ROOT / "deploy" / "offline-bundle" / "docker-compose.yml",
     ],
 )
-def test_long_running_services_disable_auto_migrate_and_define_one_shot_owner(path: Path):
+def test_scheduler_is_startup_migration_owner_and_nginx_waits_for_it(path: Path):
     content = path.read_text()
-    for service in ("backend", "scheduler"):
-        section = _service(content, service)
-        assert "AUTO_MIGRATE=false" in section
+    backend = _service(content, "backend")
+    scheduler = _service(content, "scheduler")
+    nginx = _service(content, "nginx")
+    assert "AUTO_MIGRATE=false" in backend
+    assert "AUTO_MIGRATE=true" in scheduler
+    assert "scheduler:" in nginx
+    assert "condition: service_healthy" in nginx
+    assert "http://localhost:8001/health" in scheduler
     migrate = _service(content, "migrate")
     assert 'profiles: ["maintenance"]' in migrate
     assert "AUTO_MIGRATE=false" in migrate

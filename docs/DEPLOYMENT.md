@@ -14,8 +14,9 @@
 当前 compose 约定：
 
 - `backend` 与 `scheduler` 共用 `codify-backend:latest`
-- `backend` 与 `scheduler` 均固定 `AUTO_MIGRATE=false`
-- migration 只由维护窗口内一次性的 `migrate` profile 执行
+- `backend` 固定 `AUTO_MIGRATE=false`；`scheduler` 是唯一的启动阶段 migration owner，使用
+  `AUTO_MIGRATE=true`
+- `nginx` 等待 Backend 与 Scheduler health 后才开放入口；正常上线不单独运行 `migrate` profile
 - `HARNESS_EXECUTION_MODE` 必须显式设置为 `dual_canary` 或 `v2_only`
 - PostgreSQL 数据挂载在 Docker volume `postgres_data`
 
@@ -107,21 +108,19 @@ cp .env.test .env.production
 
 如果这两个值不稳定或被重置，会影响会话和配置解密。
 
-### 4.2 唯一 migration owner
+### 4.2 停机、备份与启动阶段自动迁移
 
-先备份数据库并确认要执行的 Alembic revision，不允许 Backend、Scheduler 或两个副本竞争执行迁移，
-也不要在维护窗口使用会漂移的 `head`：
+上线时先停止 Codify 入口和调度，等待部署编排确认没有 `RUNNING/QUEUED` 任务，再备份 PostgreSQL。
+随后直接启动新版 Codify：Scheduler 在启动阶段执行 `alembic upgrade head`，迁移成功后才报告 healthy，
+NGINX 再依赖 Backend 与 Scheduler health 开放入口。正常上线不再单独运行 `migrate` profile。
 
 ```bash
 cd deploy
-export HARNESS_EXECUTION_MODE=dual_canary
-export MIGRATION_TARGET=<reviewed_revision>
-docker compose up -d postgres
-docker compose --profile maintenance run --rm migrate
+HARNESS_EXECUTION_MODE=v2_only docker compose --env-file .env.production up -d backend scheduler nginx
 ```
 
-物理 V2 schema 变更是 roll-forward-only。迁移后如果启动验证失败，应部署已评审的向前修复 revision，
-不得重新启动依赖旧物理 schema 的 V1 Backend/Scheduler。
+物理 schema 变更仍是 roll-forward-only；如果 Scheduler migration 失败，health 不会通过，NGINX 不会开放，
+应保持维护状态并部署已评审的向前修复 revision。`migrate` profile 仅保留给恢复/测试等明确场景。
 
 ### 4.3 构建并启动服务
 

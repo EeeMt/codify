@@ -414,7 +414,7 @@ docker build -f deploy/Dockerfile.worker-java21-maven -t codify-worker/java21-ma
 ## 运维备忘
 
 - `deploy/docker-compose.yml` 中，`backend` 和 `scheduler` 共用同一个 backend 镜像
-- 默认 Compose 中，`backend` 与 `scheduler` 均使用 `AUTO_MIGRATE=false`；迁移由 maintenance profile 的唯一 owner 执行
+- 默认 Compose 中，Backend 使用 `AUTO_MIGRATE=false`，Scheduler 使用 `AUTO_MIGRATE=true` 作为唯一启动阶段 migration owner；NGINX 等待 Scheduler healthy 后开放入口
 - Backend/Scheduler 必须显式、且一致地设置 `HARNESS_EXECUTION_MODE=dual_canary|v2_only`
 - 配置页面路由为 `/configuration`
 - 认证用户能看到的项目和任务会按 GitLab 权限过滤

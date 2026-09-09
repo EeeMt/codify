@@ -112,16 +112,13 @@ docker-compose up -d
 
 ### 4.4 执行数据库迁移
 
-Backend 与 Scheduler 默认都不自动迁移（`AUTO_MIGRATE=false`）。开发环境应先显式执行迁移，再启动
-长驻服务；生产/Canary 必须使用评审后的精确 revision，不能让多个服务竞争执行：
+Backend 固定不自动迁移（`AUTO_MIGRATE=false`），Scheduler 是唯一的启动阶段 migration owner
+（`AUTO_MIGRATE=true`）。开发环境启动新版服务时由 Scheduler 自动执行 Alembic，NGINX 等待 Scheduler
+healthy 后再开放入口；不需要先手工运行 migration：
 
 ```bash
-# 方式一：后端本地运行时（在 backend/ 目录，有 Python 环境）
-cd backend
-python -m alembic upgrade head
-
-# 方式二：后端在 Docker 中运行时
-MIGRATION_TARGET=<reviewed_revision> docker compose --profile maintenance run --rm migrate
+# 只有恢复/测试等明确场景才使用 maintenance migration profile。
+HARNESS_EXECUTION_MODE=v2_only docker compose --env-file .env.test up -d backend scheduler nginx
 ```
 
 > 项目使用 Alembic 进行数据库迁移，迁移脚本位于 `backend/alembic/versions/`。
