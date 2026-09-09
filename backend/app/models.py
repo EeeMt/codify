@@ -472,6 +472,7 @@ class Task(Base):
         DateTime, nullable=False, default=utcnow, onupdate=utcnow
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    execution_timeout_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     raw_logs_finalized_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -526,6 +527,10 @@ class Task(Base):
             "input_lineage_reason IS NULL OR input_lineage_reason IN "
             "('fresh', 'resumed', 'fresh_no_match')",
             name="ck_tasks_input_lineage_reason",
+        ),
+        CheckConstraint(
+            "execution_timeout_seconds IS NULL OR execution_timeout_seconds BETWEEN 60 AND 28800",
+            name="ck_tasks_execution_timeout_seconds",
         ),
         Index("ix_tasks_status_created", "status", "created_at"),
         Index("ix_tasks_status_priority", "status", "priority", "scheduled_at"),

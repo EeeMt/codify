@@ -133,7 +133,10 @@ vi.mock('@vueuse/core', () => ({
 const mockConfigForm = {
   formValue: ref({
     max_concurrency: 3,
-    task_timeout: 1800,
+    task_timeout_peak_seconds: 1800,
+    task_timeout_off_peak_seconds: 3600,
+    task_timeout_peak_start: '09:00',
+    task_timeout_peak_end: '18:00',
     scheduler_interval: 5,
     default_target_branch: 'main',
     max_retries: 0,

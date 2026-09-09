@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, StrictInt
+from pydantic import BaseModel, Field, StrictInt, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +21,7 @@ from app.config import (
 )
 from app.core.config_crypto import ConfigEncryptionError
 from app.core.task_prompt import TaskPromptValidationError, validate_run_instruction_template
+from app.core.task_timeout import parse_hhmm, validate_timeout_seconds, validate_timeout_window
 from app.core.worker_environment_variables import (
     list_worker_environment_variables,
     replace_worker_environment_variables,
@@ -61,7 +62,10 @@ class RuntimeWorkerEnvironmentVariableResponse(BaseModel):
 class RuntimeConfigSection(BaseModel):
     """Runtime settings in the config response."""
     max_concurrency: int
-    task_timeout: int
+    task_timeout_peak_seconds: int
+    task_timeout_off_peak_seconds: int
+    task_timeout_peak_start: str
+    task_timeout_peak_end: str
     scheduler_interval: int
     default_target_branch: str
     max_retries: int
@@ -103,7 +107,10 @@ class RuntimeConfigSection(BaseModel):
 class RuntimeConfigUpdate(BaseModel):
     """Request model for updating runtime settings."""
     max_concurrency: int | None = None
-    task_timeout: int | None = None
+    task_timeout_peak_seconds: StrictInt | None = None
+    task_timeout_off_peak_seconds: StrictInt | None = None
+    task_timeout_peak_start: str | None = None
+    task_timeout_peak_end: str | None = None
     scheduler_interval: int | None = None
     default_target_branch: str | None = None
     max_retries: int | None = None
@@ -148,7 +155,10 @@ def _serialize_runtime_config(
 ) -> RuntimeConfigSection:
     return RuntimeConfigSection(
         max_concurrency=settings.max_concurrency,
-        task_timeout=settings.task_timeout,
+        task_timeout_peak_seconds=settings.task_timeout_peak_seconds,
+        task_timeout_off_peak_seconds=settings.task_timeout_off_peak_seconds,
+        task_timeout_peak_start=settings.task_timeout_peak_start,
+        task_timeout_peak_end=settings.task_timeout_peak_end,
         scheduler_interval=settings.scheduler_interval,
         default_target_branch=settings.default_target_branch,
         max_retries=settings.max_retries,
@@ -240,12 +250,28 @@ def _validate_config_value(key: str, value: object) -> object:
             )
         return value
 
-    if key == "task_timeout":
-        if not isinstance(value, int) or value < 60 or value > 28800:
+    if key in {"task_timeout_peak_seconds", "task_timeout_off_peak_seconds"}:
+        if not isinstance(value, int) or isinstance(value, bool):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="task_timeout must be between 60 and 28800 seconds",
+                detail=f"{key} must be an integer",
             )
+        try:
+            return validate_timeout_seconds(value, field_name=key)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
+    if key in {"task_timeout_peak_start", "task_timeout_peak_end"}:
+        try:
+            parse_hhmm(value)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
         return value
 
     if key == "scheduler_interval":
@@ -538,7 +564,32 @@ async def apply_runtime_config_update(
     runtime_updates = _normalize_runtime_updates(raw_runtime_updates)
     effective_settings = get_effective_settings()
     _validate_artifact_config_relationship(runtime_updates, effective_settings)
-    _build_preview_settings(runtime_updates, effective_settings)
+    try:
+        preview_settings = _build_preview_settings(runtime_updates, effective_settings)
+    except ValidationError as exc:
+        detail = "; ".join(
+            str(error.get("msg", "Invalid runtime configuration"))
+            for error in exc.errors()
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    try:
+        validate_timeout_window(
+            preview_settings.task_timeout_peak_start,
+            preview_settings.task_timeout_peak_end,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     worker_environment_variables_provided = (
         "worker_environment_variables" in runtime_update.model_fields_set
     )

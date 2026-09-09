@@ -28,7 +28,10 @@ def _make_mock_settings():
     s.gitlab_url = "http://gitlab.example.com"
     s.gitlab_bot_token = "test-token"
     s.worker_image = "test-worker:latest"
-    s.task_timeout = 1800
+    s.task_timeout_peak_seconds = 1800
+    s.task_timeout_off_peak_seconds = 3600
+    s.task_timeout_peak_start = "09:00"
+    s.task_timeout_peak_end = "18:00"
     s.anthropic_base_url = "http://localhost:11434/v1"
     s.anthropic_api_key = "test-key"
     s.anthropic_model = "claude-sonnet-4-20250514"

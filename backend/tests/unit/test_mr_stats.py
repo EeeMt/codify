@@ -99,7 +99,10 @@ def test_worker_saves_mr_stats_after_completion():
     mock_settings.gitlab_url = "http://gitlab.example.com"
     mock_settings.gitlab_bot_token = "test-token"
     mock_settings.worker_image = "test-worker:latest"
-    mock_settings.task_timeout = 1800
+    mock_settings.task_timeout_peak_seconds = 1800
+    mock_settings.task_timeout_off_peak_seconds = 3600
+    mock_settings.task_timeout_peak_start = "09:00"
+    mock_settings.task_timeout_peak_end = "18:00"
     mock_settings.anthropic_base_url = "http://localhost:11434/v1"
     mock_settings.anthropic_api_key = "test-key"
     mock_settings.anthropic_model = "claude-sonnet-4-20250514"
@@ -205,7 +208,10 @@ def test_worker_handles_missing_mr_stats():
     mock_settings.gitlab_url = "http://gitlab.example.com"
     mock_settings.gitlab_bot_token = "test-token"
     mock_settings.worker_image = "test-worker:latest"
-    mock_settings.task_timeout = 1800
+    mock_settings.task_timeout_peak_seconds = 1800
+    mock_settings.task_timeout_off_peak_seconds = 3600
+    mock_settings.task_timeout_peak_start = "09:00"
+    mock_settings.task_timeout_peak_end = "18:00"
     mock_settings.anthropic_base_url = "http://localhost:11434/v1"
     mock_settings.anthropic_api_key = "test-key"
     mock_settings.anthropic_model = "claude-sonnet-4-20250514"

@@ -136,36 +136,36 @@ class ValidateMaxConcurrencyTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _validate_config_value — task_timeout
+# _validate_config_value — task timeout policy
 # ---------------------------------------------------------------------------
 
 
 class ValidateTaskTimeoutTests(unittest.TestCase):
-    """Tests for task_timeout config validation."""
+    """Tests for task timeout policy validation."""
 
     def test_valid_min_boundary(self):
         """min boundary (60) should be accepted."""
-        self.assertEqual(_validate_config_value("task_timeout", 60), 60)
+        self.assertEqual(_validate_config_value("task_timeout_peak_seconds", 60), 60)
 
     def test_valid_max_boundary(self):
         """max boundary (28800) should be accepted."""
-        self.assertEqual(_validate_config_value("task_timeout", 28800), 28800)
+        self.assertEqual(_validate_config_value("task_timeout_peak_seconds", 28800), 28800)
 
     def test_invalid_below_min(self):
         """Below minimum should be rejected."""
         with self.assertRaises(HTTPException) as ctx:
-            _validate_config_value("task_timeout", 59)
+            _validate_config_value("task_timeout_peak_seconds", 59)
         self.assertEqual(ctx.exception.status_code, 400)
 
     def test_invalid_above_max(self):
         """Above maximum should be rejected."""
         with self.assertRaises(HTTPException):
-            _validate_config_value("task_timeout", 28801)
+            _validate_config_value("task_timeout_peak_seconds", 28801)
 
     def test_invalid_float_type(self):
         """Float type should be rejected (must be int)."""
         with self.assertRaises(HTTPException):
-            _validate_config_value("task_timeout", 60.0)
+            _validate_config_value("task_timeout_peak_seconds", 60.0)
 
 
 # ---------------------------------------------------------------------------

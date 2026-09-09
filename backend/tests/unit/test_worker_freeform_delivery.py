@@ -168,6 +168,8 @@ def _execute_fixtures(
         status=TaskStatus.RUNNING,
         task_mode=task_mode,
         require_changes=task_mode != "freeform",
+        started_at=datetime.now(UTC).replace(tzinfo=None),
+        execution_timeout_seconds=1800,
         runtime_bundle_id=bundle.id,
         worker_profile_id=1,
         projected_harness_key="claude",
@@ -343,6 +345,8 @@ def _monitor_fixtures(*, task_mode="execute", issue_mr_iid=None, target_branch="
         status=TaskStatus.RUNNING,
         task_mode=task_mode,
         require_changes=task_mode != "freeform",
+        started_at=datetime.now(UTC).replace(tzinfo=None),
+        execution_timeout_seconds=1800,
     )
     issue = Issue(
         id=1,
@@ -428,7 +432,12 @@ async def _run_monitor(
             task=task,
             issue=issue,
             container=container,
-            settings=SimpleNamespace(task_timeout=1800),
+            settings=SimpleNamespace(
+                task_timeout_peak_seconds=1800,
+                task_timeout_off_peak_seconds=3600,
+                task_timeout_peak_start="09:00",
+                task_timeout_peak_end="18:00",
+            ),
             had_existing_mr=had_existing_mr,
             sudo_gl=None,
             resume_prefix=resume_prefix,

@@ -32,6 +32,7 @@ from app.core.skills import (
     normalize_skill_snapshots,
     render_skill_markdown,
 )
+from app.core.task_timeout import frozen_task_timeout_seconds
 from app.core.utcnow import utcnow
 from app.core.worker_environment_variables import (
     validate_worker_environment_variable_key as validate_worker_environment_key,
@@ -431,7 +432,7 @@ def _build_container_env_with_settings(
         "CODIFY_MODEL_PROTOCOL": model_protocol,
         "CLAUDE_MAX_TURNS": max_turns,
         "TASK_ID": str(task.id),
-        "TASK_TIMEOUT": str(settings.task_timeout),
+        "TASK_TIMEOUT": str(frozen_task_timeout_seconds(task)),
         "ISSUE_ID": str(issue.id),
         "ISSUE_TITLE": issue.title or "",
         "CODIFY_WORKER_PROFILE_ID": str(getattr(task, "worker_profile_id", None) or ""),

@@ -48,7 +48,8 @@ class RuntimeConfigTests(unittest.IsolatedAsyncioTestCase):
     def test_effective_settings_use_runtime_overrides(self) -> None:
         set_runtime_config({
             "max_concurrency": 7,
-            "task_timeout": 900,
+            "task_timeout_peak_seconds": 900,
+            "task_timeout_off_peak_seconds": 1200,
             "scheduler_interval": 9,
             "default_target_branch": "develop",
             "max_retries": 2,
@@ -61,7 +62,8 @@ class RuntimeConfigTests(unittest.IsolatedAsyncioTestCase):
         settings = get_effective_settings()
 
         self.assertEqual(settings.max_concurrency, 7)
-        self.assertEqual(settings.task_timeout, 900)
+        self.assertEqual(settings.task_timeout_peak_seconds, 900)
+        self.assertEqual(settings.task_timeout_off_peak_seconds, 1200)
         self.assertEqual(settings.scheduler_interval, 9)
         self.assertEqual(settings.default_target_branch, "develop")
         self.assertEqual(settings.max_retries, 2)
@@ -198,16 +200,16 @@ class RuntimeConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(settings.oidc_redirect_uri, "https://bot.example.com/api/auth/callback")
 
     async def test_save_runtime_config_override_updates_existing_record(self) -> None:
-        existing = SystemConfig(key="task_timeout", value="1800", value_type="int")
+        existing = SystemConfig(key="task_timeout_peak_seconds", value="1800", value_type="int")
         mock_db = MagicMock()
         mock_db.get = AsyncMock(return_value=existing)
         mock_db.flush = AsyncMock()
 
-        await save_runtime_config_override(mock_db, "task_timeout", 600)
+        await save_runtime_config_override(mock_db, "task_timeout_peak_seconds", 600)
 
         self.assertEqual(existing.value, "600")
         self.assertEqual(existing.value_type, "int")
-        self.assertEqual(get_effective_settings().task_timeout, 600)
+        self.assertEqual(get_effective_settings().task_timeout_peak_seconds, 600)
 
     async def test_refresh_runtime_config_if_stale_skips_reload_when_timestamp_unchanged(self) -> None:
         timestamp = datetime(2024, 1, 1, 12, 0, 0)
@@ -294,7 +296,7 @@ class RuntimeConfigTests(unittest.IsolatedAsyncioTestCase):
                 updated_at=datetime(2024, 1, 1, 12, 0, 0),
             ),
             SystemConfig(
-                key="task_timeout",
+                key="task_timeout_peak_seconds",
                 value="600",
                 value_type="int",
                 updated_at=timestamp,
@@ -305,7 +307,7 @@ class RuntimeConfigTests(unittest.IsolatedAsyncioTestCase):
         rows_result_second = MagicMock()
         rows_result_second.scalars.return_value.all.return_value = [
             SystemConfig(
-                key="task_timeout",
+                key="task_timeout_peak_seconds",
                 value="600",
                 value_type="int",
                 updated_at=timestamp,
@@ -329,7 +331,7 @@ class RuntimeConfigTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(refreshed_second)
         self.assertEqual(get_effective_settings().max_concurrency, get_settings().max_concurrency)
-        self.assertEqual(get_effective_settings().task_timeout, 600)
+        self.assertEqual(get_effective_settings().task_timeout_peak_seconds, 600)
 
     async def test_reset_all_runtime_config_overrides_clears_cache(self) -> None:
         set_runtime_config({"max_concurrency": 8})

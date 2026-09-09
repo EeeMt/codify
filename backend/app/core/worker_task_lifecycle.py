@@ -18,6 +18,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import get_effective_settings
 from app.core.ci_failure_logs import append_ci_failure_log
 from app.core.harness_attempts import create_task_attempt
 from app.core.harness_execution_policy import (
@@ -34,6 +35,12 @@ from app.core.issue_task_lineage import (
     resolve_projected_resume_session,
 )
 from app.core.task_command_gate import close_task_control_gates
+from app.core.task_timeout import (
+    TaskTimeoutError,
+    frozen_task_timeout_seconds,
+    remaining_timeout_seconds,
+    select_task_timeout,
+)
 from app.core.utcnow import utcnow
 from app.core.worker_docker_targets import (
     DockerConnectionsUnavailableError,
@@ -173,11 +180,43 @@ async def reset_execution_state(worker, db: AsyncSession, task_id: int) -> int:
     return del_result.rowcount or 0
 
 
-async def mark_task_running_and_commit(db: AsyncSession, task: Task) -> None:
+async def mark_task_running_and_commit(
+    db: AsyncSession,
+    task: Task,
+    *,
+    settings: Any | None = None,
+) -> None:
+    if task.status == TaskStatus.RUNNING and getattr(task, "execution_timeout_seconds", None) is None:
+        raise TaskTimeoutError(
+            f"Task {task.id} is RUNNING without execution_timeout_seconds"
+        )
+
+    started_at = task.started_at or utcnow()
+    selected_tier: str | None = None
+    timeout_settings = settings or get_effective_settings()
+    if getattr(task, "execution_timeout_seconds", None) is None:
+        selected_tier, timeout_seconds = select_task_timeout(
+            timeout_settings,
+            started_at,
+        )
+        task.execution_timeout_seconds = timeout_seconds
+    else:
+        timeout_seconds = frozen_task_timeout_seconds(task)
+
     task.status = TaskStatus.RUNNING
-    task.started_at = utcnow()
+    if task.started_at is None:
+        task.started_at = started_at
     task.raw_logs_finalized_at = None
     await db.commit()
+    if selected_tier is not None:
+        logger.info(
+            "[Task %s] Selected %s timeout: %ss (window=%s-%s, timezone=Asia/Shanghai)",
+            task.id,
+            selected_tier,
+            timeout_seconds,
+            timeout_settings.task_timeout_peak_start,
+            timeout_settings.task_timeout_peak_end,
+        )
 
 
 async def reconcile_task_input_session_from_runtime(
@@ -283,7 +322,21 @@ async def prepare_execute_task_context(
     if cleared_logs:
         logger.info(f"[Task {task_id}] Cleared {cleared_logs} log entries from previous execution")
 
-    await mark_task_running_and_commit(db, task)
+    try:
+        await mark_task_running_and_commit(db, task, settings=settings)
+    except TaskTimeoutError as exc:
+        task.status = TaskStatus.FAILED
+        task.completed_at = task.completed_at or utcnow()
+        task.raw_logs_finalized_at = getattr(task, "raw_logs_finalized_at", None) or utcnow()
+        task.error_message = str(exc)
+        await close_task_control_gates(
+            db,
+            task_id=task.id,
+            reason="task execution timeout snapshot missing or invalid",
+        )
+        await db.commit()
+        logger.error("[Task %s] Refused execution without a valid frozen timeout: %s", task.id, exc)
+        return {"handled": True, "result": False}
 
     return {
         "handled": False,
@@ -945,6 +998,24 @@ async def prepare_resume_task_context(
     if not task:
         return None
 
+    try:
+        frozen_task_timeout_seconds(task)
+        if task.started_at is None:
+            raise TaskTimeoutError(f"Task {task.id} is RUNNING without started_at")
+    except TaskTimeoutError as exc:
+        task.status = TaskStatus.FAILED
+        task.completed_at = task.completed_at or utcnow()
+        task.raw_logs_finalized_at = getattr(task, "raw_logs_finalized_at", None) or utcnow()
+        task.error_message = str(exc)
+        await close_task_control_gates(
+            db,
+            task_id=task.id,
+            reason="resume refused without a valid frozen timeout",
+        )
+        await db.commit()
+        logger.error("[Task %s] Refused resume without a valid frozen timeout: %s", task.id, exc)
+        return {"handled": True, "result": False}
+
     issue = await load_issue_for_task(db, task)
     runtime_bundle = await load_bound_runtime_bundle(db, task)
     attempt = (
@@ -1070,6 +1141,11 @@ async def monitor_container_run(
 ) -> bool:
     session_factory = getattr(worker, "_session_factory", None) or AsyncSessionLocal
 
+    timeout_seconds = frozen_task_timeout_seconds(task)
+    if task.started_at is None:
+        raise TaskTimeoutError(f"Task {task.id} is RUNNING without started_at")
+    remaining_seconds = remaining_timeout_seconds(task.started_at, timeout_seconds)
+
     stop_event = asyncio.Event()
     poll_task = asyncio.create_task(
         poll_task_artifacts(
@@ -1081,15 +1157,21 @@ async def monitor_container_run(
             resume_prefix=resume_prefix,
         )
     )
+    if resume_prefix:
+        logger.info(
+            f"[Task {task.id}] Resuming with frozen timeout={timeout_seconds}s, "
+            f"remaining={remaining_seconds}s"
+        )
     logger.info(
-        f"[Task {task.id}] Streaming container logs (timeout={settings.task_timeout}s){resume_prefix}"
+        f"[Task {task.id}] Streaming container logs (timeout={max(0, remaining_seconds)}s, "
+        f"frozen_timeout={timeout_seconds}s){resume_prefix}"
     )
     try:
         exit_code, logs, log_chunks_saved, timed_out = await worker._stream_logs_to_db(
             container,
             task.id,
             db,
-            settings.task_timeout,
+            max(0, remaining_seconds),
         )
     finally:
         await _stop_artifact_poller(
@@ -1392,7 +1474,7 @@ async def monitor_container_run(
         task.status = TaskStatus.FAILED
         task.completed_at = task.completed_at or utcnow()
         task.error_message = (
-            f"Task timed out after {settings.task_timeout}s\n"
+            f"Task timed out after {timeout_seconds}s\n"
             + worker._sanitize_sensitive_data(logs)[-800:]
         )
         if log_chunks_saved == 0:
@@ -1400,7 +1482,7 @@ async def monitor_container_run(
                 TaskLog(
                     task_id=task.id,
                     log_level="ERROR",
-                    message=f"[Timed out after {settings.task_timeout}s]\n{scrubbed_logs[-2000:]}",
+                    message=f"[Timed out after {timeout_seconds}s]\n{scrubbed_logs[-2000:]}",
                 )
             )
     elif exit_code != 0 and not (

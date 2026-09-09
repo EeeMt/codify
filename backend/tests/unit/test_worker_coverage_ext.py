@@ -268,7 +268,10 @@ def _make_settings(**overrides):
     s.gitlab_url = "http://gitlab.example.com"
     s.gitlab_bot_token = "test-token"
     s.worker_image = "test-worker:latest"
-    s.task_timeout = 1800
+    s.task_timeout_peak_seconds = 1800
+    s.task_timeout_off_peak_seconds = 3600
+    s.task_timeout_peak_start = "09:00"
+    s.task_timeout_peak_end = "18:00"
     s.anthropic_base_url = "http://localhost:11434/v1"
     s.anthropic_api_key = "test-key"
     s.anthropic_model = "claude-sonnet-4-20250514"
@@ -351,6 +354,9 @@ def _make_task(**kwargs):
     )
     defaults.update(kwargs)
     task = Task(**defaults)
+    if task.status == TaskStatus.RUNNING:
+        task.started_at = task.started_at or datetime.now(UTC).replace(tzinfo=None)
+        task.execution_timeout_seconds = task.execution_timeout_seconds or 1800
     if getattr(task, "worker_profile_id", None) is None:
         task.worker_profile_id = 1
     task.worker_profile_snapshot = TaskWorkerProfileSnapshot(
@@ -1226,7 +1232,7 @@ class TestResumeTaskFailure(unittest.TestCase):
     @patch('app.core.worker.notify_task_event', new_callable=AsyncMock)
     def test_resume_timeout_sets_error_message_prefix(self, mock_notify, mock_get_settings):
         """resume_task with timed_out=True sets timeout error_message prefix."""
-        mock_get_settings.return_value = _make_settings(task_timeout=600)
+        mock_get_settings.return_value = _make_settings(task_timeout_peak_seconds=600)
         mock_container = MagicMock(id="ctr-resume-timeout")
         mock_docker = MagicMock()
         mock_docker.client.containers.get.return_value = mock_container
@@ -1236,7 +1242,7 @@ class TestResumeTaskFailure(unittest.TestCase):
         mock_gitlab.create_mr_note = MagicMock()
 
         worker = _make_worker(mock_gitlab=mock_gitlab, mock_docker=mock_docker)
-        task = _make_task(status=TaskStatus.RUNNING)
+        task = _make_task(status=TaskStatus.RUNNING, execution_timeout_seconds=600)
         db = _make_db(task)
 
         with patch.object(worker, '_stream_logs_to_db',

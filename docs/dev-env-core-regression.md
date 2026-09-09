@@ -134,7 +134,7 @@ Tier 1 通过是 Tier 2 的前置；Tier 2 通过是发版的前置。执行顺�
 | C3 | 轮询终态 | `GET /api/tasks/{id}` | `status=completed`、`commit_sha` 非空（execute）、`error_message=null` | S |
 | C4 | 取消（RUNNING） | `POST /api/tasks/{id}/cancel` | `status=cancelled`；canonical `harness.failed(cancelled)→run.failed(cancelled)`；容器清理；archive 保留 | S |
 | C5 | 取消（run.started 前，极早） | 创建后立即取消 | archive 保留（console.log + repository-preparation）；无 canonical 终态属设计行为 | F |
-| C6 | 超时 | 临时 `PATCH /api/config/runtime` 设 `task_timeout=60` → 建较重任务 → **恢复原值**（默认 1800，部分环境 3700） | `status=failed`，error `Task timed out after Ns`；canonical `harness.failed(timeout)`；**测完必须恢复** | F |
+| C6 | 超时 | 临时 `PATCH /api/config/runtime` 设 `task_timeout_peak_seconds=60`（并将窗口覆盖当前时段）→ 建较重任务 → **恢复原值** | `status=failed`，error `Task timed out after Ns`；canonical `harness.failed(timeout)`；**测完必须恢复** | F |
 | C7 | 重试 | `POST /api/tasks/{id}/retry`（对失败任务） | 复制源任务 Harness/Adapter/Endpoint/Bundle；bundle digest 与源一致；completed | F |
 | C8 | 状态覆盖 | `POST /api/tasks/{id}/override-status`（管理员） | 状态可被强制覆盖且日志可追溯 | F |
 
@@ -225,7 +225,7 @@ Tier 1 通过是 Tier 2 的前置；Tier 2 通过是发版的前置。执行顺�
 | 全流程 execute + fresh | ✅ | ✅ | `run.completed(success)`、commit+MR、真实 session_id |
 | resume（continue） | ✅ | ✅ | codex 用 `codex exec resume <session>`；`CODEX_HOME` 挂 issue-shared 持久目录；`input_session` 真实 |
 | 取消 | ✅ | ✅ | TERM trap → `harness.failed(cancelled)`；finalizer 的 cancelled 分支 harness 无关（Task 469/509） |
-| 超时 | ✅ | ✅ | 全局 `task_timeout` → `harness.failed(timeout)`；恢复配置 |
+| 超时 | ✅ | ✅ | 冻结的 peak/off-peak timeout → `harness.failed(timeout)`；恢复配置 |
 | retry | ✅ | ✅ | bundle digest 冻结复用；Harness/Endpoint/Credential 原样复制 |
 | turn-terminal 语义 | — | ✅ | **最后 turn 权威**；`turn.completed→turn.failed` = 失败（绝不猜测成功）；终态由 `codex_adapter_emit_terminal` 在流结束补发 |
 | auth/rate-limit 分类 | ✅ | ✅ | `error→provider.retry`、`turn.failed→harness.failed`（401/429/sandbox）；不得降级为通用 `protocol_error` |
@@ -301,7 +301,7 @@ PY
 ## 8. 清理与安全
 
 - 删除 `/tmp/codify_cookies.txt`、`/tmp/task-*.tar.gz`、解压出的 `event.jsonl`/`harness-result.json`。
-- 恢复被临时修改的配置（重点：`task_timeout` 必须恢复为原值，默认 1800，部分环境 3700）。
+- 恢复被临时修改的配置（重点：peak/off-peak timeout 与时间窗口必须恢复为原值）。
 - 清理测试产生的持久工作区（`DELETE /api/tasks/{id}/workspace`）与可选的测试分支/MR。
 - **真实 GitLab 警告**：回归只允许在隔离测试环境执行；测试可能创建任务、分支、MR、Issue 评论，
   不要对着正式环境运行。

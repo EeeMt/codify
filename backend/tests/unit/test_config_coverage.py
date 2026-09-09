@@ -511,7 +511,7 @@ class RuntimeEndpointCoverageTests(unittest.TestCase):
     @patch("app.api.config_runtime.reset_runtime_config_override", new_callable=AsyncMock)
     @patch(
         "app.api.config_runtime.get_runtime_config_types",
-        return_value={"max_concurrency": int, "task_timeout": int},
+        return_value={"max_concurrency": int, "task_timeout_peak_seconds": int},
     )
     def test_delete_runtime_key_success(
         self, mock_types, mock_reset, mock_eff_settings, mock_load

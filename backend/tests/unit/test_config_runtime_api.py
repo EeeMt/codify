@@ -67,7 +67,20 @@ class ConfigRuntimeAPITests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("max_concurrency", data)
-        self.assertIn("task_timeout", data)
+        self.assertEqual(
+            {
+                "task_timeout_peak_seconds",
+                "task_timeout_off_peak_seconds",
+                "task_timeout_peak_start",
+                "task_timeout_peak_end",
+            },
+            {
+                key
+                for key in data
+                if key.startswith("task_timeout_")
+            },
+        )
+        self.assertNotIn("task_timeout", data)
         self.assertIn("scheduler_interval", data)
         self.assertIn("default_target_branch", data)
         self.assertIn("max_retries", data)
@@ -299,21 +312,32 @@ class ConfigRuntimeAPITests(unittest.TestCase):
         Note: Full persistence testing is done in test_runtime_config.py.
         This test verifies the endpoint accepts and validates all inputs.
         """
-        response = self.client.patch(
-            "/api/config/runtime",
-            json={
-                "max_concurrency": 10,
-                "task_timeout": 3600,
-                "default_target_branch": "develop",
-                "anthropic_model": "claude-3-5-sonnet",
-            },
-        )
+        with patch(
+            "app.api.config_runtime.save_runtime_config_override",
+            new=AsyncMock(),
+        ) as mock_save:
+            response = self.client.patch(
+                "/api/config/runtime",
+                json={
+                    "max_concurrency": 10,
+                    "task_timeout_peak_seconds": 2400,
+                    "task_timeout_off_peak_seconds": 3600,
+                    "task_timeout_peak_start": "08:30",
+                    "task_timeout_peak_end": "18:30",
+                    "default_target_branch": "develop",
+                    "anthropic_model": "claude-3-5-sonnet",
+                },
+            )
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
         # Verify response contains expected fields
         self.assertIn("max_concurrency", data)
-        self.assertIn("task_timeout", data)
+        mock_save.assert_any_await(self.mock_db, "task_timeout_peak_seconds", 2400)
+        mock_save.assert_any_await(self.mock_db, "task_timeout_off_peak_seconds", 3600)
+        mock_save.assert_any_await(self.mock_db, "task_timeout_peak_start", "08:30")
+        mock_save.assert_any_await(self.mock_db, "task_timeout_peak_end", "18:30")
+        self.assertNotIn("task_timeout", data)
         self.assertIn("default_target_branch", data)
         self.assertIn("anthropic_model", data)
 
@@ -336,15 +360,25 @@ class ConfigRuntimeAPITests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("max_concurrency", response.json()["detail"].lower())
 
-    def test_patch_runtime_config_rejects_invalid_task_timeout(self):
-        """PATCH /config/runtime should reject invalid task_timeout."""
+    def test_patch_runtime_config_rejects_invalid_task_timeout_seconds(self):
+        """PATCH /config/runtime should reject invalid timeout seconds."""
         response = self.client.patch(
             "/api/config/runtime",
-            json={"task_timeout": 30},
+            json={"task_timeout_peak_seconds": 30},
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("task_timeout", response.json()["detail"].lower())
+        self.assertIn("task_timeout_peak_seconds", response.json()["detail"].lower())
+
+    def test_patch_runtime_config_rejects_empty_timeout_window(self):
+        response = self.client.patch(
+            "/api/config/runtime",
+            json={"task_timeout_peak_start": "09:00", "task_timeout_peak_end": "09:00"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("different", response.json()["detail"].lower())
+        self.assertNotIn("gitlab", response.json()["detail"].lower())
 
     def test_patch_runtime_config_rejects_invalid_url(self):
         """PATCH /config/runtime should reject invalid URL format."""

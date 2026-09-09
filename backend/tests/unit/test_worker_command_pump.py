@@ -82,7 +82,7 @@ def pump_db():
     original_url = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = url
     try:
-        command.upgrade(cfg, "075_pi_command_dispatch_journal")
+        command.upgrade(cfg, "head")
         yield {"url": url, "cfg": cfg, "dbname": dbname}
     finally:
         asyncio.run(_drop_database(dbname))
@@ -113,7 +113,8 @@ async def _insert_profile(db):
     return (
         await db.execute(
             sa.text(
-                "INSERT INTO worker_profiles (name, image) VALUES (:n, 'codify-worker:latest') "
+                "INSERT INTO worker_profiles (name, image, v2_worker_image_identity_generation, "
+                "worker_kit_identity_generation) VALUES (:n, 'codify-worker:latest', 0, 0) "
                 "RETURNING id"
             ),
             {"n": f"seed_{uuid.uuid4().hex[:8]}"},

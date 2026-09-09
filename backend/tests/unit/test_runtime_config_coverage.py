@@ -151,7 +151,7 @@ class RuntimeConfigCoverageTests(unittest.IsolatedAsyncioTestCase):
         mock_result.scalars.return_value.all.return_value = [
             # "not-a-number" will raise ValueError when int() is called
             SystemConfig(key="max_concurrency", value="not-a-number", value_type="int"),
-            SystemConfig(key="task_timeout", value="300", value_type="int"),
+            SystemConfig(key="task_timeout_peak_seconds", value="300", value_type="int"),
         ]
 
         mock_db = MagicMock()
@@ -161,8 +161,8 @@ class RuntimeConfigCoverageTests(unittest.IsolatedAsyncioTestCase):
             overrides = await load_runtime_config_from_db(mock_db)
 
         self.assertNotIn("max_concurrency", overrides)
-        self.assertIn("task_timeout", overrides)
-        self.assertEqual(overrides["task_timeout"], 300)
+        self.assertIn("task_timeout_peak_seconds", overrides)
+        self.assertEqual(overrides["task_timeout_peak_seconds"], 300)
         mock_logger.warning.assert_called_once()
 
     async def test_load_config_handles_config_encryption_error(self) -> None:
@@ -209,7 +209,7 @@ class RuntimeConfigCoverageTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reset_override_deletes_existing_record(self) -> None:
         """Existing record is deleted and runtime config is reset (lines 99-104)."""
-        existing = SystemConfig(key="task_timeout", value="600", value_type="int")
+        existing = SystemConfig(key="task_timeout_peak_seconds", value="600", value_type="int")
         mock_db = MagicMock()
         mock_db.get = AsyncMock(return_value=existing)
         mock_db.delete = AsyncMock()
@@ -217,15 +217,18 @@ class RuntimeConfigCoverageTests(unittest.IsolatedAsyncioTestCase):
 
         from app.config import update_runtime_config
 
-        update_runtime_config("task_timeout", 600)
+        update_runtime_config("task_timeout_peak_seconds", 600)
 
-        await reset_runtime_config_override(mock_db, "task_timeout")
+        await reset_runtime_config_override(mock_db, "task_timeout_peak_seconds")
 
         mock_db.delete.assert_awaited_once_with(existing)
         mock_db.flush.assert_awaited_once()
         # After reset, the override should be gone
         effective = get_effective_settings()
-        self.assertEqual(effective.task_timeout, get_settings().task_timeout)
+        self.assertEqual(
+            effective.task_timeout_peak_seconds,
+            get_settings().task_timeout_peak_seconds,
+        )
 
     async def test_reset_override_nonexistent_key(self) -> None:
         """Non-existent key skips delete but still flushes and resets (lines 99-104)."""
@@ -234,7 +237,7 @@ class RuntimeConfigCoverageTests(unittest.IsolatedAsyncioTestCase):
         mock_db.delete = AsyncMock()
         mock_db.flush = AsyncMock()
 
-        await reset_runtime_config_override(mock_db, "task_timeout")
+        await reset_runtime_config_override(mock_db, "task_timeout_peak_seconds")
 
         mock_db.delete.assert_not_awaited()
         mock_db.flush.assert_awaited_once()

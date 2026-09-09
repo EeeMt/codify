@@ -41,19 +41,6 @@
               </n-form-item>
             </n-gi>
             <n-gi>
-              <n-form-item :label="t('config.taskTimeout')" path="task_timeout">
-                <n-input-number
-                  v-model:value="formValue.task_timeout"
-                  :min="60"
-                  :max="28800"
-                  class="config-form__input"
-                />
-                <template #feedback>
-                  {{ t('config.taskTimeoutHint') }}
-                </template>
-              </n-form-item>
-            </n-gi>
-            <n-gi>
               <n-form-item :label="t('config.defaultTargetBranch')" path="default_target_branch">
                 <n-input
                   v-model:value="formValue.default_target_branch"
@@ -66,6 +53,72 @@
               </n-form-item>
             </n-gi>
           </n-grid>
+        </div>
+
+        <div class="config-form__section">
+          <div class="config-form__section-title">{{ t('config.taskTimeoutPolicy') }}</div>
+          <div class="config-form__section-subtitle">
+            {{ t('config.taskTimeoutPolicyTimezone', { timezone: 'Asia/Shanghai' }) }}
+          </div>
+          <n-grid :cols="isMobile ? 1 : 2" :x-gap="16" :y-gap="8">
+            <n-gi>
+              <n-form-item :label="t('config.taskTimeoutPeakStart')" path="task_timeout_peak_start">
+                <n-input
+                  v-model:value="formValue.task_timeout_peak_start"
+                  maxlength="5"
+                  placeholder="09:00"
+                  class="config-form__input"
+                />
+                <template #feedback>
+                  {{ t('config.taskTimeoutTimeHint') }}
+                </template>
+              </n-form-item>
+            </n-gi>
+            <n-gi>
+              <n-form-item :label="t('config.taskTimeoutPeakEnd')" path="task_timeout_peak_end">
+                <n-input
+                  v-model:value="formValue.task_timeout_peak_end"
+                  maxlength="5"
+                  placeholder="18:00"
+                  class="config-form__input"
+                />
+                <template #feedback>
+                  {{ t('config.taskTimeoutTimeHint') }}
+                </template>
+              </n-form-item>
+            </n-gi>
+            <n-gi>
+              <n-form-item :label="t('config.taskTimeoutPeakSeconds')" path="task_timeout_peak_seconds">
+                <n-input-number
+                  v-model:value="formValue.task_timeout_peak_seconds"
+                  :min="60"
+                  :max="28800"
+                  :precision="0"
+                  class="config-form__input"
+                />
+                <template #feedback>
+                  {{ t('config.taskTimeoutSecondsHint') }}
+                </template>
+              </n-form-item>
+            </n-gi>
+            <n-gi>
+              <n-form-item :label="t('config.taskTimeoutOffPeakSeconds')" path="task_timeout_off_peak_seconds">
+                <n-input-number
+                  v-model:value="formValue.task_timeout_off_peak_seconds"
+                  :min="60"
+                  :max="28800"
+                  :precision="0"
+                  class="config-form__input"
+                />
+                <template #feedback>
+                  {{ t('config.taskTimeoutSecondsHint') }}
+                </template>
+              </n-form-item>
+            </n-gi>
+          </n-grid>
+          <div class="config-form__section-hint">
+            {{ t('config.taskTimeoutPolicyHint') }}
+          </div>
         </div>
 
         <div class="config-form__section">
@@ -318,7 +371,10 @@ const runtimeFormRef = ref<FormInst | null>(null)
 
 const runtimeRules: FormRules = {
   max_concurrency: { required: true, type: 'number', message: t('config.enterMaxConcurrency'), trigger: 'blur' },
-  task_timeout: { required: true, type: 'number', message: t('config.enterTaskTimeout'), trigger: 'blur' },
+  task_timeout_peak_seconds: { required: true, type: 'number', message: t('config.enterTaskTimeoutSeconds'), trigger: 'blur' },
+  task_timeout_off_peak_seconds: { required: true, type: 'number', message: t('config.enterTaskTimeoutSeconds'), trigger: 'blur' },
+  task_timeout_peak_start: { required: true, validator: validatePeakWindowStart, trigger: ['blur', 'input'] },
+  task_timeout_peak_end: { required: true, validator: validatePeakWindowEnd, trigger: ['blur', 'input'] },
   scheduler_interval: {
     required: true,
     type: 'number',
@@ -348,5 +404,27 @@ const runtimeRules: FormRules = {
     message: t('config.slotMaxTasksHint'),
     trigger: 'blur'
   }
+}
+
+const TASK_TIMEOUT_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/
+
+function validatePeakWindowStart(_rule: unknown, value: unknown) {
+  if (typeof value !== 'string' || !TASK_TIMEOUT_TIME_PATTERN.test(value)) {
+    return new Error(t('config.enterTaskTimeoutTime'))
+  }
+  if (value === formValue.value.task_timeout_peak_end) {
+    return new Error(t('config.taskTimeoutWindowDistinct'))
+  }
+  return true
+}
+
+function validatePeakWindowEnd(_rule: unknown, value: unknown) {
+  if (typeof value !== 'string' || !TASK_TIMEOUT_TIME_PATTERN.test(value)) {
+    return new Error(t('config.enterTaskTimeoutTime'))
+  }
+  if (value === formValue.value.task_timeout_peak_start) {
+    return new Error(t('config.taskTimeoutWindowDistinct'))
+  }
+  return true
 }
 </script>

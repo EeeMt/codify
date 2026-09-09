@@ -90,6 +90,32 @@
 
       <TaskRuntimeSummaryRows :task="task" />
 
+      <!-- Frozen execution timeout -->
+      <div class="metadata-row" data-testid="task-timeout-row">
+        <span class="metadata-label">
+          <n-icon size="14" class="metadata-label-icon"><TimeOutline /></n-icon>
+          {{ t('taskView.executionTimeout') }}
+        </span>
+        <span class="metadata-value">
+          <template v-if="task.execution_timeout_seconds != null">
+            {{ task.execution_timeout_seconds }}s
+          </template>
+          <span v-else class="metadata-manual">
+            {{ task.started_at ? t('taskView.executionTimeoutUnknown') : t('taskView.executionTimeoutPending') }}
+          </span>
+        </span>
+      </div>
+
+      <div v-if="task.execution_deadline_at" class="metadata-row" data-testid="task-deadline-row">
+        <span class="metadata-label">
+          <n-icon size="14" class="metadata-label-icon"><TimeOutline /></n-icon>
+          {{ t('taskView.executionDeadline') }}
+        </span>
+        <span class="metadata-value">
+          <time :datetime="task.execution_deadline_at">{{ formatDate(task.execution_deadline_at) }}</time>
+        </span>
+      </div>
+
       <!-- Harness engine -->
       <div v-if="task.harness_key" class="metadata-row" data-testid="task-harness-row">
         <span class="metadata-label">

@@ -61,7 +61,10 @@ services:
       MAX_CONCURRENCY: "5"
       SCHEDULER_INTERVAL: "1"
       WORKER_SKIP_IMAGE_PULL: "true"
-      TASK_TIMEOUT: "120"
+      TASK_TIMEOUT_PEAK_SECONDS: "120"
+      TASK_TIMEOUT_OFF_PEAK_SECONDS: "120"
+      TASK_TIMEOUT_PEAK_START: "09:00"
+      TASK_TIMEOUT_PEAK_END: "18:00"
       DEFAULT_TARGET_BRANCH: main
       HARNESS_EXECUTION_MODE: dual_canary
       SECRET_KEY: mock-secret-key-for-testing-only
@@ -102,7 +105,10 @@ services:
       MAX_CONCURRENCY: "5"
       SCHEDULER_INTERVAL: "1"
       WORKER_SKIP_IMAGE_PULL: "true"
-      TASK_TIMEOUT: "120"
+      TASK_TIMEOUT_PEAK_SECONDS: "120"
+      TASK_TIMEOUT_OFF_PEAK_SECONDS: "120"
+      TASK_TIMEOUT_PEAK_START: "09:00"
+      TASK_TIMEOUT_PEAK_END: "18:00"
       DEFAULT_TARGET_BRANCH: main
       HARNESS_EXECUTION_MODE: dual_canary
       SECRET_KEY: mock-secret-key-for-testing-only

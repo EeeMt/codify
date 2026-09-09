@@ -56,7 +56,10 @@ vi.mock('@vueuse/core', () => ({
 const mockConfig = {
   runtime: {
     max_concurrency: 5,
-    task_timeout: 3600,
+    task_timeout_peak_seconds: 1800,
+    task_timeout_off_peak_seconds: 3600,
+    task_timeout_peak_start: '09:00',
+    task_timeout_peak_end: '18:00',
     scheduler_interval: 10,
     default_target_branch: 'develop',
     max_retries: 3,
@@ -120,7 +123,8 @@ describe('useConfigForm', () => {
       const configForm = (wrapper.vm as any).configForm
 
       expect(configForm.formValue.value.max_concurrency).toBe(3)
-      expect(configForm.formValue.value.task_timeout).toBe(1800)
+      expect(configForm.formValue.value.task_timeout_peak_seconds).toBe(1800)
+      expect(configForm.formValue.value.task_timeout_off_peak_seconds).toBe(3600)
       expect(configForm.formValue.value.scheduler_interval).toBe(5)
       expect(configForm.formValue.value.default_target_branch).toBe('main')
       expect(configForm.formValue.value.max_retries).toBe(0)
@@ -162,7 +166,8 @@ describe('useConfigForm', () => {
       configForm.syncForm(mockConfig)
 
       expect(configForm.formValue.value.max_concurrency).toBe(5)
-      expect(configForm.formValue.value.task_timeout).toBe(3600)
+      expect(configForm.formValue.value.task_timeout_peak_seconds).toBe(1800)
+      expect(configForm.formValue.value.task_timeout_off_peak_seconds).toBe(3600)
       expect(configForm.formValue.value.scheduler_interval).toBe(10)
       expect(configForm.formValue.value.default_target_branch).toBe('develop')
 	      expect(configForm.formValue.value.max_retries).toBe(3)
@@ -278,12 +283,12 @@ describe('useConfigForm', () => {
 
       configForm.syncForm(mockConfig)
       configForm.formValue.value.max_concurrency = 999
-      configForm.formValue.value.task_timeout = 9999
+      configForm.formValue.value.task_timeout_peak_seconds = 9999
 
       configForm.resetSection('runtime')
 
       expect(configForm.formValue.value.max_concurrency).toBe(5)
-      expect(configForm.formValue.value.task_timeout).toBe(3600)
+      expect(configForm.formValue.value.task_timeout_peak_seconds).toBe(1800)
     })
 
     it('should reset gitlab section to last loaded values', async () => {
@@ -338,7 +343,10 @@ describe('useConfigForm', () => {
       expect(mockApi.updateConfig).toHaveBeenCalledWith({
         runtime: expect.objectContaining({
 	          max_concurrency: 10,
-	          task_timeout: 3600,
+          task_timeout_peak_seconds: 1800,
+          task_timeout_off_peak_seconds: 3600,
+          task_timeout_peak_start: '09:00',
+          task_timeout_peak_end: '18:00',
 	          scheduler_interval: 10,
 	          ci_auto_repair_max_attempts: 4
 	        })
@@ -373,7 +381,10 @@ describe('useConfigForm', () => {
 
       expect(payload).toEqual(expect.objectContaining({
         max_concurrency: 5,
-        task_timeout: 3600,
+        task_timeout_peak_seconds: 1800,
+        task_timeout_off_peak_seconds: 3600,
+        task_timeout_peak_start: '09:00',
+        task_timeout_peak_end: '18:00',
         scheduler_interval: 10,
 	        default_target_branch: 'develop',
 	        max_retries: 3,

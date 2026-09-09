@@ -14,6 +14,7 @@ from app.core.task_prompt import (
     BUILT_IN_EXECUTE_RUN_INSTRUCTION_TEMPLATE,
     BUILT_IN_PLAN_RUN_INSTRUCTION_TEMPLATE,
 )
+from app.core.task_timeout import parse_hhmm, validate_timeout_window
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,10 @@ PERSISTED_CONFIG_TYPES: dict[str, type[RuntimeConfigValue]] = {
     "gitlab_bot_token": str,
     "gitlab_admin_token": str,
     "max_concurrency": int,
-    "task_timeout": int,
+    "task_timeout_peak_seconds": int,
+    "task_timeout_off_peak_seconds": int,
+    "task_timeout_peak_start": str,
+    "task_timeout_peak_end": str,
     "scheduler_interval": int,
     "default_target_branch": str,
     "max_retries": int,
@@ -238,6 +242,21 @@ class Settings(BaseSettings):
             raise ValueError("artifact limits and retention must be integers")
         return value
 
+    @field_validator("task_timeout_peak_seconds", "task_timeout_off_peak_seconds", mode="before")
+    @classmethod
+    def _reject_boolean_task_timeout_settings(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("task timeout seconds must be integers")
+        return value
+
+    @field_validator("task_timeout_peak_start", "task_timeout_peak_end", mode="before")
+    @classmethod
+    def _validate_task_timeout_window_value(cls, value: object) -> object:
+        if not isinstance(value, str):
+            raise ValueError("task timeout window values must be strings")
+        parse_hhmm(value)
+        return value
+
     @model_validator(mode="after")
     def _validate_artifact_limit_relationship(self) -> "Settings":
         if self.worker_artifacts_max_file_bytes > self.worker_artifacts_max_total_bytes:
@@ -245,6 +264,10 @@ class Settings(BaseSettings):
                 "worker_artifacts_max_file_bytes must not exceed "
                 "worker_artifacts_max_total_bytes"
             )
+        validate_timeout_window(
+            self.task_timeout_peak_start,
+            self.task_timeout_peak_end,
+        )
         return self
 
     # Session storage for Claude session persistence (Issue→Task model)
@@ -252,7 +275,10 @@ class Settings(BaseSettings):
 
     # Scheduler Configuration
     max_concurrency: int = Field(default=3)
-    task_timeout: int = Field(default=1800)  # 30 minutes
+    task_timeout_peak_seconds: int = Field(default=1800, ge=60, le=28800)
+    task_timeout_off_peak_seconds: int = Field(default=3600, ge=60, le=28800)
+    task_timeout_peak_start: str = Field(default="09:00")
+    task_timeout_peak_end: str = Field(default="18:00")
     scheduler_interval: int = Field(default=5)  # seconds
     default_target_branch: str = Field(default="main")
     allow_monitor_for_users: bool = Field(default=False)

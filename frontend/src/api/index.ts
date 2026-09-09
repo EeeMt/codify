@@ -680,7 +680,10 @@ export interface PagePermissions {
 
 export interface RuntimeConfig {
   max_concurrency: number
-  task_timeout: number
+  task_timeout_peak_seconds: number
+  task_timeout_off_peak_seconds: number
+  task_timeout_peak_start: string
+  task_timeout_peak_end: string
   scheduler_interval: number
   default_target_branch: string
   max_retries: number

@@ -969,6 +969,8 @@ async def test_worker_finalization_honors_persisted_cancellation_intent():
     task = SimpleNamespace(
         id=41,
         status=TaskStatus.RUNNING,
+        started_at=now,
+        execution_timeout_seconds=1800,
         cancel_requested_at=now,
         completed_at=None,
         error_message=None,
@@ -985,7 +987,12 @@ async def test_worker_finalization_honors_persisted_cancellation_intent():
     db.execute = AsyncMock(return_value=_no_active_control_attempts_result())
     db.refresh = AsyncMock()
     db.commit = AsyncMock()
-    settings = SimpleNamespace(task_timeout=1800)
+    settings = SimpleNamespace(
+        task_timeout_peak_seconds=1800,
+        task_timeout_off_peak_seconds=3600,
+        task_timeout_peak_start="09:00",
+        task_timeout_peak_end="18:00",
+    )
 
     with (
         patch(
@@ -1024,6 +1031,8 @@ async def test_worker_finalization_keeps_completed_when_cancel_arrives_late():
     task = SimpleNamespace(
         id=43,
         status=TaskStatus.RUNNING,
+        started_at=now,
+        execution_timeout_seconds=1800,
         cancel_requested_at=now,
         completed_at=None,
         error_message=None,
@@ -1056,7 +1065,12 @@ async def test_worker_finalization_keeps_completed_when_cancel_arrives_late():
     db.execute = AsyncMock(return_value=_no_active_control_attempts_result())
     db.refresh = AsyncMock()
     db.commit = AsyncMock()
-    settings = SimpleNamespace(task_timeout=1800)
+    settings = SimpleNamespace(
+        task_timeout_peak_seconds=1800,
+        task_timeout_off_peak_seconds=3600,
+        task_timeout_peak_start="09:00",
+        task_timeout_peak_end="18:00",
+    )
 
     with (
         patch(
@@ -1095,6 +1109,8 @@ async def test_worker_finalization_gracefully_stops_container_on_timeout():
     task = SimpleNamespace(
         id=44,
         status=TaskStatus.RUNNING,
+        started_at=now,
+        execution_timeout_seconds=1800,
         cancel_requested_at=None,
         completed_at=None,
         error_message=None,
@@ -1128,7 +1144,12 @@ async def test_worker_finalization_gracefully_stops_container_on_timeout():
     db.execute = AsyncMock(return_value=_no_active_control_attempts_result())
     db.refresh = AsyncMock()
     db.commit = AsyncMock()
-    settings = SimpleNamespace(task_timeout=1800)
+    settings = SimpleNamespace(
+        task_timeout_peak_seconds=1800,
+        task_timeout_off_peak_seconds=3600,
+        task_timeout_peak_start="09:00",
+        task_timeout_peak_end="18:00",
+    )
 
     with (
         patch(

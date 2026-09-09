@@ -77,7 +77,7 @@
 ### 1.10 取消 / 超时路径与 harness 无关
 
 - **取消**（Task 509/511）：RUNNING 时 cancel → `status=cancelled`、容器清理、scheduler 记 `Task was cancelled during execution; removing container`。finalizer 的 cancelled 分支 harness 无关（Task 469 已先在 claude 验证）。
-- **超时**（Task 513）：全局 `task_timeout=60` → `status=failed`、error `Task timed out after 60s`、容器终止（测试后恢复原值）。
+- **超时**（Task 513）：临时将 `task_timeout_peak_seconds` 与 `task_timeout_off_peak_seconds` 设为 `60` → `status=failed`、error `Task timed out after 60s`、容器终止（测试后恢复原值）。
 - **推论**：这两个路径在任一 harness 验证通过即可，无需每个 harness 都重跑。
 
 ## 2. Codex 专项（CLI 行为差异）

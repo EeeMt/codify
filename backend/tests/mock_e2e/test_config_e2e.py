@@ -106,7 +106,10 @@ class TestGetRuntimeConfig:
         data = resp.json()
         # Verify expected default values from Settings
         assert data["max_concurrency"] == 3
-        assert data["task_timeout"] == 1800
+        assert data["task_timeout_peak_seconds"] == 1800
+        assert data["task_timeout_off_peak_seconds"] == 3600
+        assert data["task_timeout_peak_start"] == "09:00"
+        assert data["task_timeout_peak_end"] == "18:00"
         assert data["scheduler_interval"] == 5
         assert data["default_target_branch"] == "main"
         assert data["max_retries"] == 0
@@ -138,7 +141,8 @@ class TestGetRuntimeConfig:
         resp = await client.get("/api/config/runtime")
         data = resp.json()
         expected_keys = {
-            "max_concurrency", "task_timeout", "scheduler_interval",
+            "max_concurrency", "task_timeout_peak_seconds", "task_timeout_off_peak_seconds",
+            "task_timeout_peak_start", "task_timeout_peak_end", "scheduler_interval",
             "default_target_branch", "max_retries", "retry_delay",
             "alert_on_failure", "alert_webhook_url_configured",
             "anthropic_base_url", "anthropic_api_key_configured",
@@ -233,17 +237,23 @@ class TestUpdateRuntimeConfig:
         assert resp.status_code == 400
 
     async def test_update_task_timeout_valid(self, client: AsyncClient):
-        """task_timeout within range is accepted."""
-        resp = await client.patch("/api/config/runtime", json={"task_timeout": 120})
+        """A task timeout tier within range is accepted."""
+        resp = await client.patch(
+            "/api/config/runtime", json={"task_timeout_peak_seconds": 120}
+        )
         assert resp.status_code == 200
-        assert resp.json()["task_timeout"] == 120
+        assert resp.json()["task_timeout_peak_seconds"] == 120
 
     async def test_task_timeout_out_of_range(self, client: AsyncClient):
-        """task_timeout outside 60-28800 should be rejected."""
-        resp = await client.patch("/api/config/runtime", json={"task_timeout": 10})
+        """A task timeout tier outside 60-28800 should be rejected."""
+        resp = await client.patch(
+            "/api/config/runtime", json={"task_timeout_peak_seconds": 10}
+        )
         assert resp.status_code == 400
 
-        resp2 = await client.patch("/api/config/runtime", json={"task_timeout": 28801})
+        resp2 = await client.patch(
+            "/api/config/runtime", json={"task_timeout_peak_seconds": 28801}
+        )
         assert resp2.status_code == 400
 
     async def test_update_scheduler_interval(self, client: AsyncClient):
@@ -323,13 +333,13 @@ class TestUpdateRuntimeConfig:
         """Multiple keys can be updated in a single PATCH request."""
         resp = await client.patch("/api/config/runtime", json={
             "max_concurrency": 8,
-            "task_timeout": 3600,
+            "task_timeout_peak_seconds": 3600,
             "default_target_branch": "release",
         })
         assert resp.status_code == 200
         data = resp.json()
         assert data["max_concurrency"] == 8
-        assert data["task_timeout"] == 3600
+        assert data["task_timeout_peak_seconds"] == 3600
         assert data["default_target_branch"] == "release"
 
     async def test_update_boolean_param(self, client: AsyncClient):
@@ -724,7 +734,7 @@ class TestResetConfig:
         """After reset, values should revert to defaults."""
         await client.patch("/api/config/runtime", json={
             "max_concurrency": 20,
-            "task_timeout": 28800,
+            "task_timeout_peak_seconds": 28800,
         })
         resp = await client.get("/api/config/runtime")
         assert resp.json()["max_concurrency"] == 20
@@ -732,7 +742,7 @@ class TestResetConfig:
         reset_resp = await client.post("/api/config/reset")
         assert reset_resp.status_code == 200
         assert reset_resp.json()["runtime"]["max_concurrency"] == 3
-        assert reset_resp.json()["runtime"]["task_timeout"] == 1800
+        assert reset_resp.json()["runtime"]["task_timeout_peak_seconds"] == 1800
 
     async def test_after_reset_runtime_returns_defaults(self, client: AsyncClient):
         """GET /api/config/runtime after reset should show default values."""

@@ -1,6 +1,7 @@
 """Task and Issue helper utilities for API responses and authorization."""
 
 import logging
+from datetime import timedelta
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -9,6 +10,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_effective_settings
+from app.core.task_timeout import frozen_task_timeout_seconds
 from app.models import Issue, IssueStatus, Task, TaskStatus, User
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,16 @@ def _serialize_task(
     metadata = project_metadata or {}
     if settings is None:
         settings = get_effective_settings()
+    execution_timeout_seconds = None
+    execution_deadline_at = None
+    if task.started_at is not None:
+        try:
+            execution_timeout_seconds = frozen_task_timeout_seconds(task)
+            execution_deadline_at = (
+                task.started_at + timedelta(seconds=execution_timeout_seconds)
+            ).isoformat()
+        except ValueError:
+            pass
     project_path = metadata.get("project_path_with_namespace")
     project_url = f"{settings.gitlab_url.rstrip('/')}/{project_path}" if project_path else None
     session_mode = getattr(task, "session_mode", "continue")
@@ -83,6 +95,8 @@ def _serialize_task(
         "created_at": task.created_at.isoformat(),
         "updated_at": task.updated_at.isoformat(),
         "started_at": task.started_at.isoformat() if task.started_at else None,
+        "execution_timeout_seconds": execution_timeout_seconds,
+        "execution_deadline_at": execution_deadline_at,
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
         "is_manually_overridden": task.is_manually_overridden,
         "override_reason": task.override_reason,

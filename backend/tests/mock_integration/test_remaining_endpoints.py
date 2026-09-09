@@ -128,11 +128,11 @@ class TestConfigReset:
     async def test_config_override_then_reset(self, admin_headers):
         """PATCH runtime config → override value → reset → back to default."""
         async with httpx.AsyncClient(timeout=10) as client:
-            # Override task_timeout via runtime config endpoint
+            # Override peak timeout via runtime config endpoint
             patch_resp = await client.patch(
                 f"{BACKEND_URL}/api/config/runtime",
                 headers=admin_headers,
-                json={"task_timeout": 3600},
+                json={"task_timeout_peak_seconds": 3600},
             )
             assert patch_resp.status_code == 200
 
@@ -142,7 +142,7 @@ class TestConfigReset:
                 headers=admin_headers,
             )
             runtime = patched.json().get("runtime", {})
-            assert runtime.get("task_timeout") == 3600
+            assert runtime.get("task_timeout_peak_seconds") == 3600
 
             # Reset all overrides
             reset_resp = await client.post(
@@ -157,7 +157,7 @@ class TestConfigReset:
                 headers=admin_headers,
             )
             final_runtime = final.json().get("runtime", {})
-            assert final_runtime.get("task_timeout") != 3600
+            assert final_runtime.get("task_timeout_peak_seconds") != 3600
 
 
 # ── Cache Invalidation ───────────────────────────────────────────────
@@ -364,13 +364,13 @@ class TestRuntimeConfigKeyDelete:
             resp = await client.patch(
                 f"{BACKEND_URL}/api/config/runtime",
                 headers=admin_headers,
-                json={"task_timeout": 3600},
+                json={"task_timeout_peak_seconds": 3600},
             )
             assert resp.status_code == 200
 
             # Now delete the key to reset it
             resp = await client.delete(
-                f"{BACKEND_URL}/api/config/runtime/task_timeout",
+                f"{BACKEND_URL}/api/config/runtime/task_timeout_peak_seconds",
                 headers=admin_headers,
             )
             assert resp.status_code in (200, 204)
@@ -391,7 +391,7 @@ class TestRuntimeConfigKeyDelete:
         """Deleting runtime config should require admin access."""
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.delete(
-                f"{BACKEND_URL}/api/config/runtime/task_timeout",
+                f"{BACKEND_URL}/api/config/runtime/task_timeout_peak_seconds",
             )
             assert resp.status_code in (401, 403)
 

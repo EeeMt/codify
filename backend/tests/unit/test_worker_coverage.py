@@ -217,7 +217,10 @@ def _make_settings(**overrides):
     s.gitlab_url = "http://gitlab.example.com"
     s.gitlab_bot_token = "test-token"
     s.worker_image = "test-worker:latest"
-    s.task_timeout = 1800
+    s.task_timeout_peak_seconds = 1800
+    s.task_timeout_off_peak_seconds = 3600
+    s.task_timeout_peak_start = "09:00"
+    s.task_timeout_peak_end = "18:00"
     s.anthropic_base_url = "http://localhost:11434/v1"
     s.anthropic_api_key = "test-key"
     s.anthropic_model = "claude-sonnet-4-20250514"
@@ -271,6 +274,7 @@ def _make_task(**kwargs):
         is_retry=False, retry_source_task_id=None,
         runtime_bundle_id=_V2_RUNTIME_BUNDLE.id,
         additions=0, deletions=0, total_changes=0,
+        execution_timeout_seconds=1800,
         # Ordered-turn projected lineage defaults: the scheduler backfills these
         # before a task is claimed, so worker tests exercise the projected-lineage
         # resume path (the worker fails closed on a missing projection).
@@ -283,6 +287,9 @@ def _make_task(**kwargs):
     )
     defaults.update(kwargs)
     task = Task(**defaults)
+    if task.status == TaskStatus.RUNNING:
+        task.started_at = task.started_at or datetime.now(UTC).replace(tzinfo=None)
+        task.execution_timeout_seconds = task.execution_timeout_seconds or 1800
     if getattr(task, "worker_profile_id", None) is None:
         task.worker_profile_id = 1
     task.worker_profile_snapshot = TaskWorkerProfileSnapshot(
@@ -3237,7 +3244,7 @@ class TestExecuteTask(unittest.TestCase):
     @patch('app.core.worker.notify_task_event', new_callable=AsyncMock)
     def test_task_timeout_sets_error_message_prefix(self, mock_notify, mock_get_settings):
         """When timed_out=True, error_message starts with timeout prefix."""
-        mock_get_settings.return_value = _make_settings(task_timeout=1800)
+        mock_get_settings.return_value = _make_settings(task_timeout_peak_seconds=1800)
         mock_docker = MagicMock()
         mock_docker.create_container.return_value = MagicMock(id="ctr-timeout")
 
@@ -3261,7 +3268,7 @@ class TestExecuteTask(unittest.TestCase):
     @patch('app.core.worker.notify_task_event', new_callable=AsyncMock)
     def test_task_non_timeout_failure_preserves_protocol_error(self, mock_notify, mock_get_settings):
         """A malformed canonical attempt remains the authoritative failure reason."""
-        mock_get_settings.return_value = _make_settings(task_timeout=1800)
+        mock_get_settings.return_value = _make_settings(task_timeout_peak_seconds=1800)
         mock_docker = MagicMock()
         mock_docker.create_container.return_value = MagicMock(id="ctr-regular-fail")
 
@@ -3447,7 +3454,11 @@ class TestRequireChangesEnvVar(unittest.TestCase):
             settings.anthropic_base_url = "http://api.example.com"
             settings.anthropic_model = "claude"
             settings.claude_max_turns = 10
-            settings.task_timeout = 1800
+            settings.task_timeout_peak_seconds = 1800
+            settings.task_timeout_off_peak_seconds = 3600
+            settings.task_timeout_peak_start = "09:00"
+            settings.task_timeout_peak_end = "18:00"
+            task.execution_timeout_seconds = 1800
             settings.custom_ca_bundle = ""
             mock_settings.return_value = settings
 
@@ -3481,7 +3492,11 @@ class TestRequireChangesEnvVar(unittest.TestCase):
             settings.anthropic_base_url = "http://api.example.com"
             settings.anthropic_model = "claude"
             settings.claude_max_turns = 10
-            settings.task_timeout = 1800
+            settings.task_timeout_peak_seconds = 1800
+            settings.task_timeout_off_peak_seconds = 3600
+            settings.task_timeout_peak_start = "09:00"
+            settings.task_timeout_peak_end = "18:00"
+            task.execution_timeout_seconds = 1800
             settings.custom_ca_bundle = ""
             mock_settings.return_value = settings
 

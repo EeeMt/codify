@@ -1,7 +1,7 @@
 """Issue CRUD API endpoints."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -311,6 +311,16 @@ async def _serialize_issue_detail(
             "created_at": t.created_at.isoformat(),
             "updated_at": t.updated_at.isoformat(),
             "started_at": t.started_at.isoformat() if t.started_at else None,
+            "execution_timeout_seconds": (
+                t.execution_timeout_seconds
+                if t.started_at and t.execution_timeout_seconds is not None
+                else None
+            ),
+            "execution_deadline_at": (
+                (t.started_at + timedelta(seconds=t.execution_timeout_seconds)).isoformat()
+                if t.started_at and t.execution_timeout_seconds is not None
+                else None
+            ),
             "completed_at": t.completed_at.isoformat() if t.completed_at else None,
         }
         for t in tasks

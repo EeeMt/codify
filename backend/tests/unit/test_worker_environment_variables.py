@@ -141,7 +141,10 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             anthropic_api_key="test-key",
             anthropic_model="claude-sonnet-4-20250514",
             claude_max_turns=20,
-            task_timeout=1800,
+            task_timeout_peak_seconds=1800,
+            task_timeout_off_peak_seconds=3600,
+            task_timeout_peak_start="09:00",
+            task_timeout_peak_end="18:00",
             custom_ca_bundle="/etc/ssl/custom-ca.crt",
         )
         worker = WorkerExecutor(docker_client=MagicMock(), gitlab_client=MagicMock())
@@ -149,6 +152,7 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             project_id=123,
             user_prompt="Implement the task",
             id=456,
+            execution_timeout_seconds=1800,
             initiator_display_name="Alice Zhang",
             initiator_email="alice@example.com",
             initiator_username="alice",
@@ -212,6 +216,7 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             initiator_username="alice",
             task_mode="execute",
             worker_profile_id=8,
+            execution_timeout_seconds=1800,
         )
         issue = SimpleNamespace(
             branch_name="codify/issue-789",
@@ -229,7 +234,10 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             anthropic_api_key="test-key",
             anthropic_model="claude-sonnet-4-20250514",
             claude_max_turns=20,
-            task_timeout=1800,
+            task_timeout_peak_seconds=1800,
+            task_timeout_off_peak_seconds=3600,
+            task_timeout_peak_start="09:00",
+            task_timeout_peak_end="18:00",
             custom_ca_bundle="",
         )
         mock_get_settings.return_value = settings
@@ -261,7 +269,10 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             anthropic_api_key="test-key",
             anthropic_model="claude-sonnet-4-20250514",
             claude_max_turns=20,
-            task_timeout=1800,
+            task_timeout_peak_seconds=1800,
+            task_timeout_off_peak_seconds=3600,
+            task_timeout_peak_start="09:00",
+            task_timeout_peak_end="18:00",
             custom_ca_bundle="",
         )
         worker = WorkerExecutor(docker_client=MagicMock(), gitlab_client=MagicMock())
@@ -274,6 +285,7 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             initiator_username="alice",
             task_mode="plan",
             input_session_id="session-123",
+            execution_timeout_seconds=1800,
         )
         issue = SimpleNamespace(
             branch_name="task-123",
@@ -313,7 +325,10 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             anthropic_api_key="test-key",
             anthropic_model="claude-sonnet-4-20250514",
             claude_max_turns=20,
-            task_timeout=1800,
+            task_timeout_peak_seconds=1800,
+            task_timeout_off_peak_seconds=3600,
+            task_timeout_peak_start="09:00",
+            task_timeout_peak_end="18:00",
             custom_ca_bundle="",
         )
         worker = WorkerExecutor(docker_client=MagicMock(), gitlab_client=MagicMock())
@@ -326,6 +341,7 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             initiator_username="alice",
             task_mode="freeform",
             require_changes=False,
+            execution_timeout_seconds=1800,
         )
         issue = SimpleNamespace(
             branch_name="codify/issue-789",
@@ -357,7 +373,10 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             anthropic_api_key="test-key",
             anthropic_model="claude-sonnet-4-20250514",
             claude_max_turns=20,
-            task_timeout=1800,
+            task_timeout_peak_seconds=1800,
+            task_timeout_off_peak_seconds=3600,
+            task_timeout_peak_start="09:00",
+            task_timeout_peak_end="18:00",
             custom_ca_bundle="",
         )
         worker = WorkerExecutor(docker_client=MagicMock(), gitlab_client=MagicMock())
@@ -370,6 +389,7 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             initiator_username="alice",
             task_mode="execute",
             session_mode="fresh",
+            execution_timeout_seconds=1800,
         )
         issue = SimpleNamespace(
             branch_name="task-123",
@@ -411,7 +431,10 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             anthropic_api_key="test-key",
             anthropic_model="claude-sonnet-4-20250514",
             claude_max_turns=20,
-            task_timeout=1800,
+            task_timeout_peak_seconds=1800,
+            task_timeout_off_peak_seconds=3600,
+            task_timeout_peak_start="09:00",
+            task_timeout_peak_end="18:00",
             custom_ca_bundle="",
         )
         worker = WorkerExecutor(docker_client=MagicMock(), gitlab_client=MagicMock())
@@ -425,6 +448,7 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
             task_mode="execute",
             session_mode="continue",
             input_session_id=None,
+            execution_timeout_seconds=1800,
         )
         issue = SimpleNamespace(
             branch_name="task-123",

@@ -172,7 +172,10 @@ make test-mock-integration-down            # 停止环境
 | MAX_CONCURRENCY | 5 |
 | SCHEDULER_INTERVAL | 1 |
 | WORKER_SKIP_IMAGE_PULL | true |
-| TASK_TIMEOUT | 120 |
+| TASK_TIMEOUT_PEAK_SECONDS | 120 |
+| TASK_TIMEOUT_OFF_PEAK_SECONDS | 120 |
+| TASK_TIMEOUT_PEAK_START | 09:00 |
+| TASK_TIMEOUT_PEAK_END | 18:00 |
 | Backend 端口 | 18000 |
 | Mock 服务端口 | 19000 |
 

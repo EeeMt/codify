@@ -214,10 +214,10 @@ def _navigate_to_tab(page: Page, tab_name: str):
     page.wait_for_timeout(500)  # Let tab panel content render
 
 
-def _get_runtime_task_timeout_input(page: Page):
-    """Locate the Task Timeout number input inside the Runtime settings form."""
+def _get_runtime_peak_timeout_input(page: Page):
+    """Locate the peak timeout number input inside the Runtime settings form."""
     return page.locator(
-        "#runtime-settings .n-form-item:has-text('Task Timeout') .n-input-number input"
+        "#runtime-settings .n-form-item:has-text('Peak timeout') .n-input-number input"
     )
 
 
@@ -273,8 +273,8 @@ class TestRuntimeConfigFunctional:
         expect(save_btn).to_be_disabled()
         expect(revert_btn).to_be_disabled()
 
-        # Modify the Task Timeout field to make the form dirty
-        timeout_input = _get_runtime_task_timeout_input(logged_in_page)
+        # Modify the peak timeout field to make the form dirty
+        timeout_input = _get_runtime_peak_timeout_input(logged_in_page)
         original_value = timeout_input.input_value()
         timeout_input.fill(str(int(original_value or "3600") + 1))
 
@@ -286,7 +286,7 @@ class TestRuntimeConfigFunctional:
         """Modify a field, click Revert, and verify the value is restored and buttons disabled."""
         _navigate_to_tab(logged_in_page, "runtime")
 
-        timeout_input = _get_runtime_task_timeout_input(logged_in_page)
+        timeout_input = _get_runtime_peak_timeout_input(logged_in_page)
         original_value = timeout_input.input_value()
 
         # Modify the field
@@ -310,10 +310,10 @@ class TestRuntimeConfigFunctional:
         expect(revert_btn).to_be_disabled(timeout=3000)
 
     def test_runtime_save_persists_value(self, logged_in_page: Page):
-        """Modify Task Timeout, Save, reload page, verify persisted, then revert to original."""
+        """Modify peak timeout, save, reload, verify persisted, then revert to original."""
         _navigate_to_tab(logged_in_page, "runtime")
 
-        timeout_input = _get_runtime_task_timeout_input(logged_in_page)
+        timeout_input = _get_runtime_peak_timeout_input(logged_in_page)
         original_value = timeout_input.input_value()
 
         # Choose a new value that is different from the original
@@ -338,12 +338,12 @@ class TestRuntimeConfigFunctional:
 
             # Reload the page and verify the new value persisted
             _navigate_to_tab(logged_in_page, "runtime")
-            timeout_input = _get_runtime_task_timeout_input(logged_in_page)
+            timeout_input = _get_runtime_peak_timeout_input(logged_in_page)
             expect(timeout_input).to_have_value(new_value, timeout=5000)
         finally:
             # Always revert to original value to avoid polluting other tests
             _navigate_to_tab(logged_in_page, "runtime")
-            timeout_input = _get_runtime_task_timeout_input(logged_in_page)
+            timeout_input = _get_runtime_peak_timeout_input(logged_in_page)
             current = timeout_input.input_value()
             if current != original_value:
                 timeout_input.fill(original_value)

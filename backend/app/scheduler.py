@@ -47,6 +47,7 @@ from app.core.session import cleanup_stale_sessions
 from app.core.task_command_gate import close_task_control_gates
 from app.core.task_helpers import maybe_update_issue_status
 from app.core.task_log_payloads import persist_raw_log_snapshot
+from app.core.task_timeout import select_task_timeout
 from app.core.usage_limits import (
     UsageLimitExceeded,
     get_usage_quota_service,
@@ -1555,9 +1556,19 @@ class Scheduler:
             logger.debug("Issue %s locked; task %s remains queued", issue_id, task_id)
             return
 
-        # CAS QUEUED → RUNNING in the same transaction as the lock insert.
+        # CAS QUEUED → RUNNING in the same transaction as the lock insert. The
+        # timeout tier and its final seconds are frozen from this same claim time.
+        claim_time = utcnow()
+        timeout_settings = get_settings()
+        try:
+            timeout_tier, timeout_seconds = select_task_timeout(timeout_settings, claim_time)
+        except ValueError as exc:
+            await db.rollback()
+            logger.error("Could not resolve timeout policy for task %s: %s", task_id, exc)
+            return
         task.status = TaskStatus.RUNNING
-        task.started_at = utcnow()
+        task.started_at = claim_time
+        task.execution_timeout_seconds = timeout_seconds
         try:
             await db.commit()
         except Exception as e:  # noqa: BLE001
@@ -1566,6 +1577,15 @@ class Scheduler:
             await db.rollback()
             logger.exception("Failed to atomically claim task %s: %s", task_id, e)
             return
+
+        logger.info(
+            "[Task %s] Selected %s timeout: %ss (window=%s-%s, timezone=Asia/Shanghai)",
+            task_id,
+            timeout_tier,
+            timeout_seconds,
+            timeout_settings.task_timeout_peak_start,
+            timeout_settings.task_timeout_peak_end,
+        )
 
         # Track in memory AFTER the DB commit so _reconcile_running_state
         # (which queries for RUNNING tasks) doesn't race with the update.

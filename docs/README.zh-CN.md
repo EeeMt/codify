@@ -363,7 +363,10 @@ docker-compose up -d --build
 | `DOCKER_HOST` | Docker 引擎地址 | `tcp://localhost:2376` |
 | `WORKER_IMAGE` | Worker 容器镜像 | `codify-worker/java21-maven:2026.07` |
 | `MAX_CONCURRENCY` | 最大并发 Worker 数 | `3` |
-| `TASK_TIMEOUT` | 任务超时秒数 | `1800` |
+| `TASK_TIMEOUT_PEAK_SECONDS` | 高峰任务超时秒数 | `1800` |
+| `TASK_TIMEOUT_OFF_PEAK_SECONDS` | 低峰任务超时秒数 | `3600` |
+| `TASK_TIMEOUT_PEAK_START` | 高峰开始时间（Asia/Shanghai） | `09:00` |
+| `TASK_TIMEOUT_PEAK_END` | 高峰结束时间（Asia/Shanghai） | `18:00` |
 | `DEFAULT_TARGET_BRANCH` | 默认 MR 目标分支 | `main` |
 | `CONFIG_ENCRYPTION_KEY` | 配置加密密钥 | 32 字节 base64 |
 | `AUTO_MIGRATE` | 仅一次性 migration owner 可设为 true；长驻服务必须关闭 | `false` |

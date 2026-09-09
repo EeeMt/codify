@@ -2,6 +2,8 @@
 
 from urllib.parse import urlparse
 
+from app.core.task_timeout import parse_hhmm, validate_timeout_seconds
+
 
 def _is_valid_http_url(value: str) -> bool:
     """Check if a string is a valid HTTP/HTTPS URL."""
@@ -24,9 +26,22 @@ def _validate_config_value(key: str, value: object) -> object:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="max_concurrency must be between 1 and 20")
         return value
 
-    if key == "task_timeout":
-        if not isinstance(value, int) or value < 60 or value > 28800:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_timeout must be between 60 and 28800 seconds")
+    if key in {"task_timeout_peak_seconds", "task_timeout_off_peak_seconds"}:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{key} must be an integer",
+            )
+        try:
+            return validate_timeout_seconds(value, field_name=key)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    if key in {"task_timeout_peak_start", "task_timeout_peak_end"}:
+        try:
+            parse_hhmm(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         return value
 
     if key == "scheduler_interval":

@@ -184,7 +184,12 @@ const sharedPagesEnabledCount = computed(
 
 const summaryItems = computed(() => [
   { label: t('config.maxConcurrency'), value: String(formValue.value.max_concurrency), icon: GitMergeOutline, accent: 'blue' as const },
-  { label: t('config.taskTimeout'), value: `${formValue.value.task_timeout}s`, icon: TimeOutline, accent: 'amber' as const },
+  {
+    label: t('config.taskTimeout'),
+    value: `${formValue.value.task_timeout_peak_seconds}s / ${formValue.value.task_timeout_off_peak_seconds}s`,
+    icon: TimeOutline,
+    accent: 'amber' as const
+  },
   { label: t('config.oidcLogin'), value: formValue.value.oidc_enabled ? t('common.enabled') : t('common.disabled'), icon: ShieldCheckmarkOutline, accent: 'purple' as const },
   { label: t('config.sharedPages'), value: String(sharedPagesEnabledCount.value), icon: GlobeOutline, accent: 'green' as const }
 ])

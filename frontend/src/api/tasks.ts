@@ -169,6 +169,8 @@ export interface Task {
   created_at: string
   updated_at: string
   started_at: string | null
+  execution_timeout_seconds: number | null
+  execution_deadline_at: string | null
   completed_at: string | null
   is_manually_overridden?: boolean
   override_reason?: string | null

@@ -30,7 +30,10 @@ import {
 
 export type ConfigForm = {
   max_concurrency: number
-  task_timeout: number
+  task_timeout_peak_seconds: number
+  task_timeout_off_peak_seconds: number
+  task_timeout_peak_start: string
+  task_timeout_peak_end: string
   scheduler_interval: number
   default_target_branch: string
   max_retries: number
@@ -73,7 +76,10 @@ export type ConfigSectionKey = 'runtime' | 'sharedPages' | 'gitlab' | 'oidc' | '
 
 export const runtimeSectionFields: readonly (keyof ConfigForm)[] = [
   'max_concurrency',
-  'task_timeout',
+  'task_timeout_peak_seconds',
+  'task_timeout_off_peak_seconds',
+  'task_timeout_peak_start',
+  'task_timeout_peak_end',
   'scheduler_interval',
   'default_target_branch',
   'max_retries',
@@ -139,7 +145,10 @@ export const configFormKey: InjectionKey<ReturnType<typeof createConfigForm>> = 
 function createDefaultFormValue(): ConfigForm {
   return {
     max_concurrency: 3,
-    task_timeout: 1800,
+    task_timeout_peak_seconds: 1800,
+    task_timeout_off_peak_seconds: 3600,
+    task_timeout_peak_start: '09:00',
+    task_timeout_peak_end: '18:00',
     scheduler_interval: 5,
     default_target_branch: 'main',
     max_retries: 0,
@@ -272,7 +281,10 @@ function createConfigForm(): UseConfigFormReturn {
   function syncForm(config: Config) {
     formValue.value = {
       max_concurrency: config.runtime.max_concurrency,
-      task_timeout: config.runtime.task_timeout,
+      task_timeout_peak_seconds: config.runtime.task_timeout_peak_seconds,
+      task_timeout_off_peak_seconds: config.runtime.task_timeout_off_peak_seconds,
+      task_timeout_peak_start: config.runtime.task_timeout_peak_start,
+      task_timeout_peak_end: config.runtime.task_timeout_peak_end,
       scheduler_interval: config.runtime.scheduler_interval,
       default_target_branch: config.runtime.default_target_branch,
       max_retries: config.runtime.max_retries,
@@ -326,7 +338,10 @@ function createConfigForm(): UseConfigFormReturn {
   function buildRuntimeSectionUpdate(): RuntimeConfigUpdate {
     const update: RuntimeConfigUpdate = {
       max_concurrency: formValue.value.max_concurrency,
-      task_timeout: formValue.value.task_timeout,
+      task_timeout_peak_seconds: formValue.value.task_timeout_peak_seconds,
+      task_timeout_off_peak_seconds: formValue.value.task_timeout_off_peak_seconds,
+      task_timeout_peak_start: formValue.value.task_timeout_peak_start,
+      task_timeout_peak_end: formValue.value.task_timeout_peak_end,
       scheduler_interval: formValue.value.scheduler_interval,
       default_target_branch: formValue.value.default_target_branch.trim(),
       max_retries: formValue.value.max_retries,

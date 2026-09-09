@@ -18,7 +18,10 @@ def _settings():
         anthropic_api_key="legacy-key",
         anthropic_model="legacy-model",
         claude_max_turns=10,
-        task_timeout=60,
+        task_timeout_peak_seconds=60,
+        task_timeout_off_peak_seconds=120,
+        task_timeout_peak_start="09:00",
+        task_timeout_peak_end="18:00",
         custom_ca_bundle="",
     )
 
@@ -26,6 +29,7 @@ def _settings():
 def _task_issue_provider(protocol: str):
     task = SimpleNamespace(
         id=1,
+        execution_timeout_seconds=60,
         project_id=2,
         user_prompt="test",
         initiator_username="tester",

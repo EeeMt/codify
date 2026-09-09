@@ -65,7 +65,10 @@ If the environment is fully offline, both endpoints must exist inside the intran
 - `WORKER_WORKSPACE_HOST_PATH`: absolute daemon-local Issue workspace path (default `/opt/codify-workspaces`). Each Worker host owns its own directory; it is not mounted into Backend/Scheduler and does not require NFS.
 - `CI_FAILURE_BUNDLE_HOST_PATH`: Backend/Scheduler-local CI input staging path (default `/opt/codify-ci-failures`). Runtime bundles are uploaded to Worker containers through the Docker API.
 - `MAX_CONCURRENCY`: max number of concurrent tasks
-- `TASK_TIMEOUT`: max seconds a task may run
+- `TASK_TIMEOUT_PEAK_SECONDS`: max seconds a task may run during the peak window
+- `TASK_TIMEOUT_OFF_PEAK_SECONDS`: max seconds a task may run outside the peak window
+- `TASK_TIMEOUT_PEAK_START`: peak window start in `HH:mm` (`Asia/Shanghai`)
+- `TASK_TIMEOUT_PEAK_END`: peak window end in `HH:mm` (`Asia/Shanghai`)
 - `SCHEDULER_INTERVAL`: polling interval
 - `DEFAULT_TARGET_BRANCH`: fallback branch when a task does not specify one
 - `SESSION_STORAGE_ROOT`: legacy compatibility setting. New Issue sessions persist under the daemon-local `WORKER_WORKSPACE_HOST_PATH`.
