@@ -30,7 +30,8 @@ const { mockApi, resetMockApi } = vi.hoisted(() => {
     createProvider: vi.fn<() => Promise<any>>(() => Promise.resolve()),
     updateProvider: vi.fn<() => Promise<any>>(() => Promise.resolve()),
     deleteProvider: vi.fn<() => Promise<any>>(() => Promise.resolve()),
-    setDefaultProvider: vi.fn<() => Promise<any>>(() => Promise.resolve())
+    setDefaultProvider: vi.fn<() => Promise<any>>(() => Promise.resolve()),
+    testProviderConnection: vi.fn<() => Promise<any>>(() => Promise.resolve())
   }
   const resetMockApi = () => {
     Object.values(mock).forEach(fn => {
@@ -45,7 +46,8 @@ vi.mock('../../api', () => ({
   createProvider: mockApi.createProvider,
   updateProvider: mockApi.updateProvider,
   deleteProvider: mockApi.deleteProvider,
-  setDefaultProvider: mockApi.setDefaultProvider
+  setDefaultProvider: mockApi.setDefaultProvider,
+  testProviderConnection: mockApi.testProviderConnection
 }))
 
 describe('AIProvidersPanel', () => {
@@ -351,5 +353,36 @@ describe('AIProvidersPanel', () => {
     })
     expect(disabledProviderActions[1].props.disabled).toBe(false)
     expect(disabledProviderActions[2].props.disabled).toBe(true)
+  })
+
+  it('tests a saved provider connection and clears its loading state', async () => {
+    const provider = {
+      id: 7,
+      name: 'provider1',
+      base_url: 'https://api.example/v1',
+      model: 'model-x',
+      max_turns: 20,
+      api_key_configured: true,
+      system_prompt: null,
+      is_default: false,
+      is_disabled: false
+    }
+    mockApi.testProviderConnection.mockResolvedValue({
+      ok: true,
+      status_code: 200,
+      latency_ms: 42
+    })
+
+    const wrapper = mount(AIProvidersPanel, {
+      props: { isMobile: false },
+      global: {
+        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+      }
+    })
+
+    await wrapper.vm.handleTestConnection(provider)
+
+    expect(mockApi.testProviderConnection).toHaveBeenCalledWith(7)
+    expect(wrapper.vm.testingProviderId).toBe(null)
   })
 })

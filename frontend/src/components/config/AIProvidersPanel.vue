@@ -196,6 +196,7 @@ import {
   updateProvider,
   deleteProvider,
   setDefaultProvider,
+  testProviderConnection,
   type AIProvider,
   type CreateProviderRequest,
   type UpdateProviderRequest
@@ -227,6 +228,7 @@ const message = useMessage()
 // State
 const providers = ref<AIProvider[]>([])
 const loading = ref(false)
+const testingProviderId = ref<number | null>(null)
 const saving = ref(false)
 const modalVisible = ref(false)
 const editingProvider = ref<AIProvider | null>(null)
@@ -381,7 +383,7 @@ const columns = computed<DataTableColumns<AIProvider>>(() => [
   {
     title: t('config.actions'),
     key: 'actions',
-    width: 280,
+    width: 360,
     render: (row: AIProvider) =>
       h(NSpace, { size: 'small', wrap: false }, {
         default: () => [
@@ -399,6 +401,12 @@ const columns = computed<DataTableColumns<AIProvider>>(() => [
             disabled: row.is_default || row.is_disabled,
             onClick: () => handleSetDefault(row)
           }, { default: () => t('config.providers.setDefault') }),
+          h(NButton, {
+            size: 'small',
+            loading: testingProviderId.value === row.id,
+            disabled: testingProviderId.value !== null && testingProviderId.value !== row.id,
+            onClick: () => handleTestConnection(row)
+          }, { default: () => t('config.providers.testConnection') }),
           h(NPopconfirm, {
             positiveText: t('common.delete'),
             negativeText: t('common.cancel'),
@@ -591,6 +599,19 @@ async function handleSetDefault(provider: AIProvider) {
     await fetchProviders()
   } catch (error: any) {
     message.error(error?.response?.data?.detail || 'Failed to set default provider')
+  }
+}
+
+async function handleTestConnection(provider: AIProvider) {
+  if (testingProviderId.value !== null) return
+  testingProviderId.value = provider.id
+  try {
+    const result = await testProviderConnection(provider.id)
+    message.success(t('config.providers.connectionTestSucceeded', { latency: result.latency_ms }))
+  } catch (error: any) {
+    message.error(error?.response?.data?.detail || t('config.providers.connectionTestFailed'))
+  } finally {
+    testingProviderId.value = null
   }
 }
 

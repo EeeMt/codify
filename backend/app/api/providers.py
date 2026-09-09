@@ -2,7 +2,9 @@
 
 import logging
 import re
+import time
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import func, select
@@ -17,6 +19,7 @@ from app.core.harness_registry import compatible_harness_keys
 from app.core.model_credentials import (
     CredentialError,
     create_model_credential,
+    credential_secret,
     get_credential,
     soft_retire_credential,
 )
@@ -83,6 +86,12 @@ class ProviderResponse(BaseModel):
     is_disabled: bool
     created_at: str
     updated_at: str
+
+
+class ProviderConnectionTestResponse(BaseModel):
+    ok: bool
+    status_code: int
+    latency_ms: int
 
 
 class CreateProviderRequest(BaseModel):
@@ -281,6 +290,65 @@ def _decrypt_provider_api_key(provider: AIProvider) -> str:
         return provider.api_key
 
 
+def _provider_connection_request(provider: AIProvider, api_key: str) -> tuple[str, dict, dict]:
+    """Build the smallest authenticated request for the configured protocol."""
+    base_url = provider.base_url.rstrip("/")
+    api_root = base_url if base_url.endswith("/v1") else f"{base_url}/v1"
+    protocol = getattr(provider, "model_protocol", None) or "anthropic_messages"
+    headers = {"Content-Type": "application/json"}
+
+    if protocol == "anthropic_messages":
+        url = f"{api_root}/messages"
+        if api_key:
+            headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+        payload = {
+            "model": provider.model,
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ping"}],
+        }
+    elif protocol == "openai_responses":
+        url = f"{api_root}/responses"
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        payload = {
+            "model": provider.model,
+            "input": "ping",
+            "max_output_tokens": 1,
+            "store": False,
+        }
+    elif protocol == "openai_chat_completions":
+        url = f"{api_root}/chat/completions"
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        payload = {
+            "model": provider.model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "stream": False,
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unsupported model protocol: {protocol}",
+        )
+
+    return url, headers, payload
+
+
+async def _provider_connection_api_key(db: AsyncSession, provider: AIProvider) -> str:
+    credential_ref = getattr(provider, "credential_ref", None)
+    if credential_ref:
+        credential = await get_credential(db, credential_ref)
+        if credential is None or credential.status != "active":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provider connection test failed: credential is not active",
+            )
+        return credential_secret(credential)
+    return _decrypt_provider_api_key(provider)
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.get("/providers")
@@ -309,6 +377,59 @@ async def get_provider(provider_id: int, db: AsyncSession = Depends(get_db)):
         db, getattr(provider, "credential_ref", None)
     )
     return _serialize_provider(provider, credential_status)
+
+
+@router.post(
+    "/providers/{provider_id}/test-connection",
+    response_model=ProviderConnectionTestResponse,
+)
+async def test_provider_connection(
+    provider_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin_user),
+):
+    """Test a saved provider without creating a task or changing its config."""
+    provider = await db.get(AIProvider, provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    api_key = await _provider_connection_api_key(db, provider)
+    url, headers, payload = _provider_connection_request(provider, api_key)
+    started_at = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+            response = await client.post(url, headers=headers, json=payload)
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provider connection test timed out",
+        ) from exc
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "Provider connection test failed for provider id=%s (%s)",
+            provider_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provider connection test failed: request error",
+        ) from exc
+
+    latency_ms = max(0, round((time.monotonic() - started_at) * 1000))
+    if not 200 <= response.status_code < 300:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Provider connection test failed: "
+                f"upstream returned HTTP {response.status_code}"
+            ),
+        )
+
+    return {
+        "ok": True,
+        "status_code": response.status_code,
+        "latency_ms": latency_ms,
+    }
 
 
 @router.post("/providers", status_code=status.HTTP_201_CREATED)

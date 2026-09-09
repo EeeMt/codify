@@ -12,7 +12,7 @@ import os
 import sys
 import unittest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -474,6 +474,99 @@ class ProviderSetDefaultTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertIn("Disabled provider cannot be set as default", response.json()["detail"])
+
+
+class ProviderConnectionTestTests(unittest.TestCase):
+    """Tests for POST /api/providers/{id}/test-connection."""
+
+    def setUp(self):
+        self._original_key = os.environ.get("CONFIG_ENCRYPTION_KEY")
+        os.environ["CONFIG_ENCRYPTION_KEY"] = "unit-test-config-key"
+
+        self.mock_db = MagicMock()
+        self.mock_db.get = AsyncMock()
+
+        app.dependency_overrides[get_db] = lambda: self.mock_db
+        app.dependency_overrides[require_authenticated_user] = lambda: MagicMock()
+        app.dependency_overrides[require_admin_user] = lambda: MagicMock()
+
+        self.client = TestClient(app, raise_server_exceptions=False)
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+        if self._original_key is None:
+            os.environ.pop("CONFIG_ENCRYPTION_KEY", None)
+        else:
+            os.environ["CONFIG_ENCRYPTION_KEY"] = self._original_key
+
+    def test_anthropic_connection_uses_messages_endpoint(self):
+        provider = _make_provider(
+            id=1,
+            base_url="https://api.example/v1",
+            api_key="test-key",
+            model="claude-test",
+        )
+        provider.model_protocol = "anthropic_messages"
+        self.mock_db.get.return_value = provider
+
+        upstream = MagicMock(status_code=200)
+        http_client = MagicMock()
+        http_client.__aenter__ = AsyncMock(return_value=http_client)
+        http_client.__aexit__ = AsyncMock(return_value=None)
+        http_client.post = AsyncMock(return_value=upstream)
+
+        with patch("app.api.providers.httpx.AsyncClient", return_value=http_client):
+            response = self.client.post("/api/providers/1/test-connection")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status_code"], 200)
+        request = http_client.post.await_args
+        self.assertEqual(request.args[0], "https://api.example/v1/messages")
+        self.assertEqual(request.kwargs["headers"]["x-api-key"], "test-key")
+        self.assertEqual(request.kwargs["json"]["model"], "claude-test")
+
+    def test_openai_connection_uses_responses_endpoint(self):
+        provider = _make_provider(
+            id=2,
+            base_url="https://api.example",
+            api_key="test-key",
+            model="gpt-test",
+        )
+        provider.provider_kind = "openai_compatible"
+        provider.model_protocol = "openai_responses"
+        self.mock_db.get.return_value = provider
+
+        upstream = MagicMock(status_code=200)
+        http_client = MagicMock()
+        http_client.__aenter__ = AsyncMock(return_value=http_client)
+        http_client.__aexit__ = AsyncMock(return_value=None)
+        http_client.post = AsyncMock(return_value=upstream)
+
+        with patch("app.api.providers.httpx.AsyncClient", return_value=http_client):
+            response = self.client.post("/api/providers/2/test-connection")
+
+        self.assertEqual(response.status_code, 200)
+        request = http_client.post.await_args
+        self.assertEqual(request.args[0], "https://api.example/v1/responses")
+        self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer test-key")
+        self.assertEqual(request.kwargs["json"]["max_output_tokens"], 1)
+
+    def test_upstream_error_does_not_return_response_body(self):
+        provider = _make_provider(id=3, api_key="test-key")
+        self.mock_db.get.return_value = provider
+
+        upstream = MagicMock(status_code=401, text='{"secret":"should-not-leak"}')
+        http_client = MagicMock()
+        http_client.__aenter__ = AsyncMock(return_value=http_client)
+        http_client.__aexit__ = AsyncMock(return_value=None)
+        http_client.post = AsyncMock(return_value=upstream)
+
+        with patch("app.api.providers.httpx.AsyncClient", return_value=http_client):
+            response = self.client.post("/api/providers/3/test-connection")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("HTTP 401", response.json()["detail"])
+        self.assertNotIn("should-not-leak", response.text)
 
 
 

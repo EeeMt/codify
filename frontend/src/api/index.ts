@@ -204,6 +204,12 @@ export interface AIProvider {
   updated_at: string
 }
 
+export interface ProviderConnectionTestResult {
+  ok: boolean
+  status_code: number
+  latency_ms: number
+}
+
 export interface CreateProviderRequest {
   name: string
   base_url: string
@@ -1537,6 +1543,11 @@ export async function deleteProvider(id: number): Promise<void> {
 
 export async function setDefaultProvider(id: number): Promise<AIProvider> {
   const { data } = await api.post(`/providers/${id}/set-default`)
+  return data
+}
+
+export async function testProviderConnection(id: number): Promise<ProviderConnectionTestResult> {
+  const { data } = await api.post(`/providers/${id}/test-connection`)
   return data
 }
 
