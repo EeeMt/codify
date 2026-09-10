@@ -176,7 +176,7 @@ class TestCODIFYMarkerParsing:
             timeout=120,
         )
 
-        # The fake ci-claude.sh outputs usage stats that entrypoint.sh emits as CODIFY_STATS
+        # The fake Claude runner outputs usage stats that entrypoint.sh emits as CODIFY_STATS
         # worker.py should parse these into the task record
         assert task["status"] == "completed"
         # commit_sha comes from CODIFY_COMMIT_SHA (git rev-parse HEAD in entrypoint.sh)

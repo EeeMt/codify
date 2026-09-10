@@ -150,7 +150,7 @@ claude_adapter_prepare_config() {
 }
 
 claude_adapter_build_command() {
-    printf '%s\n' "${CODIFY_ORCHESTRATION_DIR}/legacy/ci-claude.sh"
+    printf '%s\n' "${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/legacy/claude-run.sh"
 }
 
 claude_adapter_materialize_skills() {

@@ -135,7 +135,7 @@ cd deploy && docker-compose up -d --build
 ```
 
 > **注意**：worker 容器执行的 entrypoint 来自 Task Runtime Bundle（backend 在任务创建时从镜像内
-> `/opt/codify/runtime-source` 生成）。改动 `deploy/worker-entrypoint/**` 或 `ci-claude.sh` 后必须重建
+> `/opt/codify/runtime-source` 生成）。改动 `deploy/worker-entrypoint/**` 后必须重建
 > backend 镜像并 recreate scheduler，retry 任务复用旧 bundle digest，要验证新改动必须**新建**任务。
 > 详见 [dev-env-api-regression.md](dev-env-api-regression.md) §8。
 

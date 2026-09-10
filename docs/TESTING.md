@@ -123,7 +123,7 @@ Mock 集成测试用 Mock 服务替代外部依赖（GitLab API、Claude CLI）�
 pytest (本机) → HTTP → codify-backend (Docker)
                       → codify-scheduler (Docker)
                       → mock-services (Docker): Mock GitLab API + Git HTTP + Anthropic API
-                      → codify-worker-test (Docker): 真实 entrypoint.sh + fake ci-claude.sh
+                      → codify-worker-test (Docker): 真实 entrypoint.sh + fake claude-run.sh
                       → postgres (Docker)
 ```
 

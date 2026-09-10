@@ -215,8 +215,10 @@ def _v2_test_runtime_source(tmp_path: Path) -> Path:
     root = tmp_path / "runtime-source"
     deploy = root / "deploy"
     deploy.mkdir(parents=True)
-    for relative in ("entrypoint.worker.sh", "ci-claude.sh"):
-        shutil.copy2(REPO_ROOT / "deploy" / relative, deploy / relative)
+    shutil.copy2(
+        REPO_ROOT / "deploy" / "entrypoint.worker.sh",
+        deploy / "entrypoint.worker.sh",
+    )
     shutil.copytree(REPO_ROOT / "deploy/worker-entrypoint", deploy / "worker-entrypoint")
     manifest_path = root / "deploy/worker-entrypoint/harness/manifest.json"
     manifest = json.loads(manifest_path.read_text())

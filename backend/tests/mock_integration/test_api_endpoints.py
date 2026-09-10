@@ -581,7 +581,7 @@ class TestTaskLogsContent:
     ):
         """After task completes, logs should include thinking, tool_use, text entries.
 
-        ci-claude.sh emits: SYSTEM_INIT, THINKING x2, ASSISTANT_TEXT x2,
+        Claude runner emits: SYSTEM_INIT, THINKING x2, ASSISTANT_TEXT x2,
         TOOL_USE_START x3, TOOL_RESULT x3 — total ~10 marker events.
         """
         issue, task = await create_issue_and_task(

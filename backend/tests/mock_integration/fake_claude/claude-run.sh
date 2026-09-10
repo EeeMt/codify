@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# fake ci-claude.sh — Replaces real ci-claude.sh for integration testing.
+# fake claude-run.sh — Replaces the real Claude runner for integration testing.
 #
 # Creates predictable file changes in /workspace and outputs JSON result
-# in the same format as the real ci-claude.sh.
+# in the same format as the real Claude runner.
 #
 # Environment variables:
 #   FAKE_CLAUDE_EXIT_CODE  — Exit code (default: 0)

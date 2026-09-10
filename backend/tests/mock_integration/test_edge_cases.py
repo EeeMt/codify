@@ -177,7 +177,7 @@ class TestTokenUsageStats:
         )
         assert task["status"] == "completed"
 
-        # fake ci-claude.sh outputs usage: {input_tokens: 1500, output_tokens: 800}
+        # fake Claude runner outputs usage: {input_tokens: 1500, output_tokens: 800}
         # entrypoint.sh emits this as CODIFY_STATS
         # worker.py parses it into task.input_tokens / task.output_tokens
         assert task.get("input_tokens") is not None, (

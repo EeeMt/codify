@@ -204,7 +204,7 @@ codify-runtime/task-prompt.md
 /tmp/codify-runtime/task-prompt.md
 ```
 
-容器环境变量 `CODIFY_TASK_PROMPT_FILE` 只携带上述稳定路径。`entrypoint.worker.sh` 要求文件存在且非空，然后复制到 `/tmp/claude_prompt.txt` 供 `ci-claude.sh` 使用；不会根据 `USER_PROMPT` 或 `TASK_MODE` 回退拼装主提示词。`USER_PROMPT` 仍保留用于任务元数据、MR 描述和后处理。
+容器环境变量 `CODIFY_TASK_PROMPT_FILE` 只携带上述稳定路径。`entrypoint.worker.sh` 要求文件存在且非空，然后复制到 `/tmp/claude_prompt.txt` 供 `claude-run.sh` 使用；不会根据 `USER_PROMPT` 或 `TASK_MODE` 回退拼装主提示词。`USER_PROMPT` 仍保留用于任务元数据、MR 描述和后处理。
 
 这项协议要求 Backend/Scheduler 与匹配的 Worker image 作为一个兼容版本协同部署。Scheduler 必须先完成 pending/queued 历史任务的提示词回填，再允许新 Worker 执行任务。
 

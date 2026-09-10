@@ -76,7 +76,6 @@ COPY --from=closure-builder /tmp/nixpkgs-revision /tmp/nixpkgs-revision
 COPY --from=closure-builder /tmp/payload-evidence.json /tmp/payload-evidence.json
 COPY --from=closure-builder /payloads/ /worker-kit/harness/
 COPY deploy/entrypoint.worker.sh /worker-kit/entrypoint.sh
-COPY deploy/ci-claude.sh /worker-kit/ci-claude.sh
 COPY deploy/worker-entrypoint/ /worker-kit/worker-entrypoint/
 COPY deploy/worker-kit/bridge-selfcheck.sh /worker-kit/bridge-selfcheck.sh
 COPY deploy/worker-kit/verify-kit-content.py /worker-kit/verify-kit-content.py
@@ -100,11 +99,11 @@ RUN runtime_store="$(cat /tmp/runtime-store-path)" \
     && test "$(jq -r '.harness_inventory | keys | length' /worker-kit/manifest.json)" = 4 \
     && for key in pi opencode claude codex; do availability="$(jq -r --arg k "${key}" '.harness_inventory[$k].availability' /worker-kit/manifest.json)"; if [ "${availability}" = "present" ]; then test -x "/worker-kit/$(jq -r --arg k "${key}" '.harness_inventory[$k].path | sub("^/opt/codify-kit/"; "")' /worker-kit/manifest.json)"; fi; done \
     && chmod 755 /worker-kit/launcher /worker-kit/bin/codify-run-as /worker-kit/entrypoint.sh \
-      /worker-kit/ci-claude.sh \
       /worker-kit/verify-kit-content.py \
       /worker-kit/verify-runtime.sh \
       /worker-kit/validate-runtime-manifest.py \
       /worker-kit/bridge-selfcheck.sh \
+      /worker-kit/worker-entrypoint/legacy/claude-run.sh \
       /worker-kit/worker-entrypoint/legacy/pi-run.sh \
       /worker-kit/worker-entrypoint/legacy/opencode-run.sh \
       /worker-kit/worker-entrypoint/legacy/codex-run.sh \
@@ -124,7 +123,7 @@ RUN runtime_store="$(cat /tmp/runtime-store-path)" \
     && test -x /worker-kit/bridge-selfcheck-codex \
     && test -x /worker-kit/bridge-selfcheck-pi \
     && test -x /worker-kit/bridge-selfcheck-opencode \
-    && test -x /worker-kit/ci-claude.sh \
+    && test -x /worker-kit/worker-entrypoint/legacy/claude-run.sh \
     && test -x /worker-kit/worker-entrypoint/legacy/pi-run.sh \
     && test -x /worker-kit/worker-entrypoint/legacy/opencode-run.sh \
     && test -x /worker-kit/worker-entrypoint/legacy/codex-run.sh \

@@ -9,7 +9,7 @@ Codify runs each task in an isolated Docker container that executes an AI Harnes
 ## Non-negotiables (worker/task code)
 
 - **Never hardcode a harness.** Execution facts (adapter, CLI path, bundle, session, `harness_key`) come from the frozen Task snapshot / runtime bundle manifest. Canonical events (`codify.worker.event/v1`) are the only event protocol the backend consumes; adapters translate engine raw output.
-- **Runtime Bundles are immutable.** A task freezes a bundle digest at creation; `retry` reuses it. After changing `deploy/worker-entrypoint/**` or `ci-claude.sh`, rebuild the backend image **and** recreate the scheduler — then verify with a **new** task (retry keeps the old bundle).
+- **Runtime Bundles are immutable.** A task freezes a bundle digest at creation; `retry` reuses it. After changing `deploy/worker-entrypoint/**`, rebuild the backend image **and** recreate the scheduler — then verify with a **new** task (retry keeps the old bundle).
 - **Use `get_effective_settings()`**, not `get_settings()` — DB overrides from `system_config` must take effect at runtime.
 - **Async SQLAlchemy:** never read a lazy-loaded relationship (e.g. `task.worker_profile_snapshot`) without an `sa_inspect(...)` unloaded check — it raises `MissingGreenlet`. Prefer explicit `selectinload`.
 - **Sanitize before storing logs** (`harness/adapters/sanitize.py`; backend `worker.py::sanitize_sensitive_data`) — strips `glpat-*` tokens and `sk-ant-*` keys.

@@ -37,7 +37,6 @@ RUNTIME_ARCHIVE_ROOT = PurePosixPath("codify-runtime/orchestration")
 
 _CONTROLLED_FILES = (
     "deploy/entrypoint.worker.sh",
-    "deploy/ci-claude.sh",
 )
 _CONTROLLED_TREES = ("deploy/worker-entrypoint",)
 _ALLOWED_SUFFIXES = {".sh", ".py", ".json"}
@@ -403,7 +402,7 @@ def _sha256(payload: bytes) -> str:
 
 
 _ADAPTER_DIGEST_FILES = (
-    "deploy/ci-claude.sh",
+    "deploy/worker-entrypoint/legacy/claude-run.sh",
     "deploy/worker-entrypoint/harness/version_range.py",
     "deploy/worker-entrypoint/harness/adapters/claude.sh",
     "deploy/worker-entrypoint/harness/adapters/claude_events.py",
@@ -437,8 +436,6 @@ def _adapter_digest(files: Iterable[tuple[str, bytes]]) -> str:
 def _archive_name(source_name: str) -> str:
     if source_name == "deploy/entrypoint.worker.sh":
         relative = "entrypoint.sh"
-    elif source_name == "deploy/ci-claude.sh":
-        relative = "legacy/ci-claude.sh"
     elif source_name.startswith("deploy/worker-entrypoint/"):
         relative = source_name.removeprefix("deploy/")
     else:  # pragma: no cover - controlled source list prevents this

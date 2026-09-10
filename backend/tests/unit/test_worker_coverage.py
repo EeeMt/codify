@@ -1183,7 +1183,6 @@ class TestEntrypointCommitAttribution(unittest.TestCase):
         self.assertNotIn("COPY --from=claude-installer", dockerfile)
         self.assertNotIn("COPY deploy/entrypoint.worker.sh", dockerfile)
         self.assertNotIn("COPY deploy/worker-entrypoint/", dockerfile)
-        self.assertNotIn("COPY deploy/ci-claude.sh", dockerfile)
         self.assertNotIn("@colbymchenry/codegraph", dockerfile)
         self.assertNotIn("mermaid@", dockerfile)
         self.assertNotIn("nodesource.com/setup_22.x", dockerfile)

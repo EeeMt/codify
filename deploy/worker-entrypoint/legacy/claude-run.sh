@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ci-claude.sh — Claude Code headless runner for CI/CD
+# claude-run.sh — Claude Code headless runner for CI/CD
 #
 # Output contract:
 #   stdout  →  Final JSON result (machine-readable, always emitted on completion)
@@ -7,9 +7,9 @@
 #   exit 0  →  Task succeeded    exit 1  →  Task failed
 #
 # Usage:
-#   result=$(SANDBOX_MODE=1 ./ci-claude.sh "Fix auth.py")
+#   result=$(SANDBOX_MODE=1 ./claude-run.sh "Fix auth.py")
 #   echo "$result" | jq .result    # extract the text answer
-#   result=$(PROMPT_FILE=/tmp/prompt.txt SANDBOX_MODE=1 ./ci-claude.sh)
+#   result=$(PROMPT_FILE=/tmp/prompt.txt SANDBOX_MODE=1 ./claude-run.sh)
 #
 # Environment variables:
 #   SANDBOX_MODE           "1" → --dangerously-skip-permissions (sandbox containers only!)
@@ -82,7 +82,7 @@ fi
 
 # All visual helpers write to stderr
 _e()   { printf "$@" >&2; }
-log()  { _e "${DIM}[ci-claude] %s${RESET}\n" "$*"; }
+log()  { _e "${DIM}[claude-run] %s${RESET}\n" "$*"; }
 info() { _e "${BLUE}ℹ  %s${RESET}\n" "$*"; }
 ok()   { _e "${GREEN}✅ %s${RESET}\n" "$*"; }
 fail() { _e "${RED}❌ %s${RESET}\n" "$*"; }
@@ -229,7 +229,7 @@ print_claude_args() {
   local redact_next=0
   local arg
 
-  _e "${DIM}[ci-claude] CLI args:"
+  _e "${DIM}[claude-run] CLI args:"
   for arg in "$@"; do
     if [[ "$redact_next" == "1" ]]; then
       _e " %s" "[REDACTED]"

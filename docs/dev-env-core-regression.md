@@ -20,7 +20,7 @@
 
 | 触发改动 | 最低执行 |
 |---|---|
-| `deploy/worker-entrypoint/**`、`deploy/ci-claude.sh`、`harness/**`（adapter/translator/sanitizer） | Tier 1（双 harness）+ §5 回归点核查 |
+| `deploy/worker-entrypoint/**`、`harness/**`（adapter/translator/sanitizer） | Tier 1（双 harness）+ §5 回归点核查 |
 | backend worker / scheduler / session / protocol / bundle 代码 | Tier 1 + 相关 §3 完整项 |
 | 新增 Alembic 迁移 | Tier 2 + §6 数据一致性 |
 | provider / credential / worker-profile 代码 | Tier 2 §J + §5 |
@@ -29,7 +29,7 @@
 
 > **改动 worker 脚本后的关键前提**：worker 容器执行的 entrypoint 来自 Task Runtime Bundle
 > （backend 在任务创建时从镜像内 `/opt/codify/runtime-source` 生成）。改了
-> `deploy/worker-entrypoint/**` 或 `ci-claude.sh` 后必须 **重建 backend 镜像并 recreate scheduler**
+> `deploy/worker-entrypoint/**` 后必须 **重建 backend 镜像并 recreate scheduler**
 > （`make rebuild-backend` + `docker-compose --env-file .env.test up -d scheduler`），否则验证的是旧脚本；
 > retry 任务复用旧 bundle digest，**要验证新改动必须新建任务**。详见
 > [`dev-env-api-regression.md` §8](./dev-env-api-regression.md)。

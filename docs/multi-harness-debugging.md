@@ -88,7 +88,7 @@
 2. **任务详情的 `Events` 页签**展示的是四个 Adapter 将 native stream 归一化后，由 `WorkerEventProjector` 投影成的 `TaskLog`，例如助手消息、工具调用、thinking 生命周期和上下文压缩。
 3. **Harness 原始事件归档**位于 `harness-events/<harness>.jsonl`，保留各 Harness 的已脱敏 native JSONL，是 CLI 层排障的第一现场。
 
-当前显示能力如下：
+改造前的显示能力如下：
 
 | Harness | `Raw logs` 中的完整人类可读执行过程 | `harness-events/<harness>.jsonl` | `Events` 页签中的结构化过程 |
 | --- | --- | --- | --- |
@@ -97,9 +97,109 @@
 | Pi | 没有完整过程（可能有启动或错误包装日志） | `pi.jsonl` | 有 |
 | OpenCode | 没有完整过程（可能有启动或错误包装日志） | `opencode.jsonl` | 有 |
 
-原因是 Claude 的 `ci-claude.sh` 会把 CLI 的实时 stderr tee 到 `console.log`；Codex、Pi、OpenCode 的 native stream 则主要被 bridge/translator 消费并写入各自的 Harness raw JSONL，未完整回显到 `console.log`。
+原因是 Claude 的 `claude-run.sh` 会把 CLI 的实时 stderr tee 到 `console.log`；Codex、Pi、OpenCode 的 native stream 则主要被 bridge/translator 消费并写入各自的 Harness raw JSONL，未完整回显到 `console.log`。
 
 因此，用户查看任务执行过程应优先使用 `Events` 页签；需要检查 CLI 原始事件或细粒度 native progress 时查看归档中的对应 `harness-events/<harness>.jsonl`。不能因为其他三个 Harness 的 `Raw logs` 没有完整过程，就判断它们没有产生执行事件。
+
+#### 1.11.1 目标与边界
+
+目标是让四个 Harness 的 `Raw logs` 都能看到足以排障的人类可读执行过程，包括模型解析、思考生命周期、助手回复、工具调用、上下文压缩、重试、用量和终态；不要求四个 CLI 的原生输出长得完全一致。
+
+本次不改变三个既有事实：
+
+1. `event.jsonl` 仍是 Canonical Event 权威流，`WorkerEventProjector` 与 `Events` 页签继续只消费它；
+2. `harness-events/<harness>.jsonl` 仍保存脱敏后的完整 native JSONL，不能被可读摘要替代；
+3. `console.log` 仍是 `Raw logs` 的唯一来源，继续走现有 `TaskRawLogChunk`、`/raw-log-stream` 和归档回填链路。
+
+#### 1.11.2 选定方案：Canonical Event 写入后镜像可读摘要
+
+```text
+native stream
+  -> Harness translator
+  -> harness/events.py 写 event.jsonl（权威）
+  -> best-effort 可读摘要写 stderr
+  -> bootstrap 的全局 tee
+  -> console.log
+  -> TaskRawLogChunk / raw-log-stream / Raw logs
+```
+
+在公共 Canonical Event writer `deploy/worker-entrypoint/harness/events.py` 中增加一个纯格式化函数。每个事件成功写入并 `fsync` 后，格式化一条有界摘要写到 stderr；bootstrap 已经把 stderr/stdout 同时 tee 到 `console.log`，所以后端和前端都不需要改动。
+
+选择这个位置的原因：
+
+- 四个 Adapter 已经在这里汇合，不需要分别理解 Codex JSON-RPC、Pi RPC 和 OpenCode SSE；
+- Canonical payload 已经过各 translator 归一化和脱敏，可避免把高噪声 native JSON 或凭证原样暴露到页面；
+- 摘要只在 Canonical Event 成功持久化后输出，不会出现“Raw logs 显示了事件，但权威流里没有”的假象；
+- 输出 stderr 不改变 writer 的 stdout JSON 契约，现有 shell/Python 调用方保持不变。
+
+Claude 已有 `claude-run.sh` 的人类可读 stream processor。第一版由公共 writer 对 `harness.key == "claude"` 跳过镜像，避免思考、回复和工具调用重复显示；Codex、Pi、OpenCode 使用公共摘要。这样只补齐缺口，不重写已经稳定的 Claude runner。
+
+#### 1.11.3 摘要格式与降噪规则
+
+统一使用单行纯文本，带时间、Harness、Canonical `seq` 和类别，例如：
+
+```text
+[14:21:03][codex][#8][thinking] started
+[14:21:05][codex][#9][tool] Bash {"cmd":"pytest -q"}
+[14:21:07][codex][#10][tool] completed exit=0 output="42 passed"
+[14:21:09][codex][#11][assistant] 已完成修复并通过测试。
+[14:21:10][codex][#12][usage] input=1200 cached=800 output=96
+[14:21:10][codex][#13][harness] completed
+```
+
+事件映射保持克制：
+
+| Canonical Event | `Raw logs` 摘要 |
+| --- | --- |
+| `run.started` / `model.resolved` | Harness 启动、模型名；不输出 session id |
+| `reasoning_summary.started/completed/interrupted` | 思考开始、完成或中断；仅展示已脱敏 summary 预览 |
+| `message.completed` | 助手消息预览 |
+| `tool.started` | 工具名和输入预览 |
+| `tool.completed` | 成功/失败、exit code 和输出预览 |
+| `context.compacted` / `provider.retry` | 压缩、重试原因和次数 |
+| `usage.final` | 非空 token/cost 字段 |
+| `control.command.delivered/rejected` | 控制命令类型和送达/拒绝状态，不回显命令正文 |
+| `harness.*` / `delivery.*` / `worker.finalization` / `run.*` | 阶段终态和有界失败原因 |
+
+以下事件不镜像：
+
+- `message.delta`、`reasoning_summary.delta`：避免逐 token 重复写日志，完整内容仍在完成事件和 `Events` 页签；
+- `usage.updated`：避免高频刷屏，只显示 `usage.final`；
+- 普通 `diagnostic` 和未知 native event：继续留在 `event.jsonl`/Harness raw archive，失败会由 `harness.failed` 或 `run.failed` 展示。
+
+所有自由文本先复用 `adapters/sanitize.py` 再单行化；工具输入/输出最多 500 字符，助手消息和失败原因最多 2000 字符，超出时显示总长度与截断标记。不得输出 Provider key、Git 凭证、完整 session id、`raw_ref` 或整条 native JSON。
+
+摘要属于观测信息，不得反向影响执行：格式化、编码或 stderr 写入失败必须被捕获，Canonical Event 已落盘即视为 writer 成功；每条摘要保持在单次短写入范围内，`seq` 用于并发输出时核对顺序。
+
+#### 1.11.4 实施范围
+
+最小实现只涉及：
+
+1. `deploy/worker-entrypoint/harness/events.py`：增加事件到摘要的映射、脱敏/截断和 best-effort stderr 输出；
+2. Canonical writer 的单元测试：覆盖映射、跳过规则、截断、脱敏、Claude 去重和“摘要失败不影响事件写入”；
+3. 一条 bootstrap 集成测试：证明 stderr 摘要进入 `console.log`，现有 raw-log 持久化/API 无需改动。
+
+不修改四个 translator、不增加数据库字段、不增加 API、不修改 `TaskProcessPanel`，也不把 native raw archive 合并进 `console.log`。
+
+#### 1.11.5 验收矩阵
+
+| 层级 | Claude | Codex | Pi | OpenCode |
+| --- | --- | --- | --- | --- |
+| Adapter fixture | 现有 pretty stream 无重复 | tool/message/failure 摘要 | tool/message/failure 摘要 | tool/message/failure 摘要 |
+| Canonical 回归 | `event.jsonl` 内容与顺序不变 | 同左 | 同左 | 同左 |
+| Worker 集成 | `console.log` 可读 | 公共摘要进入 `console.log` | 同左 | 同左 |
+| 实际 Task（运行中） | `Raw logs` 持续可见过程 | 同左 | 同左 | 同左 |
+| 实际 Task（结束后） | Raw log DB 尾部与 archive 一致 | 同左 | 同左 | 同左 |
+
+验收顺序：
+
+1. 用现有四 Harness success/tool-failure fixtures 跑 translator 与 writer 测试，确认 Canonical JSON 逐条不变；
+2. 构建新的不可变 Runtime Bundle，记录 Bundle id/digest，不能只重启旧容器；
+3. 在开发环境各跑一个真实 Task，运行中打开 `Raw logs`，至少观察到 `thinking/tool/assistant/harness terminal` 中实际发生的类别；
+4. 任务结束后刷新页面，确认 DB 回填没有重复或缺尾，并下载归档核对 `console.log`、`event.jsonl` 和对应 `harness-events/<harness>.jsonl`；
+5. 同时检查 `Events` 页签，确认结构化卡片数量、工具配对和终态未因摘要镜像发生变化。
+
+由于摘要发生在 Canonical Event 之后且与 Provider wire protocol 无关，每个 Harness 一个真实任务即可验证本改动；无需为了这项日志展示重复所有 Harness × protocol 组合。
 
 ## 2. Codex 专项（CLI 行为差异）
 
@@ -140,7 +240,7 @@ Codex 的 `exec` 会自己 `git commit`+`git push`，与「harness 只产代码�
 ### 2.6 运行用户降权
 
 - **问题**：codex exec 最初以容器 root 运行（audit 流 event.jsonl/harness-result.json 由 bootstrap 有意 root-owned+644，translator 需以 root 写 canonical 事件），工作区/`.git` 因此 root-owned；delivery 以 codify（uid 1000）commit 报 `insufficient permission ... .git/objects`（Task 504 failed），并引入条件 chown hack。
-- **根治**：收编到与 Claude 一致的模式——`codex-run.sh` 用 FIFO + 后台进程重构（镜像 ci-claude.sh）：CLI 子进程经 `CODIFY_CODEX_RUN_AS`（codify-run-as）降为 codify 运行，FIFO 写端 fd 由 root 父 shell 的重定向打开、降权子进程继承；translator 留在 root 上下文逐行消费 FIFO，写 root-owned raw 流/canonical 事件。这样产出天生 codify-owned。
+- **根治**：收编到与 Claude 一致的模式——`codex-run.sh` 用 FIFO + 后台进程重构（镜像 claude-run.sh）：CLI 子进程经 `CODIFY_CODEX_RUN_AS`（codify-run-as）降为 codify 运行，FIFO 写端 fd 由 root 父 shell 的重定向打开、降权子进程继承；translator 留在 root 上下文逐行消费 FIFO，写 root-owned raw 流/canonical 事件。这样产出天生 codify-owned。
 - **配套**：交付前无条件 chown 删除；保留 reuse 路径的**条件 chown 作为 legacy 安全网**（`find /workspace/.git -user root` 仅在存在 root-owned 条目时才归一化，覆盖旧 root-owned 工作区遗留 shard；新 run 无 root-owned 对象则跳过）。`codex-run.sh` 不用 `set -m`（避免 timeout 组信号够不到 CLI 导致孤儿进程），并校验 `CODIFY_CODEX_RUN_AS` 必须为可执行绝对路径。
 - **验证**：写文件 → `delivery.completed(exit 0)` → `run.completed(success)`；`.git` 全程 codify-owned。与 Claude 行为/运行用户完全一致。
 

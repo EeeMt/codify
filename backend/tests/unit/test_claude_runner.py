@@ -10,13 +10,13 @@ from pathlib import Path
 
 def _prepare_script_copy(tmpdir_path: Path, fake_claude_content: str) -> Path:
     repo_root = Path(__file__).resolve().parents[3]
-    script_path = repo_root / "deploy" / "ci-claude.sh"
+    script_path = repo_root / "deploy" / "worker-entrypoint" / "legacy" / "claude-run.sh"
 
     fake_claude = tmpdir_path / "fake-claude.sh"
     fake_claude.write_text(fake_claude_content, encoding="utf-8")
     fake_claude.chmod(fake_claude.stat().st_mode | stat.S_IEXEC)
 
-    script_copy = tmpdir_path / "ci-claude.sh"
+    script_copy = tmpdir_path / "claude-run.sh"
     script_copy.write_text(
         script_path.read_text(encoding="utf-8").replace(
             'CLAUDE_BIN="${CODIFY_CLAUDE_BIN:-}"', f'CLAUDE_BIN="{fake_claude}"'
@@ -27,7 +27,7 @@ def _prepare_script_copy(tmpdir_path: Path, fake_claude_content: str) -> Path:
     return script_copy
 
 
-def test_ci_claude_captures_tool_result_from_user_message():
+def test_claude_runner_captures_tool_result_from_user_message():
     fake_stream_lines = [
         json.dumps(
             {
@@ -146,9 +146,9 @@ def test_ci_claude_captures_tool_result_from_user_message():
         # CODIFY markers removed; verify tool_calls content instead (already asserted above)
 
 
-def test_ci_claude_console_log_truncates_long_tool_result(tmp_path):
+def test_claude_runner_console_log_truncates_long_tool_result(tmp_path):
     long_output = "start-" + ("x" * 650) + "-end"
-    result = run_fake_ci_claude(tmp_path, fake_stream_lines=[
+    result = run_fake_claude_runner(tmp_path, fake_stream_lines=[
         json.dumps({
             "type": "stream_event",
             "event": {
@@ -195,8 +195,8 @@ def test_ci_claude_console_log_truncates_long_tool_result(tmp_path):
     assert "truncated" in console_log
 
 
-def test_ci_claude_console_log_renders_top_level_assistant_event(tmp_path):
-    result = run_fake_ci_claude(tmp_path, fake_stream_lines=[
+def test_claude_runner_console_log_renders_top_level_assistant_event(tmp_path):
+    result = run_fake_claude_runner(tmp_path, fake_stream_lines=[
         json.dumps({
             "type": "assistant",
             "message": {
@@ -207,7 +207,7 @@ def test_ci_claude_console_log_renders_top_level_assistant_event(tmp_path):
                         "type": "tool_use",
                         "id": "call_top_level",
                         "name": "Bash",
-                        "input": {"command": "pytest tests/unit/test_ci_claude_script.py"},
+                        "input": {"command": "pytest tests/unit/test_claude_runner.py"},
                     },
                 ],
             },
@@ -238,19 +238,19 @@ def test_ci_claude_console_log_renders_top_level_assistant_event(tmp_path):
     assert "consider the failing test" in console_log
     assert "I changed the parser." in console_log
     assert "Tool: Bash" in console_log
-    assert "pytest tests/unit/test_ci_claude_script.py" in console_log
+    assert "pytest tests/unit/test_claude_runner.py" in console_log
     assert "3 passed" in console_log
 
     payload = json.loads(result.stdout)
     assert payload["tool_calls"] == [{
         "name": "Bash",
-        "input": {"command": "pytest tests/unit/test_ci_claude_script.py"},
+        "input": {"command": "pytest tests/unit/test_claude_runner.py"},
         "output": "3 passed",
         "error": False,
     }]
 
 
-def test_ci_claude_matches_tool_results_by_tool_use_id():
+def test_claude_runner_matches_tool_results_by_tool_use_id():
     fake_stream_lines = [
         json.dumps(
             {
@@ -384,7 +384,7 @@ def test_ci_claude_matches_tool_results_by_tool_use_id():
         ]
 
 
-def test_ci_claude_emits_failure_json_when_claude_exits_nonzero():
+def test_claude_runner_emits_failure_json_when_claude_exits_nonzero():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
         script_copy = _prepare_script_copy(
@@ -415,7 +415,7 @@ def test_ci_claude_emits_failure_json_when_claude_exits_nonzero():
         }
 
 
-def test_ci_claude_emits_cli_error_when_claude_dies_before_result(tmp_path):
+def test_claude_runner_emits_cli_error_when_claude_dies_before_result(tmp_path):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
         script_copy = _prepare_script_copy(
@@ -446,7 +446,7 @@ def test_ci_claude_emits_cli_error_when_claude_dies_before_result(tmp_path):
         }
 
 
-def test_ci_claude_stops_cli_that_does_not_exit_after_final_result(tmp_path):
+def test_claude_runner_stops_cli_that_does_not_exit_after_final_result(tmp_path):
     script_copy = _prepare_script_copy(
         tmp_path,
         "#!/usr/bin/env bash\n"
@@ -487,7 +487,7 @@ def test_ci_claude_stops_cli_that_does_not_exit_after_final_result(tmp_path):
     assert "Sending SIGTERM to Claude CLI process group" in stderr
 
 
-def test_ci_claude_preserves_json_line_split_across_slow_writes(tmp_path):
+def test_claude_runner_preserves_json_line_split_across_slow_writes(tmp_path):
     script_copy = _prepare_script_copy(
         tmp_path,
         "#!/usr/bin/env bash\n"
@@ -513,7 +513,7 @@ def test_ci_claude_preserves_json_line_split_across_slow_writes(tmp_path):
     assert json.loads((tmp_path / "event.jsonl").read_text(encoding="utf-8"))["type"] == "result"
 
 
-def test_ci_claude_enforces_final_result_deadline_during_continuous_output(tmp_path):
+def test_claude_runner_enforces_final_result_deadline_during_continuous_output(tmp_path):
     script_copy = _prepare_script_copy(
         tmp_path,
         "#!/usr/bin/env bash\n"
@@ -548,7 +548,7 @@ def test_ci_claude_enforces_final_result_deadline_during_continuous_output(tmp_p
     assert "last_type=system" in result.stderr
 
 
-def test_ci_claude_stops_descendant_that_inherits_stream_after_cli_exits(tmp_path):
+def test_claude_runner_stops_descendant_that_inherits_stream_after_cli_exits(tmp_path):
     script_copy = _prepare_script_copy(
         tmp_path,
         "#!/usr/bin/env bash\n"
@@ -588,7 +588,7 @@ def test_ci_claude_stops_descendant_that_inherits_stream_after_cli_exits(tmp_pat
         raise AssertionError(f"Claude descendant {descendant_pid} is still running")
 
 
-def test_ci_claude_stops_descendant_that_closes_stream_and_ignores_sigterm(tmp_path):
+def test_claude_runner_stops_descendant_that_closes_stream_and_ignores_sigterm(tmp_path):
     script_copy = _prepare_script_copy(
         tmp_path,
         "#!/usr/bin/env bash\n"
@@ -635,7 +635,7 @@ def test_ci_claude_stops_descendant_that_closes_stream_and_ignores_sigterm(tmp_p
         raise AssertionError(f"Claude descendant {descendant_pid} is still running")
 
 
-def test_ci_claude_accepts_prompt_file_and_pipes_prompt_to_claude():
+def test_claude_runner_accepts_prompt_file_and_pipes_prompt_to_claude():
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
         prompt_file = tmpdir_path / "prompt.txt"
@@ -662,7 +662,7 @@ def test_ci_claude_accepts_prompt_file_and_pipes_prompt_to_claude():
         assert payload["result"] == "prompt from file"
 
 
-def test_ci_claude_reuses_stream_runner_for_resume_fallback(tmp_path):
+def test_claude_runner_reuses_stream_runner_for_resume_fallback(tmp_path):
     script_copy = _prepare_script_copy(
         tmp_path,
         "#!/usr/bin/env bash\n"
@@ -688,7 +688,11 @@ def test_ci_claude_reuses_stream_runner_for_resume_fallback(tmp_path):
 
 def test_adapter_resume_fallback_preserves_canonical_event_history():
     script = (
-        Path(__file__).resolve().parents[3] / "deploy" / "ci-claude.sh"
+        Path(__file__).resolve().parents[3]
+        / "deploy"
+        / "worker-entrypoint"
+        / "legacy"
+        / "claude-run.sh"
     ).read_text(encoding="utf-8")
     fallback = script.split('if [[ -n "$RESUME" && ! -s "$RESULT_FILE" ]]; then', 1)[1]
     assert 'CODIFY_CLAUDE_EVENT_TRANSLATOR' in fallback
@@ -696,7 +700,7 @@ def test_adapter_resume_fallback_preserves_canonical_event_history():
     assert '"code":"resume_fallback"' in fallback
 
 
-def test_ci_claude_runs_only_cli_through_privilege_drop_launcher(tmp_path):
+def test_claude_runner_runs_only_cli_through_privilege_drop_launcher(tmp_path):
     script_copy = _prepare_script_copy(
         tmp_path,
         "#!/usr/bin/env bash\n"
@@ -736,7 +740,7 @@ def test_ci_claude_runs_only_cli_through_privilege_drop_launcher(tmp_path):
     assert f"-- {tmp_path / 'fake-claude.sh'}" in invocations
 
 
-def test_ci_claude_rejects_relative_privilege_drop_launcher(tmp_path):
+def test_claude_runner_rejects_relative_privilege_drop_launcher(tmp_path):
     script_copy = _prepare_script_copy(tmp_path, "#!/usr/bin/env bash\nexit 0\n")
     result = subprocess.run(
         [str(script_copy), "test prompt"],
@@ -755,7 +759,7 @@ def test_ci_claude_rejects_relative_privilege_drop_launcher(tmp_path):
     assert "must be an executable absolute path" in result.stderr
 
 
-def test_ci_claude_redacts_append_system_prompt_from_logs(tmp_path):
+def test_claude_runner_redacts_append_system_prompt_from_logs(tmp_path):
     secret_prompt = "internal policy: do not leak $(echo secret)\nsecond line"
     script_copy = _prepare_script_copy(
         tmp_path,
@@ -786,7 +790,7 @@ def test_ci_claude_redacts_append_system_prompt_from_logs(tmp_path):
     assert "--append-system-prompt [REDACTED]" in result.stderr
 
 
-def test_ci_claude_prefers_append_system_prompt_file_when_set(tmp_path):
+def test_claude_runner_prefers_append_system_prompt_file_when_set(tmp_path):
     system_prompt_file = tmp_path / "system-prompt.txt"
     system_prompt_file.write_text("file policy: keep this private", encoding="utf-8")
     legacy_prompt = "legacy env policy should not be used"
@@ -822,7 +826,7 @@ def test_ci_claude_prefers_append_system_prompt_file_when_set(tmp_path):
     assert "file policy: keep this private" not in result.stderr
 
 
-def test_ci_claude_adds_task_skill_scope_to_claude_arguments(tmp_path):
+def test_claude_runner_adds_task_skill_scope_to_claude_arguments(tmp_path):
     skills_root = tmp_path / "skill-scope"
     (skills_root / ".claude" / "skills" / "review-changes").mkdir(parents=True)
     script_copy = _prepare_script_copy(
@@ -854,7 +858,7 @@ def test_ci_claude_adds_task_skill_scope_to_claude_arguments(tmp_path):
     assert args[add_dir_index + 1] == str(skills_root)
 
 
-def test_ci_claude_requests_partial_message_streaming(tmp_path):
+def test_claude_runner_requests_partial_message_streaming(tmp_path):
     script_copy = _prepare_script_copy(
         tmp_path,
         "#!/usr/bin/env bash\n"
@@ -884,7 +888,7 @@ def test_ci_claude_requests_partial_message_streaming(tmp_path):
     assert args.index("--include-partial-messages") > args.index("--verbose")
 
 
-def test_ci_claude_rejects_cli_too_old_for_task_skills(tmp_path):
+def test_claude_runner_rejects_cli_too_old_for_task_skills(tmp_path):
     skills_root = tmp_path / "skill-scope"
     (skills_root / ".claude" / "skills" / "review-changes").mkdir(parents=True)
     script_copy = _prepare_script_copy(
@@ -911,7 +915,7 @@ def test_ci_claude_rejects_cli_too_old_for_task_skills(tmp_path):
     assert "require Claude Code 2.1.33 or newer" in result.stderr
 
 
-def test_ci_claude_fresh_session_ignores_every_resume_source(tmp_path):
+def test_claude_runner_fresh_session_ignores_every_resume_source(tmp_path):
     (tmp_path / ".claude_session_id").write_text("session-from-file", encoding="utf-8")
     script_copy = _prepare_script_copy(
         tmp_path,
@@ -945,7 +949,7 @@ def test_ci_claude_fresh_session_ignores_every_resume_source(tmp_path):
     assert "session-from-file" not in args
     assert json.loads((tmp_path / "runtime.json").read_text(encoding="utf-8"))["resume_session"] == ""
 
-def run_fake_ci_claude(tmp_path, fake_stream_lines):
+def run_fake_claude_runner(tmp_path, fake_stream_lines):
     script_copy = _prepare_script_copy(
         tmp_path,
         "#!/usr/bin/env bash\ncat <<'EOF'\n" + "\n".join(fake_stream_lines) + "\nEOF\n",
@@ -963,8 +967,8 @@ def run_fake_ci_claude(tmp_path, fake_stream_lines):
     )
 
 
-def test_ci_claude_writes_event_jsonl_runtime_json_and_console_log(tmp_path):
-    result = run_fake_ci_claude(tmp_path, fake_stream_lines=[
+def test_claude_runner_writes_event_jsonl_runtime_json_and_console_log(tmp_path):
+    result = run_fake_claude_runner(tmp_path, fake_stream_lines=[
         '{"type":"system","subtype":"init","model":"claude-sonnet","cwd":"/workspace"}',
         '{"type":"result","subtype":"success","result":"done","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}',
     ])
@@ -975,7 +979,7 @@ def test_ci_claude_writes_event_jsonl_runtime_json_and_console_log(tmp_path):
     assert "Claude Code CI Runner" in (tmp_path / "console.log").read_text(encoding="utf-8")
 
 
-def test_ci_claude_can_skip_console_log_tee_when_parent_owns_it(tmp_path):
+def test_claude_runner_can_skip_console_log_tee_when_parent_owns_it(tmp_path):
     script_copy = _prepare_script_copy(
         tmp_path,
         "#!/usr/bin/env bash\ncat <<'EOF'\n"
@@ -1001,8 +1005,8 @@ def test_ci_claude_can_skip_console_log_tee_when_parent_owns_it(tmp_path):
     assert (tmp_path / "console.log").read_text(encoding="utf-8") == ""
 
 
-def test_ci_claude_feeds_streaming_translator(tmp_path):
-    """The real ci-claude.sh feeds ONE streaming translator via fd 9."""
+def test_claude_runner_feeds_streaming_translator(tmp_path):
+    """The real Claude runner feeds ONE streaming translator via fd 9."""
     repo_root = Path(__file__).resolve().parents[3]
     session = "6ad6e4f5-6205-8e2a-9b3c-1a2b3c4d5e6f"
     script_copy = _prepare_script_copy(
@@ -1068,7 +1072,7 @@ def test_ci_claude_feeds_streaming_translator(tmp_path):
     assert result_json["session_id"] == session
 
 
-def test_ci_claude_respects_artifact_dir_env(tmp_path):
+def test_claude_runner_respects_artifact_dir_env(tmp_path):
     artifact_dir = tmp_path / "artifacts"
     script_copy = _prepare_script_copy(
         tmp_path,
@@ -1096,8 +1100,8 @@ def test_ci_claude_respects_artifact_dir_env(tmp_path):
     assert not (tmp_path / "event.jsonl").exists()
 
 
-def test_ci_claude_no_longer_emits_codify_markers(tmp_path):
-    result = run_fake_ci_claude(tmp_path, fake_stream_lines=[
+def test_claude_runner_no_longer_emits_codify_markers(tmp_path):
+    result = run_fake_claude_runner(tmp_path, fake_stream_lines=[
         '{"type":"result","subtype":"success","result":"done","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}',
     ])
 

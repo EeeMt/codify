@@ -122,7 +122,7 @@ rm -f /tmp/codify_cookies.txt /tmp/task-*.tar.gz /tmp/event.jsonl /tmp/harness-r
 
 worker 容器执行的 entrypoint 来自 Task Runtime Bundle——backend 在任务创建时从镜像内
 `/opt/codify/runtime-source` 生成（`Dockerfile.backend` 把 `deploy/` 烘焙进镜像，`CODIFY_RUNTIME_SOURCE_DIR` 指向它）。
-所以改动 `deploy/worker-entrypoint/**` 或 `deploy/ci-claude.sh` 后**必须重建镜像**：
+所以改动 `deploy/worker-entrypoint/**` 后**必须重建镜像**：
 
 ```bash
 make rebuild-backend                                  # 重建 + 重启 backend

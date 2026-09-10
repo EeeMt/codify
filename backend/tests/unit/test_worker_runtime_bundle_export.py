@@ -48,8 +48,7 @@ def _source(tmp_path: Path) -> Path:
     target = tmp_path / "source"
     deploy = target / "deploy"
     deploy.mkdir(parents=True)
-    for relative in ("entrypoint.worker.sh", "ci-claude.sh"):
-        shutil.copy2(ROOT / "deploy" / relative, deploy / relative)
+    shutil.copy2(ROOT / "deploy" / "entrypoint.worker.sh", deploy / "entrypoint.worker.sh")
     shutil.copytree(ROOT / "deploy/worker-entrypoint", deploy / "worker-entrypoint")
     manifest_path = target / "deploy/worker-entrypoint/harness/manifest.json"
     manifest = json.loads(manifest_path.read_text())

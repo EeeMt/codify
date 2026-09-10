@@ -5,7 +5,7 @@ set -u
 # native JSON-RPC notifications through the Codex event translator, and persist
 # a canonical harness result.
 #
-# Privilege model mirrors ci-claude.sh: the Codex CLI subprocess runs as the
+# Privilege model mirrors claude-run.sh: the Codex CLI subprocess runs as the
 # worker runtime user (CODIFY_CODEX_RUN_AS, i.e. codify), while the bridge,
 # translator, and audit stream stay in the root orchestration context.
 
