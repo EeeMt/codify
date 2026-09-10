@@ -97,13 +97,13 @@
 | Pi | 没有完整过程（可能有启动或错误包装日志） | `pi.jsonl` | 有 |
 | OpenCode | 没有完整过程（可能有启动或错误包装日志） | `opencode.jsonl` | 有 |
 
-原因是 Claude 的 `claude-run.sh` 会把 CLI 的实时 stderr tee 到 `console.log`；Codex、Pi、OpenCode 的 native stream 则主要被 bridge/translator 消费并写入各自的 Harness raw JSONL，未完整回显到 `console.log`。
+原因是 Claude 的 `claude-run.sh` 在 `process_stream` 中额外把 native stream 格式化成人类可读 stderr，bootstrap 再将其 tee 到 `console.log`；Codex、Pi、OpenCode 的 native stream 则主要被 bridge/translator 消费并写入各自的 Harness raw JSONL，未完整回显到 `console.log`。
 
 因此，用户查看任务执行过程应优先使用 `Events` 页签；需要检查 CLI 原始事件或细粒度 native progress 时查看归档中的对应 `harness-events/<harness>.jsonl`。不能因为其他三个 Harness 的 `Raw logs` 没有完整过程，就判断它们没有产生执行事件。
 
 #### 1.11.1 目标与边界
 
-目标是让四个 Harness 的 `Raw logs` 都能看到足以排障的人类可读执行过程，包括模型解析、思考生命周期、助手回复、工具调用、上下文压缩、重试、用量和终态；不要求四个 CLI 的原生输出长得完全一致。
+目标是让四个 Harness 的 `Raw logs` 都按统一的 Canonical 事件语义和文本格式展示足以排障的人类可读执行过程，包括模型解析、思考生命周期、助手回复、工具调用、上下文压缩、重试、用量和终态；不要求四个 CLI 的 native stream 本身长得一致。
 
 本次不改变三个既有事实：
 
@@ -111,10 +111,38 @@
 2. `harness-events/<harness>.jsonl` 仍保存脱敏后的完整 native JSONL，不能被可读摘要替代；
 3. `console.log` 仍是 `Raw logs` 的唯一来源，继续走现有 `TaskRawLogChunk`、`/raw-log-stream` 和归档回填链路。
 
-#### 1.11.2 选定方案：Canonical Event 写入后镜像可读摘要
+执行前提统一为 `HARNESS_EXECUTION_MODE=v2_only`：四个 Harness 都由 Worker Kit 提供冻结 CLI，并由对应的 V2 Runtime Bundle 提供 Adapter、runner、translator 和公共 orchestration。V1/direct-script/`baked_image` 兼容执行不再保留；历史 V1/`baked_image` Task 及其 Snapshot 只作为只读审计数据，不迁移，也不允许 retry 或重新执行。
+
+“全部使用 Worker Kit”在本方案中的下线口径是：
+
+- Backend/Scheduler 只接受 `v2_only`，不再把 `dual_canary` 作为可配置执行模式；
+- 新建或更新 Worker Profile 只接受 `runtime_mode=mounted_kit`，前端移除 `baked_image` 选项；历史 Snapshot 的旧值仍可序列化展示；
+- 四个 V2 Adapter 只调用 Runtime Bundle 内的正式 runner，不存在 image/PATH/direct-script fallback；
+- 当前 `worker-entrypoint/legacy/*-run.sh` 全部迁出 `legacy/`，避免目录名继续表达一个已经不存在的执行模式。
+
+#### 1.11.2 Legacy（非 Worker Kit）模式清理范围
+
+下线是代码级硬切，不是只把部署环境变量设成 `v2_only`：
+
+| 代码面 | 删除的 legacy 能力 | 必须保留的历史读取能力 |
+| --- | --- | --- |
+| Backend/Scheduler 配置 | `dual_canary` 默认值、合法值和运行分支；compose、offline compose、E2E 与 preflight 只允许 `v2_only` | health 继续返回当前固定模式，历史 evidence 文档不改写 |
+| Worker Profile | `BAKED_IMAGE_MODE`、`WORKER_RUNTIME_MODES` 双模式校验、create/shared 默认 `baked_image`、create/update 接受 `baked_image` | 历史 Profile/Snapshot/Task payload 仍可返回原 `runtime_mode` |
+| Worker 配置 UI/API 类型 | `baked_image` 选择项、创建默认值和可写联合类型 | Task/历史 Profile 详情仍能把旧值显示为“旧版运行镜像”，但不提供保存或复制入口 |
+| Task 创建/执行/retry | V1 Bundle 可创建、V1 Task 可执行、非 Kit image/PATH fallback、旧 Task retry | V1 或缺少 Kit identity 的历史 Task 只读，操作接口继续返回稳定拒绝码 |
+| Scheduler/recovery | `dual_canary` 下认领或恢复 V1 Task 的分支 | 启动时仍可收敛遗留非终态 Task，不能重新启动 legacy 容器 |
+| Runtime Bundle | V1 Bundle 构建入口和 `legacy/<harness>-run.sh` manifest 路径 | 历史 Bundle 行可查询；不再从旧 Bundle 创建 Task |
+| Worker runtime | direct-script runner、`baked_image` entrypoint fallback | 无；正式执行必须同时具备 Worker Kit identity 与 V2 Runtime Bundle identity |
+| 测试 | 所有证明 legacy 成功执行的测试 | 保留历史只读、创建/retry 拒绝、startup fail-closed 测试 |
+
+数据处理采用硬切：不批量改写历史 Task Snapshot、Runtime Bundle、readiness 或归档。发布前只检查所有启用中的 Shared Configuration/Worker Profile 都已经是有效 `mounted_kit`；若仍有 `baked_image` 配置，先由管理员修正，不能自动猜测 Kit version/path。代码默认值改为 `mounted_kit`，但缺少 Kit 坐标仍按现有校验失败。
+
+#### 1.11.3 选定方案：Canonical Event 写入后镜像可读摘要
 
 ```text
-native stream
+Worker Kit launcher
+  -> V2 Runtime Bundle Adapter / runner
+  -> native stream
   -> Harness translator
   -> harness/events.py 写 event.jsonl（权威）
   -> best-effort 可读摘要写 stderr
@@ -132,9 +160,9 @@ native stream
 - 摘要只在 Canonical Event 成功持久化后输出，不会出现“Raw logs 显示了事件，但权威流里没有”的假象；
 - 输出 stderr 不改变 writer 的 stdout JSON 契约，现有 shell/Python 调用方保持不变。
 
-Claude 已有 `claude-run.sh` 的人类可读 stream processor。第一版由公共 writer 对 `harness.key == "claude"` 跳过镜像，避免思考、回复和工具调用重复显示；Codex、Pi、OpenCode 使用公共摘要。这样只补齐缺口，不重写已经稳定的 Claude runner。
+四个 Harness 必须统一由这个公共 renderer 输出可读事件，不能保留 Claude 特例。Claude runner 的 `process_stream` 只保留 native stream 解析和 result 构建，旧的事件 pretty 输出及其 direct-script 兼容分支直接删除，避免同一思考、回复和工具调用显示两次。
 
-#### 1.11.3 摘要格式与降噪规则
+#### 1.11.4 摘要格式与降噪规则
 
 统一使用单行纯文本，带时间、Harness、Canonical `seq` 和类别，例如：
 
@@ -171,21 +199,24 @@ Claude 已有 `claude-run.sh` 的人类可读 stream processor。第一版由公
 
 摘要属于观测信息，不得反向影响执行：格式化、编码或 stderr 写入失败必须被捕获，Canonical Event 已落盘即视为 writer 成功；每条摘要保持在单次短写入范围内，`seq` 用于并发输出时核对顺序。
 
-#### 1.11.4 实施范围
+#### 1.11.5 实施范围
 
-最小实现只涉及：
+实施分为同一次硬切中的 legacy 清理与 Raw-log 统一两部分，范围如下：
 
-1. `deploy/worker-entrypoint/harness/events.py`：增加事件到摘要的映射、脱敏/截断和 best-effort stderr 输出；
-2. Canonical writer 的单元测试：覆盖映射、跳过规则、截断、脱敏、Claude 去重和“摘要失败不影响事件写入”；
-3. 一条 bootstrap 集成测试：证明 stderr 摘要进入 `console.log`，现有 raw-log 持久化/API 无需改动。
+1. 收口执行入口：配置校验只接受 `v2_only`；Worker Profile 写接口只接受 `mounted_kit`，前端删除 `baked_image` 选择；历史 Task/Profile/Snapshot 的读取保持不变；
+2. 将四个仍位于 `deploy/worker-entrypoint/legacy/*-run.sh` 的 runner 移到 `deploy/worker-entrypoint/harness/runners/`，同步四个 Adapter 的 `build_command`、Runtime Bundle 文件范围/manifest 校验和对应测试；runner 继续属于冻结 Runtime Bundle，CLI 仍只来自 Worker Kit；
+3. `deploy/worker-entrypoint/harness/events.py`：增加事件到摘要的映射、脱敏/截断和 best-effort stderr 输出；
+4. Claude runner：删除 native 事件 pretty 输出，保留解析、result 和非事件错误日志，正式路径只接受 Adapter 注入的 translator/writer；
+5. 删除 V1/direct-script/`baked_image` 成功路径兼容测试，保留 `v2_only` 拒绝与历史数据只读测试；Canonical writer 与四 Harness Adapter 测试统一覆盖同格式、跳过高频事件、截断、脱敏、无重复和“摘要失败不影响事件写入”；
+6. 一条 Worker Kit launcher/bootstrap 集成测试：证明公共 stderr 摘要进入 `console.log`，现有 raw-log 持久化和 `/raw-log-stream` 无需改动。
 
-不修改四个 translator、不增加数据库字段、不增加 API、不修改 `TaskProcessPanel`，也不把 native raw archive 合并进 `console.log`。
+不修改四个 translator、不增加数据库字段或新 API、不修改 `TaskProcessPanel`，也不把 native raw archive 合并进 `console.log`。现有 Profile API 只收窄允许值，Worker 配置 UI 只删除旧选项。`legacy/` 目录和运行时 manifest 中的 `legacy/<harness>-run.sh` 条目在本次改造后应不存在。
 
-#### 1.11.5 验收矩阵
+#### 1.11.6 验收矩阵
 
 | 层级 | Claude | Codex | Pi | OpenCode |
 | --- | --- | --- | --- | --- |
-| Adapter fixture | 现有 pretty stream 无重复 | tool/message/failure 摘要 | tool/message/failure 摘要 | tool/message/failure 摘要 |
+| Adapter fixture | 公共 tool/message/failure 摘要且无旧 pretty 重复 | 公共 tool/message/failure 摘要 | 公共 tool/message/failure 摘要 | 公共 tool/message/failure 摘要 |
 | Canonical 回归 | `event.jsonl` 内容与顺序不变 | 同左 | 同左 | 同左 |
 | Worker 集成 | `console.log` 可读 | 公共摘要进入 `console.log` | 同左 | 同左 |
 | 实际 Task（运行中） | `Raw logs` 持续可见过程 | 同左 | 同左 | 同左 |
@@ -193,11 +224,12 @@ Claude 已有 `claude-run.sh` 的人类可读 stream processor。第一版由公
 
 验收顺序：
 
-1. 用现有四 Harness success/tool-failure fixtures 跑 translator 与 writer 测试，确认 Canonical JSON 逐条不变；
-2. 构建新的不可变 Runtime Bundle，记录 Bundle id/digest，不能只重启旧容器；
-3. 在开发环境各跑一个真实 Task，运行中打开 `Raw logs`，至少观察到 `thinking/tool/assistant/harness terminal` 中实际发生的类别；
-4. 任务结束后刷新页面，确认 DB 回填没有重复或缺尾，并下载归档核对 `console.log`、`event.jsonl` 和对应 `harness-events/<harness>.jsonl`；
-5. 同时检查 `Events` 页签，确认结构化卡片数量、工具配对和终态未因摘要镜像发生变化。
+1. 静态检查受控 runtime 中没有 `worker-entrypoint/legacy`、V1 runner 或 `baked_image` fallback 引用；Backend/Scheduler 非 `v2_only` 时启动失败，Profile 写接口拒绝 `baked_image`，Worker 配置 UI 不再提供该选项；
+2. 用现有四 Harness success/tool-failure fixtures 跑 Adapter、translator 与 writer 测试，确认 Canonical JSON 逐条不变；
+3. 构建新的不可变 Runtime Bundle，记录 Bundle id/digest，并验证四 Harness manifest 都指向 `harness/runners/`；不能只重启旧容器；
+4. 在开发环境各跑一个真实 Worker Kit Task，核对冻结的 Kit/Bundle/Profile identity；运行中打开 `Raw logs`，至少观察到 `thinking/tool/assistant/harness terminal` 中实际发生的类别；
+5. 任务结束后刷新页面，确认 DB 回填没有重复或缺尾，并下载归档核对 `console.log`、`event.jsonl` 和对应 `harness-events/<harness>.jsonl`；
+6. 同时检查 `Events` 页签，确认结构化卡片数量、工具配对和终态未因摘要镜像发生变化；历史 V1 Task 仍可读但不能 retry。
 
 由于摘要发生在 Canonical Event 之后且与 Provider wire protocol 无关，每个 Harness 一个真实任务即可验证本改动；无需为了这项日志展示重复所有 Harness × protocol 组合。
 
