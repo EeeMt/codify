@@ -80,6 +80,27 @@
 - **超时**（Task 513）：临时将 `task_timeout_peak_seconds` 与 `task_timeout_off_peak_seconds` 设为 `60` → `status=failed`、error `Task timed out after 60s`、容器终止（测试后恢复原值）。
 - **推论**：这两个路径在任一 harness 验证通过即可，无需每个 harness 都重跑。
 
+### 1.11 Raw logs 与任务进程显示边界（四个 Harness）
+
+当前必须区分三个不同的“日志”概念：
+
+1. **任务详情的 `Raw logs` 页签**展示的是 Worker 的 `console.log`（运行中由 `/raw-log-stream` tail，结束后读取归档的 `console.log`），不是 Harness 原始事件归档。
+2. **任务详情的 `Events` 页签**展示的是四个 Adapter 将 native stream 归一化后，由 `WorkerEventProjector` 投影成的 `TaskLog`，例如助手消息、工具调用、thinking 生命周期和上下文压缩。
+3. **Harness 原始事件归档**位于 `harness-events/<harness>.jsonl`，保留各 Harness 的已脱敏 native JSONL，是 CLI 层排障的第一现场。
+
+当前显示能力如下：
+
+| Harness | `Raw logs` 中的完整人类可读执行过程 | `harness-events/<harness>.jsonl` | `Events` 页签中的结构化过程 |
+| --- | --- | --- | --- |
+| Claude | 有 | `claude.jsonl` | 有 |
+| Codex | 没有完整过程（可能有启动或错误包装日志） | `codex.jsonl` | 有 |
+| Pi | 没有完整过程（可能有启动或错误包装日志） | `pi.jsonl` | 有 |
+| OpenCode | 没有完整过程（可能有启动或错误包装日志） | `opencode.jsonl` | 有 |
+
+原因是 Claude 的 `ci-claude.sh` 会把 CLI 的实时 stderr tee 到 `console.log`；Codex、Pi、OpenCode 的 native stream 则主要被 bridge/translator 消费并写入各自的 Harness raw JSONL，未完整回显到 `console.log`。
+
+因此，用户查看任务执行过程应优先使用 `Events` 页签；需要检查 CLI 原始事件或细粒度 native progress 时查看归档中的对应 `harness-events/<harness>.jsonl`。不能因为其他三个 Harness 的 `Raw logs` 没有完整过程，就判断它们没有产生执行事件。
+
 ## 2. Codex 专项（CLI 行为差异）
 
 Codex 是首个第二 Harness，其固有 CLI 行为与 Codify 抽象不同，需由 adapter 的 config/prepare 显式收敛到冻结事实。
