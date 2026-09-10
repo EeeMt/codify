@@ -37,43 +37,45 @@
             clearable
             class="filter-popover__search"
           />
-          <div v-if="optionsLoading" class="filter-popover__state">
-            <n-spin size="small" />
-          </div>
-          <div v-else-if="optionsError" class="filter-popover__state filter-popover__state--error">
-            <span>{{ t('filter.loadFailed') }}</span>
-            <n-button
-              v-if="selectedCategory.optionsRetry"
-              text
-              type="primary"
-              size="tiny"
-              class="filter-popover__retry"
-              @click="selectedCategory.optionsRetry()"
-            >
-              {{ t('common.retry') }}
-            </n-button>
-          </div>
-          <div v-else-if="filteredOptions.length === 0" class="filter-popover__state">
-            {{ t('filter.noResults') }}
-          </div>
-          <n-checkbox-group v-else v-model:value="tempMultiValue" class="filter-popover__checkbox-group">
-            <div
-              v-for="opt in filteredOptions"
-              :key="opt.value"
-              class="filter-popover__option-row"
-            >
-              <n-checkbox :value="opt.value">
-                <template #default>
-                  <div class="filter-popover__option-content">
-                    <span v-if="opt.color" class="filter-popover__color-dot" :style="{ background: opt.color }" />
-                    <TruncatedOptionLabel v-if="opt.truncateLabel" :label="opt.label" />
-                    <span v-else>{{ opt.label }}</span>
-                  </div>
-                </template>
-              </n-checkbox>
-              <span v-if="opt.count !== undefined" class="filter-popover__count">{{ opt.count }}</span>
+          <div class="filter-popover__options-scroll">
+            <div v-if="optionsLoading" class="filter-popover__state">
+              <n-spin size="small" />
             </div>
-          </n-checkbox-group>
+            <div v-else-if="optionsError" class="filter-popover__state filter-popover__state--error">
+              <span>{{ t('filter.loadFailed') }}</span>
+              <n-button
+                v-if="selectedCategory.optionsRetry"
+                text
+                type="primary"
+                size="tiny"
+                class="filter-popover__retry"
+                @click="selectedCategory.optionsRetry()"
+              >
+                {{ t('common.retry') }}
+              </n-button>
+            </div>
+            <div v-else-if="filteredOptions.length === 0" class="filter-popover__state">
+              {{ t('filter.noResults') }}
+            </div>
+            <n-checkbox-group v-else v-model:value="tempMultiValue" class="filter-popover__checkbox-group">
+              <div
+                v-for="opt in filteredOptions"
+                :key="opt.value"
+                class="filter-popover__option-row"
+              >
+                <n-checkbox :value="opt.value">
+                  <template #default>
+                    <div class="filter-popover__option-content">
+                      <span v-if="opt.color" class="filter-popover__color-dot" :style="{ background: opt.color }" />
+                      <TruncatedOptionLabel v-if="opt.truncateLabel" :label="opt.label" />
+                      <span v-else>{{ opt.label }}</span>
+                    </div>
+                  </template>
+                </n-checkbox>
+                <span v-if="opt.count !== undefined" class="filter-popover__count">{{ opt.count }}</span>
+              </div>
+            </n-checkbox-group>
+          </div>
           <div class="filter-popover__footer">
             <span class="filter-popover__footer-action" @click="clearCurrent">{{ t('filter.clear') }}</span>
             <span class="filter-popover__footer-action filter-popover__footer-action--primary" @click="applyMulti">{{ t('filter.apply') }}</span>
@@ -90,15 +92,17 @@
             clearable
             class="filter-popover__search"
           />
-          <div
-            v-for="opt in filteredOptions"
-            :key="opt.value"
-            class="filter-popover__option-row filter-popover__option-row--clickable"
-            :class="{ 'filter-popover__option-row--selected': filters[selectedCategory.key] === opt.value }"
-            @click="applySingle(opt.value)"
-          >
-            <span v-if="opt.color" class="filter-popover__color-dot" :style="{ background: opt.color }" />
-            <span>{{ opt.label }}</span>
+          <div class="filter-popover__options-scroll">
+            <div
+              v-for="opt in filteredOptions"
+              :key="opt.value"
+              class="filter-popover__option-row filter-popover__option-row--clickable"
+              :class="{ 'filter-popover__option-row--selected': filters[selectedCategory.key] === opt.value }"
+              @click="applySingle(opt.value)"
+            >
+              <span v-if="opt.color" class="filter-popover__color-dot" :style="{ background: opt.color }" />
+              <span>{{ opt.label }}</span>
+            </div>
           </div>
           <div class="filter-popover__footer">
             <span class="filter-popover__footer-action" @click="clearCurrent">{{ t('filter.clear') }}</span>
@@ -107,12 +111,14 @@
 
         <!-- Date range -->
         <template v-else-if="selectedCategory.type === 'date-range'">
-          <n-date-picker
-            v-model:value="tempDateRange"
-            type="daterange"
-            clearable
-            class="filter-popover__date-picker"
-          />
+          <div class="filter-popover__options-scroll">
+            <n-date-picker
+              v-model:value="tempDateRange"
+              type="daterange"
+              clearable
+              class="filter-popover__date-picker"
+            />
+          </div>
           <div class="filter-popover__footer">
             <span class="filter-popover__footer-action" @click="clearCurrent">{{ t('filter.clear') }}</span>
             <span class="filter-popover__footer-action filter-popover__footer-action--primary" @click="applyDate">{{ t('filter.apply') }}</span>
@@ -220,14 +226,25 @@ function clearCurrent() {
 .filter-popover {
   width: min(240px, calc(100vw - 24px));
   box-sizing: border-box;
-  max-height: 360px;
-  overflow-y: auto;
-  overflow-x: hidden;
+  max-height: min(360px, calc(100vh - 24px));
+  overflow: hidden;
+  overscroll-behavior: contain;
   background: var(--n-color, #fff);
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.1);
   border: 1px solid var(--n-border-color, #e0e0e6);
   padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+.filter-popover__categories,
+.filter-popover__options {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.filter-popover__categories {
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .filter-popover__header {
   font-size: 11px;
@@ -271,12 +288,24 @@ function clearCurrent() {
 .filter-popover__options-header {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--n-divider-color, #efeff5);
   margin: 0 8px 4px;
   padding-left: 4px;
   padding-right: 4px;
+}
+.filter-popover__options {
+  display: flex;
+  flex-direction: column;
+}
+.filter-popover__options-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .filter-popover__back {
   color: var(--n-primary-color, #4080ff);
@@ -358,6 +387,7 @@ function clearCurrent() {
 }
 .filter-popover__footer {
   display: flex;
+  flex: 0 0 auto;
   justify-content: space-between;
   padding: 8px 4px;
   border-top: 1px solid var(--n-divider-color, #efeff5);
