@@ -18,4 +18,8 @@ describe('config-panels modal styling', () => {
   it('does not cast a drop shadow between stacked config cards', () => {
     expect(cssSource).toMatch(/\.config-form-card\s*\{[\s\S]*box-shadow:\s*none;/)
   })
+
+  it('allows config cards to shrink around horizontally scrollable content', () => {
+    expect(cssSource).toMatch(/\.config-form-card\s*\{[\s\S]*min-width:\s*0;/)
+  })
 })

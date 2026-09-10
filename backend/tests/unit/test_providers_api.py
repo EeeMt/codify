@@ -551,6 +551,42 @@ class ProviderConnectionTestTests(unittest.TestCase):
         self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer test-key")
         self.assertEqual(request.kwargs["json"]["max_output_tokens"], 1)
 
+    def test_custom_ca_keeps_public_ca_trust_for_connection_test(self):
+        from app.api.providers import _provider_connection_verify
+
+        context = MagicMock()
+        with (
+            patch("app.api.providers.get_ssl_verify", return_value="/custom-ca.pem"),
+            patch("app.api.providers.certifi.where", return_value="/public-ca.pem"),
+            patch("app.api.providers.ssl.create_default_context", return_value=context) as create,
+        ):
+            self.assertIs(_provider_connection_verify(), context)
+
+        create.assert_called_once_with(cafile="/public-ca.pem")
+        context.load_verify_locations.assert_called_once_with(cafile="/custom-ca.pem")
+
+    def test_opencode_connection_adds_routing_session_header(self):
+        provider = _make_provider(
+            id=4,
+            base_url="https://opencode.ai/zen/go",
+            api_key="test-key",
+            model="minimax-m2.7",
+        )
+        self.mock_db.get.return_value = provider
+
+        upstream = MagicMock(status_code=200)
+        http_client = MagicMock()
+        http_client.__aenter__ = AsyncMock(return_value=http_client)
+        http_client.__aexit__ = AsyncMock(return_value=None)
+        http_client.post = AsyncMock(return_value=upstream)
+
+        with patch("app.api.providers.httpx.AsyncClient", return_value=http_client):
+            response = self.client.post("/api/providers/4/test-connection")
+
+        self.assertEqual(response.status_code, 200)
+        headers = http_client.post.await_args.kwargs["headers"]
+        self.assertRegex(headers["x-opencode-session"], r"^codify-connection-test-[0-9a-f]{32}$")
+
     def test_upstream_error_does_not_return_response_body(self):
         provider = _make_provider(id=3, api_key="test-key")
         self.mock_db.get.return_value = provider

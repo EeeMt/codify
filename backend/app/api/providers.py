@@ -2,8 +2,12 @@
 
 import logging
 import re
+import ssl
 import time
+import uuid
+from urllib.parse import urlsplit
 
+import certifi
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator, model_validator
@@ -24,6 +28,7 @@ from app.core.model_credentials import (
     soft_retire_credential,
 )
 from app.core.model_endpoints import COMPAT_PROFILES
+from app.core.ssl_utils import get_ssl_verify
 from app.database import get_db
 from app.dependencies.auth import require_admin_user
 from app.models import AIProvider, Task, TaskStatus, User
@@ -333,7 +338,39 @@ def _provider_connection_request(provider: AIProvider, api_key: str) -> tuple[st
             detail=f"Unsupported model protocol: {protocol}",
         )
 
+    hostname = (urlsplit(base_url).hostname or "").lower()
+    if hostname == "opencode.ai" or hostname.endswith(".opencode.ai"):
+        headers["x-opencode-session"] = f"codify-connection-test-{uuid.uuid4().hex}"
+
     return url, headers, payload
+
+
+def _provider_connection_target(url: str) -> str:
+    """Return a log-safe endpoint target without userinfo or query data."""
+    parsed = urlsplit(url)
+    host = parsed.hostname or "unknown"
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.scheme}://{host}{port}{parsed.path}"
+
+
+def _provider_connection_error_detail(exc: httpx.HTTPError, url: str, api_key: str) -> str:
+    """Keep diagnostic exception text useful without leaking configured secrets."""
+    detail = str(exc)
+    for sensitive_value in (url, api_key):
+        if sensitive_value:
+            detail = detail.replace(sensitive_value, "[redacted]")
+    return detail[:200] or "no detail"
+
+
+def _provider_connection_verify() -> ssl.SSLContext | bool:
+    """Trust public CAs and append the configured internal CA when present."""
+    configured_verify = get_ssl_verify()
+    if not isinstance(configured_verify, str):
+        return configured_verify
+
+    context = ssl.create_default_context(cafile=certifi.where())
+    context.load_verify_locations(cafile=configured_verify)
+    return context
 
 
 async def _provider_connection_api_key(db: AsyncSession, provider: AIProvider) -> str:
@@ -397,7 +434,11 @@ async def test_provider_connection(
     url, headers, payload = _provider_connection_request(provider, api_key)
     started_at = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=10.0,
+            follow_redirects=False,
+            verify=_provider_connection_verify(),
+        ) as client:
             response = await client.post(url, headers=headers, json=payload)
     except httpx.TimeoutException as exc:
         raise HTTPException(
@@ -406,9 +447,11 @@ async def test_provider_connection(
         ) from exc
     except httpx.HTTPError as exc:
         logger.warning(
-            "Provider connection test failed for provider id=%s (%s)",
+            "Provider connection test failed for provider id=%s (%s) target=%s detail=%s",
             provider_id,
             type(exc).__name__,
+            _provider_connection_target(url),
+            _provider_connection_error_detail(exc, url, api_key),
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
