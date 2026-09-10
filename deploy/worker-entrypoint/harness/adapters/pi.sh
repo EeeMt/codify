@@ -204,7 +204,7 @@ pi_adapter_prepare_config() {
 }
 
 pi_adapter_build_command() {
-    echo "${CODIFY_HARNESS_COMMAND:-${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/legacy/pi-run.sh}"
+    echo "${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/runners/pi-run.sh"
 }
 
 pi_adapter_materialize_skills() {

@@ -10,7 +10,7 @@ from pathlib import Path
 
 def _prepare_script_copy(tmpdir_path: Path, fake_claude_content: str) -> Path:
     repo_root = Path(__file__).resolve().parents[3]
-    script_path = repo_root / "deploy" / "worker-entrypoint" / "legacy" / "claude-run.sh"
+    script_path = repo_root / "deploy" / "worker-entrypoint" / "harness" / "runners" / "claude-run.sh"
 
     fake_claude = tmpdir_path / "fake-claude.sh"
     fake_claude.write_text(fake_claude_content, encoding="utf-8")
@@ -691,7 +691,8 @@ def test_adapter_resume_fallback_preserves_canonical_event_history():
         Path(__file__).resolve().parents[3]
         / "deploy"
         / "worker-entrypoint"
-        / "legacy"
+        / "harness"
+        / "runners"
         / "claude-run.sh"
     ).read_text(encoding="utf-8")
     fallback = script.split('if [[ -n "$RESUME" && ! -s "$RESULT_FILE" ]]; then', 1)[1]

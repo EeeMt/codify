@@ -203,7 +203,7 @@ async def test_create_task_persists_manual_initiator_metadata():
          patch("app.api.tasks.bind_runtime_bundle", new=AsyncMock(return_value=bundle)), \
          patch(
              "app.api.task_creation_service.get_effective_settings",
-             return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+             return_value=SimpleNamespace(harness_execution_mode="v2_only"),
          ), \
          patch(
              "app.api.tasks.get_usage_quota_service",
@@ -304,11 +304,11 @@ async def test_retry_task_persists_manual_initiator_metadata():
          patch("app.api.tasks.bind_runtime_bundle", new=AsyncMock(return_value=bundle)), \
          patch(
              "app.api.task_creation_service.get_effective_settings",
-             return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+             return_value=SimpleNamespace(harness_execution_mode="v2_only"),
          ), \
          patch(
              "app.api.task_operations.get_effective_settings",
-             return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+             return_value=SimpleNamespace(harness_execution_mode="v2_only"),
          ), \
          patch("app.api.tasks.select_snapshot_run_instruction_template", return_value="template"), \
          patch(

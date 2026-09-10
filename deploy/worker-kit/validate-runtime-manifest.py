@@ -153,8 +153,7 @@ def _adapter_scope(key: str, adapter: dict, files: list[dict]) -> tuple[set[str]
         own = {item["path"] for item in files if item["path"].startswith(directory + "/")}
     else:
         prefix = f"worker-entrypoint/harness/adapters/{key}"
-        legacy = f"legacy/{key}-run.sh"
-        own = {item["path"] for item in files if item["path"].startswith(prefix) or item["path"] == legacy}
+        own = {item["path"] for item in files if item["path"].startswith(prefix)}
     all_private = set()
     for other_key, other in _CURRENT_ADAPTERS.items():
         other_source = other.get("source") if isinstance(other.get("source"), dict) else {}
@@ -165,7 +164,6 @@ def _adapter_scope(key: str, adapter: dict, files: list[dict]) -> tuple[set[str]
             all_private.update(
                 item["path"] for item in files
                 if item["path"].startswith(f"worker-entrypoint/harness/adapters/{other_key}")
-                or item["path"] == f"legacy/{other_key}-run.sh"
             )
     return own, {item["path"] for item in files} - all_private
 

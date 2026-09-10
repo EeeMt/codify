@@ -41,7 +41,7 @@ mock_settings.worker_network = ""
 mock_settings.worker_extra_volumes = ""
 mock_settings.worker_workspace_host_path = "/tmp/test-codify-workspace"
 mock_settings.worker_skip_image_pull = True
-mock_settings.harness_execution_mode = "dual_canary"
+mock_settings.harness_execution_mode = "v2_only"
 
 from app.core.worker import WorkerExecutor
 from app.core.worker_runtime_bundle import (
@@ -189,6 +189,9 @@ def create_mock_db(task, issue=None):
         worker_profile_id=task.worker_profile_id,
         profile_name="Default Worker",
         image="test-worker:latest",
+        runtime_mode="mounted_kit",
+        worker_kit_version="0.6.16",
+        worker_kit_path="/opt/codify/worker-kits/test",
         volume_mounts=[],
         environment_variables=[],
         pre_script="",

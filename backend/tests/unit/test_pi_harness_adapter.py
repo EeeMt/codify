@@ -589,7 +589,7 @@ def test_pi_adapter_propagates_worker_privilege_drop_to_runner():
         '"$(dirname "${models_file}")"' in content
     )
     assert 'HOME="${CODIFY_PI_CLI_HOME:-/home/codify}"' in (
-        (REPO_ROOT / "deploy/worker-entrypoint/legacy/pi-run.sh").read_text(encoding="utf-8")
+        (REPO_ROOT / "deploy/worker-entrypoint/harness/runners/pi-run.sh").read_text(encoding="utf-8")
     )
 
 
@@ -887,7 +887,7 @@ def test_pi_runner_pins_codify_provider_and_snapshot_model():
     # The runner must pin the adapter's ``codify`` provider and the Snapshot
     # model so the key goes to the relay endpoint carved into
     # $HOME/.pi/agent/models.json.
-    runner = (REPO_ROOT / "deploy/worker-entrypoint/legacy/pi-run.sh").read_text(encoding="utf-8")
+    runner = (REPO_ROOT / "deploy/worker-entrypoint/harness/runners/pi-run.sh").read_text(encoding="utf-8")
     assert "--mode rpc --provider codify" in runner
     assert '--session-dir "${PI_NATIVE_SESSION_DIR}"' in runner
     assert "--model \"${PI_MODEL_RPC}\"" in runner
@@ -1008,7 +1008,7 @@ def test_pi_runner_terminates_and_persists_result_after_settled(tmp_path):
             "CODIFY_PI_OWNER_NO_SOCKET": "1",
     }
     proc = subprocess.run(
-        ["bash", str(REPO_ROOT / "deploy/worker-entrypoint/legacy/pi-run.sh")],
+        ["bash", str(REPO_ROOT / "deploy/worker-entrypoint/harness/runners/pi-run.sh")],
         env=env,
         capture_output=True,
         text=True,

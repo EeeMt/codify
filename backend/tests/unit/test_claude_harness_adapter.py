@@ -129,8 +129,8 @@ claude_adapter_metadata
     result = subprocess.run(["bash", "-c", command], check=True, capture_output=True, text=True)
     metadata = json.loads(result.stdout)
     assert metadata["key"] == "claude"
-    assert metadata["contract_version"] == "codify.worker.harness/v1"
-    assert metadata["event_schema"] == "codify.worker.event/v1"
+    assert metadata["contract_version"] == "codify.worker.harness/v2"
+    assert metadata["event_schema"] == "codify.worker.event/v2"
     assert metadata["capabilities"]["resume"] is True
     assert metadata["capabilities"]["task_skills"] is True
     assert metadata["capabilities"]["usage_tokens"] is True

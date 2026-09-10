@@ -216,7 +216,7 @@ def _create_task_patches(provider, worker_profile, snapshot):
         patch("app.api.tasks.bind_runtime_bundle", new=AsyncMock(return_value=bundle)),
         patch(
             "app.api.task_creation_service.get_effective_settings",
-            return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+            return_value=SimpleNamespace(harness_execution_mode="v2_only"),
         ),
         patch(
             "app.core.task_helpers.get_effective_settings",
@@ -359,7 +359,7 @@ async def test_create_persists_snapshot_and_rendered_prompt_before_commit() -> N
         patch("app.api.tasks.bind_runtime_bundle", new=AsyncMock(return_value=bundle)),
         patch(
             "app.api.task_creation_service.get_effective_settings",
-            return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+            return_value=SimpleNamespace(harness_execution_mode="v2_only"),
         ),
         patch(
             "app.core.task_helpers.get_effective_settings",

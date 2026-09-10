@@ -32,7 +32,7 @@ it never simulates steering with a re-prompt and never emits ``delivered``.
 ``negotiate_capabilities`` mirrors the backend ``V2_SYSTEM_CAPABILITY_UPPER_BOUND``.
 
 The Server process lifecycle (start / readiness / terminate / no-daemon
-convergence) is owned by the bash adapter (opencode.sh / legacy/opencode-run.sh);
+convergence) is owned by the bash adapter (opencode.sh / harness/runners/opencode-run.sh);
 this module only talks to an already-listening Server over HTTP.
 """
 

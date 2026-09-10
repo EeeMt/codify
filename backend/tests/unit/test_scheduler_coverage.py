@@ -44,16 +44,24 @@ def _make_mock_task(
     task.is_retry = False
     task.retry_source_task_id = None
     task.runtime_bundle = MagicMock(
-        contract_version="codify.worker.harness/v1",
+        contract_version="codify.worker.harness/v2",
         digest="a" * 64,
         manifest={"adapters": {"claude": {}}},
     )
     task.worker_profile_snapshot = MagicMock(
-        runtime_contract_version="codify.worker.harness/v1",
+        runtime_contract_version="codify.worker.harness/v2",
         runtime_bundle_digest="a" * 64,
         harness_key="claude",
     )
     return task
+
+
+def _v2_attempt() -> SimpleNamespace:
+    return SimpleNamespace(
+        attempt_id="attempt-1",
+        harness_key="claude",
+        event_schema="codify.worker.event/v2",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +217,8 @@ class TestRunTaskBackground(unittest.IsolatedAsyncioTestCase):
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
+        mock_db.flush = AsyncMock()
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.side_effect = [mock_task, None]
@@ -246,6 +256,8 @@ class TestRunTaskBackground(unittest.IsolatedAsyncioTestCase):
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
+        mock_db.flush = AsyncMock()
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.side_effect = [cancelled_task, None]
@@ -378,6 +390,7 @@ class TestRunTaskBackground(unittest.IsolatedAsyncioTestCase):
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.side_effect = [mock_task, None]
@@ -625,6 +638,7 @@ class TestCrashRecoveryContainers(unittest.IsolatedAsyncioTestCase):
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
 
         # No stuck tasks
         mock_result = MagicMock()
@@ -659,6 +673,7 @@ class TestCrashRecoveryContainers(unittest.IsolatedAsyncioTestCase):
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
@@ -686,9 +701,11 @@ class TestCrashRecoveryContainers(unittest.IsolatedAsyncioTestCase):
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [stuck_task]
+        mock_result.scalar_one_or_none.return_value = _v2_attempt()
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         mock_docker = MagicMock()
@@ -724,9 +741,11 @@ class TestCrashRecoveryContainers(unittest.IsolatedAsyncioTestCase):
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [stuck_task]
+        mock_result.scalar_one_or_none.return_value = _v2_attempt()
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         with (
@@ -777,11 +796,13 @@ class TestSmartCrashRecovery(unittest.IsolatedAsyncioTestCase):
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [stuck_task]
+        mock_result.scalar_one_or_none.return_value = _v2_attempt()
 
         mock_db = MagicMock()
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         # Running container whose name maps to task 42
@@ -820,11 +841,13 @@ class TestSmartCrashRecovery(unittest.IsolatedAsyncioTestCase):
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [stuck_task]
+        mock_result.scalar_one_or_none.return_value = _v2_attempt()
 
         mock_db = MagicMock()
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         container = self._make_container("codify-7-issue200", status="running")
@@ -859,6 +882,7 @@ class TestSmartCrashRecovery(unittest.IsolatedAsyncioTestCase):
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         # Orphan running container (task_id=99 not in DB)
@@ -893,11 +917,13 @@ class TestSmartCrashRecovery(unittest.IsolatedAsyncioTestCase):
             task_with_container,
             task_without_container,
         ]
+        mock_result.scalar_one_or_none.return_value = _v2_attempt()
 
         mock_db = MagicMock()
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         # Only task 10 has a running container
@@ -945,11 +971,13 @@ class TestSmartCrashRecovery(unittest.IsolatedAsyncioTestCase):
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [stuck_task]
+        mock_result.scalar_one_or_none.return_value = _v2_attempt()
 
         mock_db = MagicMock()
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         # Container for task 50 exists but is exited
@@ -984,11 +1012,13 @@ class TestSmartCrashRecovery(unittest.IsolatedAsyncioTestCase):
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [stuck_task]
+        mock_result.scalar_one_or_none.return_value = _v2_attempt()
 
         mock_db = MagicMock()
         mock_db.__aenter__ = AsyncMock(return_value=mock_db)
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         dead_container = self._make_container("codify-60-issue2", status="dead")

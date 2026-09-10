@@ -290,11 +290,11 @@ def _mock_task_runtime_dependencies():
         ),
         patch(
             "app.api.task_creation_service.get_effective_settings",
-            return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+            return_value=SimpleNamespace(harness_execution_mode="v2_only"),
         ),
         patch(
             "app.api.task_operations.get_effective_settings",
-            return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+            return_value=SimpleNamespace(harness_execution_mode="v2_only"),
         ),
     ):
         yield

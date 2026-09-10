@@ -1,10 +1,4 @@
-"""Unit tests for the execution contract policy (phase1-design §2.3).
-
-Covers mode validation (``dual_canary`` / ``v2_only``), the generic contract
-eligibility and the exact-V2 requirement, legacy-snapshot detection, and the
-unified ``legacy_contract_not_executable`` code used by scheduler remediation
-and the worker-side fail-closed gate.
-"""
+"""Unit tests for the V2-only execution contract policy."""
 
 from __future__ import annotations
 
@@ -25,7 +19,6 @@ from app.core.harness_execution_policy import (
     validate_harness_execution_mode,
 )
 from app.core.harness_protocol import (
-    CANONICAL_EVENT_SCHEMA,
     CANONICAL_EVENT_SCHEMA_V2,
     HARNESS_CONTRACT_VERSION,
     HARNESS_CONTRACT_VERSION_V2,
@@ -62,9 +55,11 @@ class Task:
 # ── mode validation ─────────────────────────────────────────────────────────
 
 
-def test_accepts_both_modes():
-    validate_harness_execution_mode("dual_canary")
+def test_accepts_only_v2_mode():
     validate_harness_execution_mode("v2_only")
+
+    with pytest.raises(ExecutionPolicyError):
+        validate_harness_execution_mode("dual_canary")
 
 
 def test_rejects_unknown_mode():
@@ -77,7 +72,7 @@ def test_startup_requires_execution_mode_to_be_explicit():
     implicit = type(
         "Settings",
         (),
-        {"harness_execution_mode": "dual_canary", "model_fields_set": set()},
+        {"harness_execution_mode": "v2_only", "model_fields_set": set()},
     )()
     with pytest.raises(ExecutionPolicyError) as exc:
         require_explicit_harness_execution_mode(implicit)
@@ -87,11 +82,11 @@ def test_startup_requires_execution_mode_to_be_explicit():
         "Settings",
         (),
         {
-            "harness_execution_mode": "dual_canary",
+            "harness_execution_mode": "v2_only",
             "model_fields_set": {"harness_execution_mode"},
         },
     )()
-    assert require_explicit_harness_execution_mode(explicit) == "dual_canary"
+    assert require_explicit_harness_execution_mode(explicit) == "v2_only"
 
 
 def test_is_v2_only_flag():
@@ -102,9 +97,12 @@ def test_is_v2_only_flag():
 # ── generic contract eligibility ────────────────────────────────────────────
 
 
-def test_contract_accepts_v1_and_v2_bundles():
-    require_executable_contract(Bundle(HARNESS_CONTRACT_VERSION))
+def test_contract_accepts_only_v2_bundles():
     require_executable_contract(Bundle(HARNESS_CONTRACT_VERSION_V2))
+
+    with pytest.raises(ExecutionPolicyError) as exc:
+        require_executable_contract(Bundle(HARNESS_CONTRACT_VERSION))
+    assert exc.value.code == LEGACY_CONTRACT_NOT_EXECUTABLE
 
 
 def test_contract_rejects_missing_or_unknown_version():
@@ -128,7 +126,7 @@ def test_v2_contract_requires_exact_v2_attempt_and_bundle():
 def test_v2_contract_rejects_v1_attempt():
     with pytest.raises(ExecutionPolicyError) as exc:
         require_executable_contract_v2(
-            Attempt(CANONICAL_EVENT_SCHEMA), Bundle(HARNESS_CONTRACT_VERSION_V2)
+            Attempt("codify.worker.event/v1"), Bundle(HARNESS_CONTRACT_VERSION_V2)
         )
     assert exc.value.code == LEGACY_CONTRACT_NOT_EXECUTABLE
 
@@ -158,24 +156,25 @@ def test_v2_resume_recovery_requires_durable_attempt_but_prestart_allows_missing
 
     # Pre-start claim/creation validates the frozen identity before the first
     # attempt exists, so the default remains intentionally permissive.
-    require_task_executable_contract(task, bundle, "dual_canary")
+    require_task_executable_contract(task, bundle, "v2_only")
 
     with pytest.raises(ExecutionPolicyError) as exc:
         require_task_executable_contract(
             task,
             bundle,
-            "dual_canary",
+            "v2_only",
             require_attempt_for_v2=True,
         )
     assert exc.value.code == MISSING_EXECUTION_ATTEMPT
 
-    # V1 recovery remains compatible with the legacy path.
-    require_task_executable_contract(
-        Task(HARNESS_CONTRACT_VERSION),
-        Bundle(HARNESS_CONTRACT_VERSION),
-        "dual_canary",
-        require_attempt_for_v2=True,
-    )
+    with pytest.raises(ExecutionPolicyError) as exc:
+        require_task_executable_contract(
+            Task(HARNESS_CONTRACT_VERSION),
+            Bundle(HARNESS_CONTRACT_VERSION),
+            "v2_only",
+            require_attempt_for_v2=True,
+        )
+    assert exc.value.code == LEGACY_CONTRACT_NOT_EXECUTABLE
 
 
 def test_central_task_policy_rejects_legacy_writer_under_v2_only():
@@ -195,17 +194,12 @@ def test_central_task_policy_rejects_snapshot_bundle_digest_mismatch():
         require_task_executable_contract(
             task,
             Bundle(HARNESS_CONTRACT_VERSION_V2),
-            "dual_canary",
+            "v2_only",
         )
     assert exc.value.code == "execution_contract_mismatch"
 
 
 # ── v2_only creation gate (F5) ──────────────────────────────────────────────
-
-
-def test_creatable_bundle_v2_noop_outside_v2_only():
-    # In dual_canary a legacy V1 bundle is still creatable.
-    require_creatable_bundle_v2(Bundle(HARNESS_CONTRACT_VERSION), "dual_canary")
 
 
 def test_creatable_bundle_v2_allows_canonical_v2_under_v2_only():
@@ -248,7 +242,8 @@ def test_config_settings_validates_harness_execution_mode():
 
     from app.config import Settings
 
-    assert Settings(harness_execution_mode="dual_canary").harness_execution_mode == "dual_canary"
     assert Settings(harness_execution_mode="v2_only").harness_execution_mode == "v2_only"
+    with pytest.raises(ValidationError):
+        Settings(harness_execution_mode="dual_canary")
     with pytest.raises(ValidationError):
         Settings(harness_execution_mode="bogus")

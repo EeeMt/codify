@@ -224,13 +224,10 @@ def validate_harness_runtimes(runtimes: dict[str, Any]) -> dict[str, Any]:
                     "absolute container path"
                 )
         contract_version = runtime.get("contract_version")
-        if contract_version is not None and contract_version not in {
-            HARNESS_CONTRACT_VERSION,
-            HARNESS_CONTRACT_VERSION_V2,
-        }:
+        if contract_version is not None and contract_version != HARNESS_CONTRACT_VERSION_V2:
             raise HarnessRegistryError(
                 f"harness_runtimes[{key!r}].contract_version must be "
-                "codify.worker.harness/v1|v2"
+                "codify.worker.harness/v2"
             )
     return runtimes
 

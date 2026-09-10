@@ -50,7 +50,7 @@ if [ "$backend_mode" != "$scheduler_mode" ]; then
 fi
 
 case "$backend_mode" in
-    dual_canary|v2_only) ;;
+    v2_only) ;;
     *)
         echo "PREFLIGHT FAIL: unknown mode '${backend_mode}'" >&2
         exit 1

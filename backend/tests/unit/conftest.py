@@ -9,7 +9,7 @@ def pytest_configure(config):
     """Configure warnings filter before any tests run."""
     # Production processes require an explicit mode. Unit tests declare their
     # canary contract here before importing app modules with cached Settings.
-    os.environ.setdefault("HARNESS_EXECUTION_MODE", "dual_canary")
+    os.environ.setdefault("HARNESS_EXECUTION_MODE", "v2_only")
     warnings.filterwarnings(
         "ignore",
         message="urllib3 v2 only supports OpenSSL",

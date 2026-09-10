@@ -27,9 +27,9 @@ from app.core.worker_environment_variables import (
     validate_worker_environment_variable_key,
 )
 from app.core.worker_kit import (
-    BAKED_IMAGE_MODE,
+    MOUNTED_KIT_MODE,
     WorkerKitValidationError,
-    validate_worker_kit_config,
+    validate_worker_kit_write_config,
     validate_worker_kit_mounts,
 )
 from app.core.worker_profiles import (
@@ -192,11 +192,11 @@ async def update_shared_configuration(
                 detail="shared_configuration_changed",
             )
 
-        runtime_mode, kit_version, kit_path = validate_worker_kit_config(
+        runtime_mode, kit_version, kit_path = validate_worker_kit_write_config(
             runtime_mode=(
                 request.runtime_mode
                 if "runtime_mode" in fields
-                else getattr(row, "runtime_mode", BAKED_IMAGE_MODE)
+                else getattr(row, "runtime_mode", MOUNTED_KIT_MODE)
             ),
             worker_kit_version=(
                 request.worker_kit_version

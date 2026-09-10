@@ -234,7 +234,7 @@ def _make_settings(**overrides):
     s.alert_on_failure = False
     s.alert_webhook_url = None
     s.claude_max_turns = 20
-    s.harness_execution_mode = "dual_canary"
+    s.harness_execution_mode = "v2_only"
     for k, v in overrides.items():
         setattr(s, k, v)
     return s
@@ -297,6 +297,9 @@ def _make_task(**kwargs):
         worker_profile_id=task.worker_profile_id,
         profile_name="Default Worker",
         image="test-worker:latest",
+        runtime_mode="mounted_kit",
+        worker_kit_version="0.1.0",
+        worker_kit_path="/opt/codify/worker-kits/0.1.0-linux-amd64",
         volume_mounts=[],
         environment_variables=[],
         pre_script="",

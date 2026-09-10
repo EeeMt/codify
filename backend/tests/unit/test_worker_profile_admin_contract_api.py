@@ -91,7 +91,9 @@ def _profile_kwargs(**overrides) -> dict:
         is_default=False,
         image="codify-worker/java21:2026.07",
         worker_kit_source="profile",
-        runtime_mode="baked_image",
+        runtime_mode="mounted_kit",
+        worker_kit_version="0.4.0",
+        worker_kit_path="/opt/codify/worker-kits/0.4.0",
         volume_mounts=[],
         pre_script="",
         post_script="",
@@ -284,7 +286,10 @@ async def test_runtime_readiness_keeps_ready_for_legacy_expired_row(db_factory):
         )
         effective = await _effective(db, profile)
         settings = get_effective_settings()
-        fingerprint = _locator_fingerprint(profile, effective, settings)
+        fingerprint = runtime_readiness_fingerprint(
+            _locator_fingerprint(profile, effective, settings),
+            require_content_inventory=True,
+        )
         assert fingerprint is not None
         db.add(
             WorkerRuntimeReadiness(
@@ -322,7 +327,10 @@ async def test_runtime_readiness_ready_for_active_row(db_factory):
         )
         effective = await _effective(db, profile)
         settings = get_effective_settings()
-        fingerprint = _locator_fingerprint(profile, effective, settings)
+        fingerprint = runtime_readiness_fingerprint(
+            _locator_fingerprint(profile, effective, settings),
+            require_content_inventory=True,
+        )
         assert fingerprint is not None
         db.add(
             WorkerRuntimeReadiness(
@@ -398,7 +406,9 @@ async def test_create_response_includes_16_2_sections(db_factory):
                 name="Create Contract",
                 image="codify-worker/java21:2026.07",
                 worker_kit_source="profile",
-                runtime_mode="baked_image",
+                runtime_mode="mounted_kit",
+                worker_kit_version="0.4.0",
+                worker_kit_path="/opt/codify/worker-kits/0.4.0",
                 default_execute_run_instruction_template="execute {{user_prompt}}",
                 default_plan_run_instruction_template="plan {{user_prompt}}",
                 ci_auto_repair_run_instruction_template="repair {{issue_title}}",
@@ -406,7 +416,7 @@ async def test_create_response_includes_16_2_sections(db_factory):
             db=db,
         )
 
-    assert response["overrides"]["worker_kit"]["runtime_mode"] == "baked_image"
+    assert response["overrides"]["worker_kit"]["runtime_mode"] == "mounted_kit"
     assert response["sources"]["worker_kit"] == "profile_override"
     assert response["shared_revision"] == 1
     assert response["runtime_verification"]["matches_current_input"] is False

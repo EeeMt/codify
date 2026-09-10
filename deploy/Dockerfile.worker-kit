@@ -103,10 +103,10 @@ RUN runtime_store="$(cat /tmp/runtime-store-path)" \
       /worker-kit/verify-runtime.sh \
       /worker-kit/validate-runtime-manifest.py \
       /worker-kit/bridge-selfcheck.sh \
-      /worker-kit/worker-entrypoint/legacy/claude-run.sh \
-      /worker-kit/worker-entrypoint/legacy/pi-run.sh \
-      /worker-kit/worker-entrypoint/legacy/opencode-run.sh \
-      /worker-kit/worker-entrypoint/legacy/codex-run.sh \
+      /worker-kit/worker-entrypoint/harness/runners/claude-run.sh \
+      /worker-kit/worker-entrypoint/harness/runners/pi-run.sh \
+      /worker-kit/worker-entrypoint/harness/runners/opencode-run.sh \
+      /worker-kit/worker-entrypoint/harness/runners/codex-run.sh \
       /worker-kit/worker-entrypoint/harness/adapters/pi.sh \
       /worker-kit/worker-entrypoint/harness/adapters/opencode.sh \
       /worker-kit/worker-entrypoint/harness/adapters/claude.sh \
@@ -123,10 +123,10 @@ RUN runtime_store="$(cat /tmp/runtime-store-path)" \
     && test -x /worker-kit/bridge-selfcheck-codex \
     && test -x /worker-kit/bridge-selfcheck-pi \
     && test -x /worker-kit/bridge-selfcheck-opencode \
-    && test -x /worker-kit/worker-entrypoint/legacy/claude-run.sh \
-    && test -x /worker-kit/worker-entrypoint/legacy/pi-run.sh \
-    && test -x /worker-kit/worker-entrypoint/legacy/opencode-run.sh \
-    && test -x /worker-kit/worker-entrypoint/legacy/codex-run.sh \
+    && test -x /worker-kit/worker-entrypoint/harness/runners/claude-run.sh \
+    && test -x /worker-kit/worker-entrypoint/harness/runners/pi-run.sh \
+    && test -x /worker-kit/worker-entrypoint/harness/runners/opencode-run.sh \
+    && test -x /worker-kit/worker-entrypoint/harness/runners/codex-run.sh \
     && test -d /worker-kit/worker-entrypoint/harness/adapters \
     && test -s /worker-kit/worker-entrypoint/harness/manifest.json
 

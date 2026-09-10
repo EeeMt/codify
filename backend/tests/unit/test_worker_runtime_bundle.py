@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import io
 import json
 import os
 import shutil
-import tarfile
 from pathlib import Path
 
 import pytest
@@ -14,10 +12,6 @@ from sqlalchemy.pool import StaticPool
 
 os.environ.setdefault("CONFIG_ENCRYPTION_KEY", "unit-test-key")
 
-from app.core.harness_execution_policy import (  # noqa: E402
-    ExecutionPolicyError,
-    require_creatable_bundle_v2,
-)
 from app.core.harness_protocol import (  # noqa: E402
     HARNESS_CONTRACT_VERSION,
     HARNESS_CONTRACT_VERSION_V2,
@@ -118,64 +112,37 @@ async def session_factory():
         await engine.dispose()
 
 
-def test_runtime_bundle_is_byte_deterministic_and_manifested():
-    source_manifest = json.loads(
-        (REPO_ROOT / "deploy/worker-entrypoint/harness/manifest.json").read_text()
-    )
-    first = build_runtime_bundle(REPO_ROOT)
-    second = build_runtime_bundle(REPO_ROOT)
-    assert first.digest == second.digest
-    assert first.archive_bytes == second.archive_bytes
-    assert first.manifest["event_schema"] == "codify.worker.event/v1"
-    assert (
-        first.manifest["adapters"]["claude"]["version"]
-        == source_manifest["adapters"]["claude"]["adapter"]["version"]
-    )
-    assert len(first.manifest["adapters"]["claude"]["digest"]) == 64
-    assert first.manifest["bundle_digest"] == first.digest
-    assert len(first.manifest["archive_manifest_digest"]) == 64
-
-    with tarfile.open(fileobj=io.BytesIO(first.archive_bytes), mode="r:") as archive:
-        names = archive.getnames()
-    assert "codify-runtime/orchestration/manifest.json" in names
-    assert "codify-runtime/orchestration/worker-entrypoint/harness/runner.sh" in names
-    assert "codify-runtime/orchestration/worker-entrypoint/harness/adapters/claude.sh" in names
+def test_legacy_runtime_bundle_builder_is_disabled():
+    with pytest.raises(RuntimeError, match="V1 Runtime Bundle construction is disabled"):
+        build_runtime_bundle(REPO_ROOT)
 
 
 @pytest.mark.asyncio
-async def test_bundle_get_or_create_deduplicates_by_digest(session_factory):
+async def test_legacy_runtime_bundle_persistence_is_disabled(session_factory):
     async with session_factory() as db:
-        first = await get_or_create_runtime_bundle(db, source_dir=REPO_ROOT)
-        second = await get_or_create_runtime_bundle(db, source_dir=REPO_ROOT)
-        assert first.id == second.id
-        assert first.digest == second.digest
-        verify_bundle_bytes(first)
-
-
-def test_runtime_bundle_verification_rejects_bound_manifest_tampering():
-    built = build_runtime_bundle(REPO_ROOT)
-    bundle = type(
-        "Bundle",
-        (),
-        {
-            "bundle_bytes": built.archive_bytes,
-            "digest": built.digest,
-            "size_bytes": len(built.archive_bytes),
-            "manifest": {**built.manifest, "archive_manifest_digest": "0" * 64},
-        },
-    )()
-    with pytest.raises(RuntimeError, match="archive manifest digest mismatch"):
-        verify_bundle_bytes(bundle)
+        with pytest.raises(RuntimeError, match="V1 Runtime Bundle binding is disabled"):
+            await get_or_create_runtime_bundle(db, source_dir=REPO_ROOT)
 
 
 @pytest.mark.asyncio
-async def test_retry_reuses_source_bundle_reference(session_factory):
+async def test_retry_reuses_source_bundle_reference(session_factory, tmp_path):
+    runtime_source = _v2_test_runtime_source(tmp_path)
+    kit_identity = _kit_identity()
     async with session_factory() as db:
         source = Task(id=1, issue_id=1, project_id=1, user_prompt="source")
         retry = Task(id=2, issue_id=1, project_id=1, user_prompt="retry", is_retry=True)
         db.add_all([source, retry])
         await db.flush()
-        source_bundle = await bind_runtime_bundle(db, source, source_dir=REPO_ROOT)
+        source.worker_profile_snapshot = _snapshot(
+            source,
+            "pi",
+            HARNESS_CONTRACT_VERSION_V2,
+            source=runtime_source,
+            kit_identity=kit_identity,
+        )
+        source_bundle = await bind_runtime_bundle(
+            db, source, source_dir=runtime_source, harness_key="pi"
+        )
         retry_bundle = await bind_runtime_bundle(db, retry, source_task=source)
         assert retry.runtime_bundle_id == source.runtime_bundle_id
         assert retry_bundle.id == source_bundle.id
@@ -284,18 +251,15 @@ async def test_v2_bundle_persists_frozen_payload_and_never_rescans_checkout(
 
 
 @pytest.mark.asyncio
-async def test_dual_canary_legacy_profile_binds_v1_even_when_manifest_lists_adapter(session_factory):
+async def test_legacy_profile_cannot_bind_v1_runtime_bundle(session_factory):
     async with session_factory() as db:
         task = Task(id=1, issue_id=1, project_id=1, user_prompt="legacy profile")
         db.add(task)
         await db.flush()
         task.worker_profile_snapshot = _snapshot(task, "claude", HARNESS_CONTRACT_VERSION)
 
-        bundle = await bind_runtime_bundle(db, task, source_dir=REPO_ROOT, harness_key="claude")
-
-    assert bundle.contract_version == HARNESS_CONTRACT_VERSION
-    with pytest.raises(ExecutionPolicyError, match="not creatable"):
-        require_creatable_bundle_v2(bundle, "v2_only", subject="legacy profile")
+        with pytest.raises(RuntimeError, match="legacy V1 binding is disabled"):
+            await bind_runtime_bundle(db, task, source_dir=REPO_ROOT, harness_key="claude")
 
 
 @pytest.mark.asyncio

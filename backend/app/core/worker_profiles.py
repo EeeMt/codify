@@ -29,7 +29,7 @@ from app.core.harness_options import (
     validate_namespaced_options,
     validate_task_overrides,
 )
-from app.core.harness_protocol import HARNESS_CONTRACT_VERSION, HARNESS_CONTRACT_VERSION_V2
+from app.core.harness_protocol import HARNESS_CONTRACT_VERSION_V2
 from app.core.harness_registry import capability_policy
 from app.core.skills import (
     SkillValidationError,
@@ -56,6 +56,7 @@ from app.core.worker_kit import (
     WorkerKitValidationError,
     validate_no_worker_kit_mount_collision,
     validate_worker_kit_config,
+    validate_worker_kit_write_config,
     validate_worker_kit_mounts,
     worker_kit_environment,
     worker_kit_mounts,
@@ -202,16 +203,9 @@ def current_runtime_verification_digest(
 
 
 def eligible_v2_harness_keys(profile: Any) -> tuple[str, ...]:
-    """Return enabled harnesses that explicitly opt into the V2 contract."""
-    runtimes = getattr(profile, "harness_runtimes", None) or {}
+    """Return every enabled Harness covered by the V2-only verification gate."""
     enabled = getattr(profile, "enabled_harnesses", None) or ["claude"]
-    return tuple(
-        key for key in dict.fromkeys(enabled)
-        if isinstance(key, str)
-        and isinstance(runtimes, Mapping)
-        and isinstance(runtimes.get(key), Mapping)
-        and runtimes[key].get("contract_version") == HARNESS_CONTRACT_VERSION_V2
-    )
+    return tuple(key for key in dict.fromkeys(enabled) if isinstance(key, str))
 
 
 def validate_v2_harness_evidence(
@@ -319,7 +313,7 @@ class TaskWorkerRuntime:
     pre_script: str
     post_script: str
     skills: list[dict[str, Any]] = field(default_factory=list)
-    runtime_mode: str = BAKED_IMAGE_MODE
+    runtime_mode: str = MOUNTED_KIT_MODE
     worker_kit_version: str | None = None
     worker_kit_path: str | None = None
     docker_host: str | None = None
@@ -339,7 +333,7 @@ class TaskWorkerRuntime:
     def container_overrides(self) -> dict[str, Any]:
         """Return Docker arguments and environment owned by the delivery mode."""
         try:
-            mode, kit_version, kit_path = validate_worker_kit_config(
+            mode, kit_version, kit_path = validate_worker_kit_write_config(
                 runtime_mode=self.runtime_mode,
                 worker_kit_version=self.worker_kit_version,
                 worker_kit_path=self.worker_kit_path,
@@ -889,45 +883,26 @@ def snapshot_from_profile(
         resolved_harness_key,
         getattr(profile, "harness_constraints", None) or {},
     )
-    harness_runtime = (getattr(profile, "harness_runtimes", None) or {}).get(
-        resolved_harness_key, {}
+    requested_contract = HARNESS_CONTRACT_VERSION_V2
+    v2_image_identity = validate_v2_worker_image_identity(
+        getattr(profile, "v2_worker_image_identity", None)
     )
-    requested_contract = (
-        harness_runtime.get("contract_version", HARNESS_CONTRACT_VERSION)
-        if isinstance(harness_runtime, dict)
-        else HARNESS_CONTRACT_VERSION
+    v2_kit_identity = validate_v2_worker_kit_identity(
+        getattr(profile, "worker_kit_identity", None)
     )
-    v2_image_identity = None
-    if requested_contract == "codify.worker.harness/v2":
-        v2_image_identity = validate_v2_worker_image_identity(
-            getattr(profile, "v2_worker_image_identity", None)
-        )
-        # Content-addressed Worker Kit identity is part of the V2 execution
-        # identity (image_identity + kit_identity + bundle_digest). Mounted-kit
-        # targets freeze it; baked-image targets have no Kit to freeze.
-        if (effective.runtime_mode or BAKED_IMAGE_MODE) == MOUNTED_KIT_MODE:
-            v2_kit_identity = validate_v2_worker_kit_identity(
-                getattr(profile, "worker_kit_identity", None)
-            )
-        else:
-            v2_kit_identity = None
-        current_digest = current_runtime_verification_digest(
-            profile, effective, settings or get_effective_settings(), harness_key=resolved_harness_key
-        )
-        evidence_by_key = getattr(profile, "v2_harness_verification_evidence", None)
-        evidence = evidence_by_key.get(resolved_harness_key) if isinstance(evidence_by_key, Mapping) else None
-        v2_harness_evidence = validate_v2_harness_evidence(
-            evidence,
-            harness_key=resolved_harness_key,
-            verification_digest=current_digest,
-            image_identity=v2_image_identity,
-            generation=int(getattr(profile, "v2_worker_image_identity_generation", 0) or 0),
-        )
-        v2_cli_identity = dict(v2_harness_evidence["cli"])
-    else:
-        v2_harness_evidence = None
-        v2_kit_identity = None
-        v2_cli_identity = None
+    current_digest = current_runtime_verification_digest(
+        profile, effective, settings or get_effective_settings(), harness_key=resolved_harness_key
+    )
+    evidence_by_key = getattr(profile, "v2_harness_verification_evidence", None)
+    evidence = evidence_by_key.get(resolved_harness_key) if isinstance(evidence_by_key, Mapping) else None
+    v2_harness_evidence = validate_v2_harness_evidence(
+        evidence,
+        harness_key=resolved_harness_key,
+        verification_digest=current_digest,
+        image_identity=v2_image_identity,
+        generation=int(getattr(profile, "v2_worker_image_identity_generation", 0) or 0),
+    )
+    v2_cli_identity = dict(v2_harness_evidence["cli"])
     runtime_locator_fingerprint = fingerprint_from_docker_target(
         settings or get_effective_settings(),
         docker_host=getattr(profile, "docker_host", None),
@@ -1162,7 +1137,7 @@ async def load_task_worker_runtime(db: AsyncSession, task: Task) -> TaskWorkerRu
     except SkillValidationError as exc:
         raise WorkerProfileValidationError(str(exc)) from exc
     try:
-        runtime_mode, kit_version, kit_path = validate_worker_kit_config(
+        runtime_mode, kit_version, kit_path = validate_worker_kit_write_config(
             runtime_mode=getattr(snapshot, "runtime_mode", BAKED_IMAGE_MODE),
             worker_kit_version=getattr(snapshot, "worker_kit_version", None),
             worker_kit_path=getattr(snapshot, "worker_kit_path", None),

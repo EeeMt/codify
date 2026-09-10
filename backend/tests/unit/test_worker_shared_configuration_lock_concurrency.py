@@ -62,6 +62,52 @@ from app.models import (
     WorkerSharedEnvironmentVariable,
 )
 
+
+def _verified_profile_fields() -> dict[str, object]:
+    image_identity = {
+        "schema": "codify.worker-image-identity/v1",
+        "daemon_key": "shared-lock-tests",
+        "image_reference": "registry.example/codify-worker@sha256:" + "a" * 64,
+        "image_id": "sha256:" + "b" * 64,
+        "runtime_platform": "linux/amd64",
+    }
+    return {
+        "worker_kit_identity": {
+            "schema": "codify.worker.kit-identity/v1",
+            "kit_version": "0.4.0",
+            "platform": "linux/amd64",
+            "manifest_sha256": "c" * 64,
+        },
+        "v2_worker_image_identity": image_identity,
+        "v2_worker_image_identity_generation": 0,
+        "v2_harness_verification_evidence": {
+            "claude": {
+                "schema": "codify.worker-harness-verification/v1",
+                "harness_key": "claude",
+                "contract_version": "codify.worker.harness/v2",
+                "adapter": {"version": "1.0.0", "digest": "d" * 64},
+                "cli": {
+                    "source": "worker_kit",
+                    "executable_path": "/opt/codify-kit/harness/claude/bin/claude",
+                    "version": "2.1.0",
+                    "binary_digest": "e" * 64,
+                },
+                "verification_input_digest": "verified",
+                "image_identity": image_identity,
+                "generation": 0,
+                "verified_at": "2026-08-24T00:00:00+00:00",
+            }
+        },
+    }
+
+
+@pytest.fixture(autouse=True)
+def _stub_runtime_verification_digest(monkeypatch):
+    monkeypatch.setattr(
+        "app.core.worker_profiles.current_runtime_verification_digest",
+        lambda *_args, **_kwargs: "verified",
+    )
+
 ADMIN_URL = os.environ.get(
     "CODIFY_TEST_DATABASE_URL",
     "postgresql+asyncpg://codify:codify_password@192.168.50.129:5432/codify_test",
@@ -153,6 +199,13 @@ async def _seed(maker) -> tuple[int, int, int, int]:
         await db.execute(
             sa.text("DELETE FROM worker_shared_configurations WHERE id = 1")
         )
+        await db.execute(
+            sa.text(
+                "UPDATE worker_profiles SET runtime_mode = 'mounted_kit', "
+                "worker_kit_version = '0.4.0', "
+                "worker_kit_path = '/opt/codify/worker-kits/0.4.0'"
+            )
+        )
         shared = WorkerSharedConfiguration(
             id=1,
             revision=1,
@@ -182,7 +235,9 @@ async def _seed(maker) -> tuple[int, int, int, int]:
             is_default=False,
             image="codify-worker/java21:2026.07",
             worker_kit_source="profile",
-            runtime_mode="baked_image",
+            runtime_mode="mounted_kit",
+            worker_kit_version="0.4.0",
+            worker_kit_path="/opt/codify/worker-kits/0.4.0",
             volume_mounts=[],
             volume_mount_masks=[],
             pre_script="",
@@ -194,6 +249,7 @@ async def _seed(maker) -> tuple[int, int, int, int]:
             default_harness_key="claude",
             harness_constraints={},
             harness_runtimes={},
+            **_verified_profile_fields(),
         )
         db.add(profile)
         await db.flush()
@@ -608,7 +664,7 @@ async def test_f6_switch_reloads_target_profile_after_shared_lock_barrier(
             default_plan_run_instruction_template="plan {{user_prompt}}",
             ci_auto_repair_run_instruction_template="repair {{issue_title}}",
             harness_key="claude",
-            runtime_contract_version="codify.worker.harness/v1",
+            runtime_contract_version="codify.worker.harness/v2",
             skill_selection_source="profile",
             shared_configuration_revision=1,
         )

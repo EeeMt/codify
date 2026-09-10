@@ -19,16 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from app.core.harness_protocol import (
-    CANONICAL_EVENT_SCHEMA,
     CANONICAL_EVENT_SCHEMA_V2,
-    HARNESS_CONTRACT_VERSION,
     HARNESS_CONTRACT_VERSION_V2,
     validate_manifest,
 )
-from app.core.harness_registry import (
-    validate_adapter_capabilities,
-    validate_v2_manifest_adapter_capabilities,
-)
+from app.core.harness_registry import validate_v2_manifest_adapter_capabilities
 from app.models import Task, WorkerRuntimeBundle
 
 ORCHESTRATION_VERSION = "1.0.0"
@@ -83,13 +78,6 @@ def _validated_worker_kit_identity(identity: object) -> dict[str, str]:
 
 
 @dataclass(frozen=True, slots=True)
-class BuiltRuntimeBundle:
-    digest: str
-    archive_bytes: bytes
-    manifest: dict
-
-
-@dataclass(frozen=True, slots=True)
 class BuiltRuntimeBundleV2:
     """A content-addressed Runtime Bundle built from a V2 runtime-manifest.
 
@@ -113,15 +101,15 @@ def _v2_adapter_scope_paths(adapter_key: str, files: Iterable[Mapping[str, Any]]
     """Return the controlled, adapter-private paths for a built-in adapter.
 
     This is deliberately code-held rather than inferred from a checkout at
-    execution time.  Adapter scripts and their legacy compatibility runner are
-    private; all remaining controlled runtime files are shared orchestration.
+    execution time. Adapter scripts are private; runner scripts are shared
+    orchestration so the V2 scope remains compatible with already-installed
+    Worker Kit validators that predate the runner directory split.
     """
     adapter_prefix = f"worker-entrypoint/harness/adapters/{adapter_key}"
-    legacy_path = f"legacy/{adapter_key}-run.sh"
     return {
         str(item.get("path"))
         for item in files
-        if str(item.get("path")).startswith(adapter_prefix) or str(item.get("path")) == legacy_path
+        if str(item.get("path")).startswith(adapter_prefix)
     }
 
 
@@ -245,10 +233,8 @@ def build_runtime_bundle_v2(manifest: Mapping[str, Any]) -> BuiltRuntimeBundleV2
     independent ``adapter.digest`` per adapter plus a recursive top-level
     ``bundle_digest`` over ``files``.
 
-    This is Phase-1 machinery and is deliberately NOT wired into the V1
-    ``get_or_create_runtime_bundle``/``bind_runtime_bundle`` path — V1 tasks keep
-    receiving V1 bundles; the V2 bundle is selected later for explicit V2
-    profiles.
+    This is the only executable Runtime Bundle builder. Historical V1 rows are
+    verified/read by compatibility readers but are never built or rebound.
     """
     validated = validate_manifest(manifest)
     adapters = validated["adapters"]
@@ -401,38 +387,6 @@ def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-_ADAPTER_DIGEST_FILES = (
-    "deploy/worker-entrypoint/legacy/claude-run.sh",
-    "deploy/worker-entrypoint/harness/version_range.py",
-    "deploy/worker-entrypoint/harness/adapters/claude.sh",
-    "deploy/worker-entrypoint/harness/adapters/claude_events.py",
-    "deploy/worker-entrypoint/harness/adapters/codex.sh",
-    "deploy/worker-entrypoint/harness/adapters/codex_bridge.py",
-    "deploy/worker-entrypoint/harness/adapters/codex_events.py",
-    "deploy/worker-entrypoint/harness/adapters/sanitize.py",
-    "deploy/worker-entrypoint/legacy/codex-run.sh",
-    "deploy/worker-entrypoint/harness/adapters/pi.sh",
-    "deploy/worker-entrypoint/harness/adapters/pi_events.py",
-    "deploy/worker-entrypoint/harness/adapters/pi_bridge.py",
-    "deploy/worker-entrypoint/legacy/pi-run.sh",
-    "deploy/worker-entrypoint/harness/adapters/opencode.sh",
-    "deploy/worker-entrypoint/harness/adapters/opencode_events.py",
-    "deploy/worker-entrypoint/harness/adapters/opencode_bridge.py",
-    "deploy/worker-entrypoint/legacy/opencode-run.sh",
-)
-
-
-def _adapter_digest(files: Iterable[tuple[str, bytes]]) -> str:
-    digest = hashlib.sha256()
-    for name, payload in files:
-        if name in _ADAPTER_DIGEST_FILES:
-            digest.update(name.encode())
-            digest.update(b"\0")
-            digest.update(payload)
-            digest.update(b"\0")
-    return digest.hexdigest()
-
-
 def _archive_name(source_name: str) -> str:
     if source_name == "deploy/entrypoint.worker.sh":
         relative = "entrypoint.sh"
@@ -455,74 +409,10 @@ def _add_bytes(archive: tarfile.TarFile, name: str, payload: bytes, *, mode: int
     archive.addfile(info, io.BytesIO(payload))
 
 
-def build_runtime_bundle(source_dir: Path | None = None) -> BuiltRuntimeBundle:
-    root = (source_dir or default_runtime_source_dir()).resolve()
-    source_files = [
-        (path.relative_to(root).as_posix(), path.read_bytes()) for path in _controlled_paths(root)
-    ]
-    source_by_name = dict(source_files)
-    harness_manifest = json.loads(source_by_name["deploy/worker-entrypoint/harness/manifest.json"])
-    # The frozen source manifest is now runtime-manifest/v2; validate the full
-    # V2 envelope (approved adapter keys, control transport, model protocols,
-    # capability keys) before projecting it into the stable V1 bundle shape.
-    validate_manifest(harness_manifest)
-    source_adapters = harness_manifest.get("adapters") or {}
-    if not isinstance(source_adapters, dict) or not source_adapters:
-        raise RuntimeError("Runtime source has no Adapter declarations")
-    adapters: dict[str, dict[str, Any]] = {}
-    for adapter_key, metadata in source_adapters.items():
-        if not isinstance(metadata, dict):
-            raise RuntimeError(f"Runtime source Adapter {adapter_key!r} is not an object")
-        nested = metadata.get("adapter")
-        adapter_version = str(nested.get("version")) if isinstance(nested, Mapping) else ""
-        if not adapter_version:
-            raise RuntimeError(f"Runtime source Adapter {adapter_key!r} has no adapter.version")
-        capabilities = metadata.get("capabilities")
-        if capabilities is not None:
-            validate_adapter_capabilities(adapter_key, capabilities)
-        del metadata["adapter"]
-        adapter_metadata = dict(metadata)
-        adapter_metadata["version"] = adapter_version
-        adapter_metadata["digest"] = _adapter_digest(source_files)
-        adapters[adapter_key] = adapter_metadata
-    manifest = {
-        "schema": "codify.worker.runtime-bundle/v1",
-        "contract_version": HARNESS_CONTRACT_VERSION,
-        "event_schema": CANONICAL_EVENT_SCHEMA,
-        "orchestration_version": ORCHESTRATION_VERSION,
-        "adapters": adapters,
-        "files": [
-            {
-                "path": _archive_name(name).removeprefix(f"{RUNTIME_ARCHIVE_ROOT}/"),
-                "sha256": _sha256(payload),
-                "size": len(payload),
-            }
-            for name, payload in source_files
-        ],
-    }
-    manifest_bytes = json.dumps(
-        manifest,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
-    manifest_digest = _sha256(manifest_bytes)
-    buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT) as archive:
-        for name, payload in source_files:
-            mode = 0o755 if name.endswith((".sh", ".py")) else 0o644
-            _add_bytes(archive, _archive_name(name), payload, mode=mode)
-        _add_bytes(
-            archive,
-            str(RUNTIME_ARCHIVE_ROOT / "manifest.json"),
-            manifest_bytes,
-            mode=0o644,
-        )
-    archive_bytes = buffer.getvalue()
-    digest = _sha256(archive_bytes)
-    manifest["archive_manifest_digest"] = manifest_digest
-    manifest["bundle_digest"] = digest
-    return BuiltRuntimeBundle(digest=digest, archive_bytes=archive_bytes, manifest=manifest)
+def build_runtime_bundle(source_dir: Path | None = None):
+    """Reject the removed V1 builder instead of creating a legacy Bundle."""
+    del source_dir
+    raise RuntimeError("V1 Runtime Bundle construction is disabled; use the V2 builder")
 
 
 async def get_or_create_runtime_bundle(
@@ -530,35 +420,9 @@ async def get_or_create_runtime_bundle(
     *,
     source_dir: Path | None = None,
 ) -> WorkerRuntimeBundle:
-    built = build_runtime_bundle(source_dir)
-    existing = (
-        await db.execute(
-            select(WorkerRuntimeBundle).where(WorkerRuntimeBundle.digest == built.digest)
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        return existing
-
-    created = WorkerRuntimeBundle(
-        digest=built.digest,
-        bundle_bytes=built.archive_bytes,
-        contract_version=HARNESS_CONTRACT_VERSION,
-        orchestration_version=ORCHESTRATION_VERSION,
-        manifest=built.manifest,
-        size_bytes=len(built.archive_bytes),
-    )
-    try:
-        async with db.begin_nested():
-            db.add(created)
-            await db.flush()
-        return created
-    except IntegrityError:
-        existing = (
-            await db.execute(
-                select(WorkerRuntimeBundle).where(WorkerRuntimeBundle.digest == built.digest)
-            )
-        ).scalar_one()
-        return existing
+    """Reject the removed V1 persistence entry point."""
+    del db, source_dir
+    raise RuntimeError("V1 Runtime Bundle binding is disabled; use the V2 builder")
 
 
 async def get_or_create_runtime_bundle_v2(
@@ -723,9 +587,9 @@ def build_v2_runtime_materialization_manifest_bytes(
     ``CODIFY_RUNTIME_MANIFEST_DIGEST`` must hash these bytes so the kit
     launcher's fileDigest comparison matches what the container receives.
     """
-    # ``source_dir`` remains accepted for V1-compatible callers but is
-    # intentionally ignored: a bound V2 Task must not be influenced by a newer
-    # checkout.  Return the exact launcher manifest bytes embedded in its
+    # ``source_dir`` remains accepted for callers but is intentionally ignored:
+    # a bound V2 Task must not be influenced by a newer checkout. Return the
+    # exact launcher manifest bytes embedded in its
     # persisted archive.
     del source_dir
     return _v2_archive_manifest_bytes(bundle)
@@ -742,12 +606,10 @@ def build_v2_runtime_materialization_archive(
 ) -> bytes:
     """Tar the full controlled runtime source under a V2-contract manifest.
 
-    The worker entrypoint verifies its orchestration snapshot exactly like
-    V1 (every file listed with size + sha256, ``entrypoint.sh`` manifested),
-    so the V2 materialization ships the same controlled file set as the V1
-    bundle — only ``manifest.json`` differs: it carries the frozen V2 identity
-    (contract/event schema, flattened adapter digests) that the digest env
-    vars are computed from.
+    The worker entrypoint verifies every controlled file with size and SHA-256,
+    including ``entrypoint.sh``. The materialization carries the frozen V2
+    identity (contract/event schema and flattened adapter digests) used by the
+    launcher digest environment.
     """
     # Do not reconstruct from source_dir.  This payload was frozen at binding
     # and verified on load; returning it directly preserves retry semantics.
@@ -839,11 +701,9 @@ async def bind_runtime_bundle(
 ) -> WorkerRuntimeBundle:
     """Bind the immutable bundle during task creation or clone it for retry.
 
-    Only a frozen Profile/Snapshot that explicitly requests harness/v2 binds a
-    V2 bundle. A repository V2 manifest advertises built-ins but is never an
-    implicit migration switch: dual-canary legacy Profiles continue binding V1
-    bundles. Retry/clone always reuses the source binding so an attempt keeps
-    its original contract.
+    Only a frozen Profile/Snapshot carrying the exact V2 contract can bind a
+    new Bundle. Historical V1 Bundles remain readable, but cannot be reused for
+    retry/clone or any new execution.
     """
     source_bundle_id = getattr(source_task, "runtime_bundle_id", None)
     if source_task is not None and source_bundle_id is None:
@@ -855,13 +715,16 @@ async def bind_runtime_bundle(
         bundle = await db.get(WorkerRuntimeBundle, source_bundle_id)
         if bundle is None:
             raise RuntimeError("retry source references a missing Runtime Bundle")
+        if bundle.contract_version != HARNESS_CONTRACT_VERSION_V2:
+            raise RuntimeError(
+                "retry source pins a legacy V1 Runtime Bundle; historical Tasks are read-only"
+            )
     else:
         snapshot = getattr(task, "__dict__", {}).get("worker_profile_snapshot")
         frozen_harness_key = getattr(snapshot, "harness_key", None)
         if _task_explicitly_requests_v2(task):
             # The Snapshot is the immutable execution authority.  A caller
-            # supplied key may only agree with it; otherwise a V2 opt-in could
-            # silently take the V1 path below.
+            # supplied key may only agree with it.
             if not isinstance(frozen_harness_key, str) or not frozen_harness_key:
                 raise RuntimeError("explicit V2 Profile has no frozen Harness key")
             if harness_key is not None and harness_key != frozen_harness_key:
@@ -883,7 +746,9 @@ async def bind_runtime_bundle(
                 harness_verification_evidence=evidence,
             )
         else:
-            bundle = await get_or_create_runtime_bundle(db, source_dir=source_dir)
+            raise RuntimeError(
+                "Task has no executable V2 Runtime Bundle identity; legacy V1 binding is disabled"
+            )
     task.runtime_bundle_id = bundle.id
     await db.flush()
     return bundle
@@ -1014,15 +879,9 @@ def _require_v2_manifest_adapter(source_dir: Path | None, harness_key: str | Non
 
 
 def _task_explicitly_requests_v2(task: Task) -> bool:
-    """Return whether immutable Task state opted into harness/v2.
-
-    Never consult the mutable Profile here. This keeps retry and worker-profile
-    update paths frozen, and prevents the source manifest's catalog from
-    silently converting every dual-canary Claude/Codex task to V2.
-    """
-    # Do not trigger a lazy relationship load here. Binding is also used by
-    # historical/retry repair paths where no Snapshot was eagerly loaded; an
-    # absent in-memory snapshot is conservatively V1, never an implicit V2.
+    """Return whether immutable Task state carries the executable V2 contract."""
+    # Do not trigger a lazy relationship load here. An absent in-memory
+    # snapshot is not enough authority to create an executable Bundle.
     snapshot = getattr(task, "__dict__", {}).get("worker_profile_snapshot")
     if snapshot is None:
         return False

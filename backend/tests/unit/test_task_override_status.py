@@ -35,7 +35,7 @@ def _make_task(status: TaskStatus, task_id: int = 1, issue_id: int | None = 100)
     task.updated_at = now
     bundle_digest = "d" * 64
     task.runtime_bundle = SimpleNamespace(
-        contract_version="codify.worker.harness/v1",
+        contract_version="codify.worker.harness/v2",
         digest=bundle_digest,
         manifest={
             "adapters": {
@@ -47,7 +47,7 @@ def _make_task(status: TaskStatus, task_id: int = 1, issue_id: int | None = 100)
         },
     )
     task.worker_profile_snapshot = SimpleNamespace(
-        runtime_contract_version="codify.worker.harness/v1",
+        runtime_contract_version="codify.worker.harness/v2",
         runtime_bundle_digest=bundle_digest,
         harness_key="claude",
     )
@@ -246,6 +246,8 @@ class OverrideTaskStatusTests(unittest.TestCase):
     def test_v2_only_rejects_legacy_override_as_read_only(self):
         """A V1 terminal task remains immutable after the v2_only hard cut."""
         task = _make_task(TaskStatus.COMPLETED, task_id=21)
+        task.runtime_bundle.contract_version = "codify.worker.harness/v1"
+        task.worker_profile_snapshot.runtime_contract_version = "codify.worker.harness/v1"
         client, app, mock_db = _make_client_with_task(task)
 
         with (

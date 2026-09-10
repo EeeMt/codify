@@ -418,18 +418,20 @@ def _create_services(
             worker_profile_id=_profile.id,
             profile_name=_profile.name,
             image=_profile.image,
-            runtime_mode="baked_image",
+            runtime_mode="mounted_kit",
+            worker_kit_version="0.6.16",
+            worker_kit_path="/opt/codify/worker-kits/test",
             default_execute_run_instruction_template="",
             default_plan_run_instruction_template="",
             ci_auto_repair_run_instruction_template="",
             harness_key="claude",
-            runtime_contract_version="codify.worker.harness/v1",
+            runtime_contract_version="codify.worker.harness/v2",
             orchestration_version="1.0.0",
             runtime_bundle_digest=BUNDLE_DIGEST,
         )
 
     bundle = MagicMock()
-    bundle.contract_version = "codify.worker.harness/v1"
+    bundle.contract_version = "codify.worker.harness/v2"
     bundle.orchestration_version = "1.0.0"
     bundle.digest = BUNDLE_DIGEST
     bundle.manifest = {"adapters": {"claude": {}}}

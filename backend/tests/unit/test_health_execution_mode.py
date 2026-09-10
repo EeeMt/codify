@@ -35,7 +35,7 @@ def test_health_reports_harness_execution_mode(client):
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["harness_execution_mode"] in ("dual_canary", "v2_only")
+    assert body["harness_execution_mode"] == "v2_only"
 
 
 def test_health_mode_reflects_settings_without_dependency_failure(client):
@@ -54,4 +54,4 @@ def test_health_mode_reflects_settings_without_dependency_failure(client):
     body = resp.json()
     assert body["status"] == "unhealthy"
     # The mode is still reported so preflight can compare values.
-    assert body["harness_execution_mode"] in ("dual_canary", "v2_only")
+    assert body["harness_execution_mode"] == "v2_only"

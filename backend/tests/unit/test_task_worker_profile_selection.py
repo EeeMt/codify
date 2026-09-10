@@ -17,6 +17,7 @@ from app.core.worker_profiles import WorkerProfileValidationError, load_task_wor
 from app.core.worker_runtime_bundle import (
     adapter_digest_from_manifest_files,
     bundle_manifest_digest_from_files,
+    frozen_v2_adapter_identity,
 )
 from app.dependencies.project_access import ProjectAccessScope
 from app.models import (
@@ -239,7 +240,7 @@ async def test_create_task_uses_issue_pinned_worker_and_default_provider():
         patch("app.api.tasks.bind_runtime_bundle", new=AsyncMock(return_value=bundle)),
         patch(
             "app.api.task_creation_service.get_effective_settings",
-            return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+            return_value=SimpleNamespace(harness_execution_mode="v2_only"),
         ),
         patch("app.api.tasks.select_snapshot_run_instruction_template", return_value="Execute {{user_prompt}}"),
         patch(
@@ -504,7 +505,7 @@ async def test_create_task_uses_issue_default_harness_when_request_omits_key():
         patch("app.api.tasks.bind_runtime_bundle", new=AsyncMock(return_value=bundle)),
         patch(
             "app.api.task_creation_service.get_effective_settings",
-            return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+            return_value=SimpleNamespace(harness_execution_mode="v2_only"),
         ),
         patch("app.api.tasks.get_project_metadata", new=AsyncMock(return_value={})),
         patch(
@@ -537,6 +538,24 @@ async def test_create_task_loads_worker_profile_environment_from_existing_identi
     )
     try:
         async with session_factory() as db:
+            profile_image_identity = {
+                "schema": "codify.worker-image-identity/v1",
+                "daemon_key": "tcp://worker.example:2376",
+                "image_reference": "registry.example/worker@sha256:" + "c" * 64,
+                "image_id": "sha256:" + "d" * 64,
+                "runtime_platform": "linux/amd64",
+            }
+            profile_kit_identity = {
+                "schema": "codify.worker.kit-identity/v1",
+                "kit_version": "0.3.5",
+                "platform": "linux/amd64",
+                "manifest_sha256": "e" * 64,
+            }
+            profile_adapter_identity = frozen_v2_adapter_identity(
+                "claude",
+                worker_image_identity=profile_image_identity,
+                worker_kit_identity=profile_kit_identity,
+            )
             provider = AIProvider(
                 name="default",
                 base_url="http://ai.example",
@@ -552,6 +571,41 @@ async def test_create_task_loads_worker_profile_environment_from_existing_identi
                 runtime_mode="mounted_kit",
                 worker_kit_version="0.3.5",
                 worker_kit_path="/opt/codify/worker-kits/0.3.5-linux-amd64",
+                worker_kit_identity=profile_kit_identity,
+                enabled_harnesses=["claude"],
+                default_harness_key="claude",
+                harness_runtimes={
+                    "claude": {
+                        "source": "worker_kit",
+                        "contract_version": HARNESS_CONTRACT_VERSION_V2,
+                    }
+                },
+                v2_worker_image_identity=profile_image_identity,
+                v2_worker_image_identity_generation=0,
+                v2_harness_verification_evidence={
+                    "claude": {
+                        "schema": "codify.worker-harness-verification/v1",
+                        "harness_key": "claude",
+                        "contract_version": HARNESS_CONTRACT_VERSION_V2,
+                        "adapter": profile_adapter_identity,
+                        "cli": {
+                            "source": "worker_kit",
+                            "executable_path": "/opt/codify-kit/harness/claude/bin/claude",
+                            "version": "1.0.0",
+                            "binary_digest": "a" * 64,
+                        },
+                        "verification_input_digest": "f" * 64,
+                        "image_identity": {
+                            "schema": "codify.worker-image-identity/v1",
+                            "daemon_key": "tcp://worker.example:2376",
+                            "image_reference": "registry.example/worker@sha256:" + "c" * 64,
+                            "image_id": "sha256:" + "d" * 64,
+                            "runtime_platform": "linux/amd64",
+                        },
+                        "generation": 0,
+                        "verified_at": "2026-08-24T00:00:00+00:00",
+                    }
+                },
                 volume_mounts=[],
                 pre_script="",
                 post_script="",
@@ -598,7 +652,13 @@ async def test_create_task_loads_worker_profile_environment_from_existing_identi
                 provider_id=provider.id,
             )
 
-            with patch("app.api.tasks.get_project_metadata", new=AsyncMock(return_value={})):
+            with (
+                patch("app.api.tasks.get_project_metadata", new=AsyncMock(return_value={})),
+                patch(
+                    "app.core.worker_profiles.current_runtime_verification_digest",
+                    return_value="f" * 64,
+                ),
+            ):
                 response = await create_task(
                     request=request,
                     db=db,
@@ -765,7 +825,7 @@ async def test_update_task_preserves_worker_metadata_after_refresh_without_snaps
         patch("app.api.tasks.get_project_metadata", new=AsyncMock(return_value={})),
         patch(
             "app.api.task_operations.get_effective_settings",
-            return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+            return_value=SimpleNamespace(harness_execution_mode="v2_only"),
         ),
     ):
         response = await update_task(
@@ -849,7 +909,7 @@ async def test_update_task_rejects_provider_incompatible_with_frozen_harness():
         patch("app.api.tasks.render_and_store_task_prompt", new=MagicMock()),
         patch(
             "app.api.task_operations.get_effective_settings",
-            return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+            return_value=SimpleNamespace(harness_execution_mode="v2_only"),
         ),
     ):
         with pytest.raises(HTTPException) as exc_info:
@@ -920,7 +980,7 @@ async def test_update_task_provider_change_refreshes_snapshot_endpoint():
         patch("app.api.tasks.render_and_store_task_prompt", new=MagicMock()),
         patch(
             "app.api.task_operations.get_effective_settings",
-            return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+            return_value=SimpleNamespace(harness_execution_mode="v2_only"),
         ),
     ):
         await update_task(

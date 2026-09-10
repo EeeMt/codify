@@ -1,7 +1,7 @@
 #!/bin/bash
 # OpenCode adapter for the Codify harness contract (V2, open-harness-v2 Phase 3).
 
-CODIFY_OPENCODE_RUNNER="${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/legacy/opencode-run.sh"
+CODIFY_OPENCODE_RUNNER="${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/runners/opencode-run.sh"
 CODIFY_OPENCODE_TRANSLATOR="${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/adapters/opencode_events.py"
 CODIFY_OPENCODE_BRIDGE="${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/adapters/opencode_bridge.py"
 
@@ -272,7 +272,7 @@ opencode_adapter_prepare_config() {
 }
 
 opencode_adapter_build_command() {
-    echo "${CODIFY_HARNESS_COMMAND:-${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/legacy/opencode-run.sh}"
+    echo "${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/runners/opencode-run.sh"
 }
 
 opencode_adapter_materialize_skills() {

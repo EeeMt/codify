@@ -117,9 +117,9 @@ def _make_profile(
         enabled=enabled,
         is_default=is_default,
         image="codify-worker/java21-maven:2026.07",
-        runtime_mode="baked_image",
-        worker_kit_version=None,
-        worker_kit_path=None,
+        runtime_mode="mounted_kit",
+        worker_kit_version="0.3.5",
+        worker_kit_path="/opt/codify/worker-kits/0.3.5-linux-amd64",
         docker_host="tcp://worker:2376",
         docker_tls_ca="/certs/ca.pem",
         docker_tls_cert="/certs/cert.pem",
@@ -204,6 +204,9 @@ async def test_create_worker_profile_rejects_duplicate_env_keys():
         name="Java Worker",
         image="codify-worker-java:latest",
         worker_kit_source="profile",
+        runtime_mode="mounted_kit",
+        worker_kit_version="0.3.5",
+        worker_kit_path="/opt/codify/worker-kits/0.3.5-linux-amd64",
         volume_mounts=[],
         environment_variables=[
             WorkerProfileEnvironmentVariableRequest(key="MAVEN_OPTS", value="-Xmx1g"),
@@ -313,12 +316,13 @@ async def test_create_baked_worker_profile_rejects_default_skills():
             db.add(skill)
             await db.flush()
 
-            with pytest.raises(HTTPException, match="baked-image mode is deprecated") as exc:
+            with pytest.raises(HTTPException, match="mounted_kit mode") as exc:
                 await create_worker_profile(
                     WorkerProfileCreateRequest(
                         name="Legacy Worker",
                         image="legacy-worker:latest",
                         worker_kit_source="profile",
+                        runtime_mode="baked_image",
                         default_execute_run_instruction_template="execute {{user_prompt}}",
                         default_plan_run_instruction_template="plan {{user_prompt}}",
                         ci_auto_repair_run_instruction_template="repair {{issue_title}}",
@@ -566,7 +570,9 @@ async def test_update_worker_profile_retains_but_cannot_add_disabled_default_ski
                 enabled=True,
                 is_default=False,
                 image="legacy-worker:latest",
-                runtime_mode="baked_image",
+                runtime_mode="mounted_kit",
+                worker_kit_version="0.3.5",
+                worker_kit_path="/opt/codify/worker-kits/0.3.5-linux-amd64",
                 volume_mounts=[],
                 pre_script="",
                 post_script="",
@@ -702,6 +708,9 @@ async def test_create_worker_profile_rejects_system_mount_collision(container_pa
         name="Invalid Mount",
         image="codify-worker:latest",
         worker_kit_source="profile",
+        runtime_mode="mounted_kit",
+        worker_kit_version="0.3.5",
+        worker_kit_path="/opt/codify/worker-kits/0.3.5-linux-amd64",
         volume_mounts=[
             {
                 "host_path": "/srv/override",
@@ -1085,7 +1094,7 @@ async def test_verify_mounted_worker_profile_runs_preflight_on_profile_target():
     client.create_container.return_value = container
     client.wait_for_container.return_value = (0, "Worker kit verification passed")
     client.resolve_image_repo_digest.return_value = (
-        "team/java21-maven@sha256:abc123def456"
+        "team/java21-maven@sha256:" + "c" * 64
     )
 
     readiness = RuntimeReadiness(
@@ -1122,7 +1131,7 @@ async def test_verify_mounted_worker_profile_runs_preflight_on_profile_target():
             return_value={
                 "schema": "codify.worker-image-identity/v1",
                 "daemon_key": "daemon-key-12",
-                "image_reference": "team/java21-maven@sha256:abc123def456",
+                "image_reference": "team/java21-maven@sha256:" + "c" * 64,
                 "image_id": "sha256:" + "a" * 64,
                 "runtime_platform": "linux/amd64",
             },
@@ -1142,8 +1151,8 @@ async def test_verify_mounted_worker_profile_runs_preflight_on_profile_target():
 
     assert response["ok"] is True
     assert response["image"] == "team/java21-maven:2026.07"
-    assert response["image_digest"] == "team/java21-maven@sha256:abc123def456"
-    assert profile.image_digest == "team/java21-maven@sha256:abc123def456"
+    assert response["image_digest"] == "team/java21-maven@sha256:" + "c" * 64
+    assert profile.image_digest == "team/java21-maven@sha256:" + "c" * 64
     assert profile.verified_at is not None
     assert db.commit.await_count == 2
     create_kwargs = client.create_container.call_args.kwargs
@@ -1223,6 +1232,16 @@ async def test_verify_rejects_harness_absent_from_kit_inventory_with_422():
     with (
         patch("app.api.worker_profiles.DockerClientWrapper", return_value=client),
         patch(
+            "app.api.worker_profiles.inspect_v2_worker_image_identity",
+            return_value={
+                "schema": "codify.worker-image-identity/v1",
+                "daemon_key": "daemon-key-42",
+                "image_reference": "team/java21-maven@sha256:" + "a" * 64,
+                "image_id": "sha256:" + "b" * 64,
+                "runtime_platform": "linux/amd64",
+            },
+        ),
+        patch(
             "app.api.worker_profiles.run_deterministic_kit_probe",
             new=AsyncMock(
                 return_value=RuntimeProbeOutcome(readiness=readiness, committed=True)
@@ -1263,9 +1282,9 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
     db.get = AsyncMock(side_effect=lambda model, pk, **kwargs: profile if model is WorkerProfile else None)
     db.execute = AsyncMock(return_value=SimpleNamespace(rowcount=1))
     db.commit = AsyncMock()
-    first, second = MagicMock(), MagicMock()
+    first, second, third = MagicMock(), MagicMock(), MagicMock()
     client = MagicMock()
-    client.create_container.side_effect = [first, second]
+    client.create_container.side_effect = [first, second, third]
     client.wait_for_container.return_value = (0, "verified")
     identity = {
         "schema": "codify.worker-image-identity/v1", "daemon_key": "daemon-key-31",
@@ -1294,7 +1313,13 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
                 "sha256": "f" * 64,
                 "size": 1024,
             },
-            "claude": {"availability": "absent", "reason_code": "not_selected"},
+            "claude": {
+                "availability": "present",
+                "path": "/opt/codify-kit/harness/claude/bin/claude",
+                "version": "1.0",
+                "sha256": "a" * 64,
+                "size": 1024,
+            },
             "codex": {"availability": "absent", "reason_code": "not_selected"},
         },
         kit_identity=kit_identity,
@@ -1316,12 +1341,13 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
     ):
         response = await verify_worker_profile_runtime(31, WorkerRuntimeVerificationRequest(), db=db)
 
-    assert response["v2_harnesses_verified"] == ["pi", "opencode"]
-    assert [call.kwargs["environment"]["CODIFY_HARNESS_KEY"] for call in client.create_container.call_args_list] == ["pi", "opencode"]
+    assert response["v2_harnesses_verified"] == ["claude", "pi", "opencode"]
+    assert [call.kwargs["environment"]["CODIFY_HARNESS_KEY"] for call in client.create_container.call_args_list] == ["claude", "pi", "opencode"]
     assert [
         call.kwargs["environment"]["CODIFY_HARNESS_CLI_BIN"]
         for call in client.create_container.call_args_list
     ] == [
+        "/opt/codify-kit/harness/claude/bin/claude",
         "/opt/codify-kit/harness/pi/bin/pi",
         "/opt/codify-kit/harness/opencode/bin/opencode",
     ]
@@ -1336,18 +1362,18 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
         for call in client.create_container.call_args_list
     )
     evidence = profile.v2_harness_verification_evidence
-    assert set(evidence) == {"pi", "opencode"}
+    assert set(evidence) == {"claude", "pi", "opencode"}
     assert evidence["pi"]["adapter"] == {"version": "pi-version", "digest": "p" * 64}
     assert evidence["opencode"]["verification_input_digest"] != evidence["pi"]["verification_input_digest"]
     assert all(call.kwargs["start"] is False for call in client.create_container.call_args_list)
-    assert client.put_archive.call_count == 2
+    assert client.put_archive.call_count == 3
     for put_call in client.put_archive.call_args_list:
         archive_bytes = put_call.args[2]
         with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:") as archive:
             manifest = archive.extractfile("codify-runtime/orchestration/manifest.json")
             assert manifest is not None
             assert manifest.read() == b'{"candidate":"pi"}'
-    assert client.start_container.call_count == 2
+    assert client.start_container.call_count == 3
     # The strict probe's content-addressed Worker Kit identity is frozen onto
     # the Profile alongside the image identity (execution identity = image
     # identity + kit identity + bundle digest).
@@ -1390,6 +1416,9 @@ async def test_verify_mounted_worker_profile_transient_daemon_returns_503():
 @pytest.mark.asyncio
 async def test_verify_baked_worker_profile_is_rejected_without_docker_access():
     profile = _make_profile(id=13)
+    profile.runtime_mode = "baked_image"
+    profile.worker_kit_version = None
+    profile.worker_kit_path = None
     db = MagicMock()
     db.get = AsyncMock(
         side_effect=lambda model, pk, **kwargs: profile if model is WorkerProfile else None

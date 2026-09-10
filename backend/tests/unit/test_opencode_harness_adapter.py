@@ -32,7 +32,7 @@ HARNESS_DIR = REPO_ROOT / "deploy/worker-entrypoint/harness"
 TRANSLATOR = HARNESS_DIR / "adapters/opencode_events.py"
 EVENT_WRITER = HARNESS_DIR / "events.py"
 ADAPTER = HARNESS_DIR / "adapters/opencode.sh"
-LEGACY_RUNNER = REPO_ROOT / "deploy/worker-entrypoint/legacy/opencode-run.sh"
+LEGACY_RUNNER = REPO_ROOT / "deploy/worker-entrypoint/harness/runners/opencode-run.sh"
 PROBE_ROOT = REPO_ROOT / "docs/harness-probes/v2/opencode"
 
 V2_ENV = {
@@ -3163,7 +3163,7 @@ def test_opencode_materialize_skills_uses_task_private_discoverable_root(tmp_pat
     assert not (tmp_path / "opencode/skills/.claude/skills").exists()
 
 
-# ── legacy/opencode-run.sh: isolated server process group cleanup ───────────
+# ── harness/runners/opencode-run.sh: isolated server process group cleanup ──
 
 def _write_runner_process_group_fixtures(tmp_path: Path) -> Path:
     """Create a fake setsid/server/curl/bridge without opening a TCP port."""

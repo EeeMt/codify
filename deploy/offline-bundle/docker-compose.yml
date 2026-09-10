@@ -27,7 +27,7 @@ services:
       - DOCKER_TLS_KEY=
       - WORKER_WORKSPACE_HOST_PATH=${WORKER_WORKSPACE_HOST_PATH:-/opt/codify-workspaces}
       - AUTO_MIGRATE=false
-      - HARNESS_EXECUTION_MODE=${HARNESS_EXECUTION_MODE:?set HARNESS_EXECUTION_MODE to dual_canary or v2_only}
+      - HARNESS_EXECUTION_MODE=${HARNESS_EXECUTION_MODE:?set HARNESS_EXECUTION_MODE to v2_only}
       - COOKIE_SECURE=false
       - CUSTOM_CA_BUNDLE=/etc/ssl/certs/custom-ca.crt
     depends_on:
@@ -76,7 +76,7 @@ services:
       # Scheduler is the single startup migration owner. Backend remains
       # disabled so two long-running processes never race on Alembic.
       - AUTO_MIGRATE=true
-      - HARNESS_EXECUTION_MODE=${HARNESS_EXECUTION_MODE:?set HARNESS_EXECUTION_MODE to dual_canary or v2_only}
+      - HARNESS_EXECUTION_MODE=${HARNESS_EXECUTION_MODE:?set HARNESS_EXECUTION_MODE to v2_only}
       - CUSTOM_CA_BUNDLE=/etc/ssl/certs/custom-ca.crt
       - WORKER_CA_CERT_HOST_PATH=${WORKER_CA_CERT_HOST_PATH:-}
       - WORKER_VOLUME_MOUNTS=${WORKER_VOLUME_MOUNTS:-}

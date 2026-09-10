@@ -7,10 +7,17 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import sys
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+
+_ADAPTERS_DIR = Path(__file__).with_name("adapters")
+if str(_ADAPTERS_DIR) not in sys.path:
+    sys.path.insert(0, str(_ADAPTERS_DIR))
+
+from sanitize import sanitize as _sanitize_preview  # noqa: E402
 
 SCHEMA = "codify.worker.event/v1"
 V2_CONTRACT = "codify.worker.harness/v2"
@@ -46,6 +53,17 @@ KNOWN_TYPES = {
     "diagnostic",
 }
 
+_PREVIEW_SKIP_TYPES = {
+    "message.delta",
+    "reasoning_summary.delta",
+    "usage.updated",
+    "diagnostic",
+    "agent_settled",
+}
+_TOOL_PREVIEW_MAX_CHARS = 500
+_TEXT_PREVIEW_MAX_CHARS = 2000
+_WHITESPACE = re.compile(r"\s+")
+
 
 def _required_env(name: str) -> str:
     value = os.getenv(name, "").strip()
@@ -77,6 +95,153 @@ def _normalize_payload(event_type: str, payload: dict) -> dict:
             "engine_fields": source.get("engine_fields") or {},
         }
     return payload
+
+
+def _preview_value(value: object, *, limit: int) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    else:
+        text = str(value)
+    text = _sanitize_preview(text)
+    text = _WHITESPACE.sub(" ", text.replace("\r", " ").replace("\n", " ")).strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}…(truncated, {len(text)} chars total)"
+
+
+def _timestamp(event: dict) -> str:
+    try:
+        return datetime.fromisoformat(str(event["occurred_at"]).replace("Z", "+00:00")).strftime(
+            "%H:%M:%S"
+        )
+    except (KeyError, TypeError, ValueError):
+        return datetime.now(UTC).strftime("%H:%M:%S")
+
+
+def format_event_preview(event: dict) -> str | None:
+    """Render one persisted Canonical Event as a bounded, safe log line."""
+    event_type = event.get("type")
+    if event_type in _PREVIEW_SKIP_TYPES:
+        return None
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    category = "harness"
+    text = ""
+
+    if event_type == "run.started":
+        text = "started"
+    elif event_type == "model.resolved":
+        text = "model resolved"
+        model = _preview_value(payload.get("model"), limit=_TEXT_PREVIEW_MAX_CHARS)
+        if model:
+            text += f" model={model}"
+    elif event_type and event_type.startswith("reasoning_summary."):
+        category = "thinking"
+        text = event_type.split(".", 1)[1]
+        summary = _preview_value(
+            payload.get("summary") or payload.get("text") or payload.get("reason"),
+            limit=_TEXT_PREVIEW_MAX_CHARS,
+        )
+        if summary:
+            text += f" {summary}"
+    elif event_type == "message.completed":
+        category = "assistant"
+        text = _preview_value(payload.get("text"), limit=_TEXT_PREVIEW_MAX_CHARS) or "completed"
+    elif event_type == "tool.started":
+        category = "tool"
+        name = _preview_value(payload.get("name") or payload.get("tool"), limit=120)
+        tool_input = _preview_value(
+            payload.get("input") or payload.get("arguments"), limit=_TOOL_PREVIEW_MAX_CHARS
+        )
+        text = name or "started"
+        if tool_input:
+            text += f" {tool_input}"
+    elif event_type == "tool.completed":
+        category = "tool"
+        status = "failed" if payload.get("error") or payload.get("success") is False else "completed"
+        text = status
+        if payload.get("exit_code") is not None:
+            text += f" exit={payload['exit_code']}"
+        output = _preview_value(
+            payload.get("output") or payload.get("error_message"),
+            limit=_TOOL_PREVIEW_MAX_CHARS,
+        )
+        if output:
+            text += f" output={output}"
+    elif event_type == "context.compacted":
+        text = "compacted"
+    elif event_type == "provider.retry":
+        text = "retry"
+        attempt = payload.get("attempt")
+        reason = _preview_value(
+            payload.get("failure_kind") or payload.get("reason"), limit=_TEXT_PREVIEW_MAX_CHARS
+        )
+        if attempt is not None:
+            text += f" attempt={attempt}"
+        if reason:
+            text += f" reason={reason}"
+    elif event_type == "usage.final":
+        usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+        fields = []
+        for key, label in (
+            ("input_tokens", "input"),
+            ("cached_input_tokens", "cached"),
+            ("output_tokens", "output"),
+            ("reasoning_tokens", "reasoning"),
+            ("cost", "cost"),
+        ):
+            if usage.get(key) is not None:
+                fields.append(f"{label}={_preview_value(usage[key], limit=80)}")
+        if not fields:
+            return None
+        category = "usage"
+        text = " ".join(fields)
+    elif event_type in {"control.command.delivered", "control.command.rejected"}:
+        category = "control"
+        action = event_type.rsplit(".", 1)[-1]
+        command_type = _preview_value(payload.get("command_type") or payload.get("kind"), limit=120)
+        text = action if not command_type else f"{command_type} {action}"
+    elif event_type == "control.queue.updated":
+        category = "control"
+        text = "queue updated"
+    elif event_type and (
+        event_type.startswith("harness.")
+        or event_type.startswith("delivery.")
+        or event_type.startswith("run.")
+        or event_type == "worker.finalization"
+    ):
+        if event_type.startswith("delivery."):
+            category = "delivery"
+        elif event_type == "worker.finalization":
+            category = "worker"
+        text = event_type.rsplit(".", 1)[-1]
+        failure = payload.get("failure") if isinstance(payload.get("failure"), dict) else {}
+        detail = _preview_value(
+            failure.get("message") or failure.get("kind"), limit=_TEXT_PREVIEW_MAX_CHARS
+        )
+        if event_type == "worker.finalization" and payload.get("exit_code") is not None:
+            detail = f"exit={payload['exit_code']}" + (f" {detail}" if detail else "")
+        if detail:
+            text += f" {detail}"
+    else:
+        return None
+
+    harness = event.get("harness") if isinstance(event.get("harness"), dict) else {}
+    harness_key = _preview_value(harness.get("key"), limit=64) or "unknown"
+    seq = event.get("seq", "?")
+    return f"[{_timestamp(event)}][{harness_key}][#{seq}][{category}] {text}"
+
+
+def _write_event_preview(event: dict) -> None:
+    """Best-effort mirror; a logging failure must never fail event emission."""
+    try:
+        line = format_event_preview(event)
+        if line:
+            sys.stderr.write(line + "\n")
+            sys.stderr.flush()
+    except Exception:
+        return
 
 
 def emit(event_type: str, payload: dict, raw_ref: dict | None) -> dict:
@@ -197,7 +362,8 @@ def emit(event_type: str, payload: dict, raw_ref: dict | None) -> dict:
             output.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
             output.flush()
             os.fsync(output.fileno())
-        return event
+    _write_event_preview(event)
+    return event
 
 
 def main() -> int:

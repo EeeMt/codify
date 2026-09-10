@@ -57,6 +57,11 @@ class CIFailureCollectorTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.workspace_root = Path(self.tempdir.name)
+        self.runtime_digest_patcher = patch(
+            "app.core.worker_profiles.current_runtime_verification_digest",
+            return_value="verified",
+        )
+        self.runtime_digest_patcher.start()
         self.engine = create_async_engine(
             "sqlite+aiosqlite:///:memory:",
             poolclass=StaticPool,
@@ -68,6 +73,7 @@ class CIFailureCollectorTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.engine.dispose()
+        self.runtime_digest_patcher.stop()
         self.tempdir.cleanup()
 
     def _settings(self, **overrides):
@@ -115,6 +121,30 @@ class CIFailureCollectorTests(unittest.IsolatedAsyncioTestCase):
     ) -> WorkerProfile:
         from app.core.task_prompt import BUILT_IN_CI_AUTO_REPAIR_RUN_INSTRUCTION_TEMPLATE
 
+        image_identity = {
+            "schema": "codify.worker-image-identity/v1",
+            "daemon_key": "ci-failure-tests",
+            "image_reference": "registry.example/codify-worker@sha256:" + "a" * 64,
+            "image_id": "sha256:" + "b" * 64,
+            "runtime_platform": "linux/amd64",
+        }
+        kit_identity = {
+            "schema": "codify.worker.kit-identity/v1",
+            "kit_version": "0.3.5",
+            "platform": "linux/amd64",
+            "manifest_sha256": "c" * 64,
+        }
+        from app.core.worker_runtime_bundle import frozen_v2_adapter_identity
+
+        adapter_identities = {
+            key: frozen_v2_adapter_identity(
+                key,
+                worker_image_identity=image_identity,
+                worker_kit_identity=kit_identity,
+            )
+            for key in (enabled_harnesses or [harness_key])
+        }
+
         return WorkerProfile(
             id=worker_profile_id,
             name=f"Worker {worker_profile_id}",
@@ -129,8 +159,33 @@ class CIFailureCollectorTests(unittest.IsolatedAsyncioTestCase):
             ci_auto_repair_run_instruction_template=(
                 BUILT_IN_CI_AUTO_REPAIR_RUN_INSTRUCTION_TEMPLATE
             ),
+            runtime_mode="mounted_kit",
+            worker_kit_version="0.3.5",
+            worker_kit_path="/opt/codify/worker-kits/0.3.5-linux-amd64",
             default_harness_key=harness_key,
             enabled_harnesses=enabled_harnesses or ["claude"],
+            worker_kit_identity=kit_identity,
+            v2_worker_image_identity=image_identity,
+            v2_worker_image_identity_generation=0,
+            v2_harness_verification_evidence={
+                key: {
+                    "schema": "codify.worker-harness-verification/v1",
+                    "harness_key": key,
+                    "contract_version": "codify.worker.harness/v2",
+                    "adapter": adapter_identities[key],
+                    "cli": {
+                        "source": "worker_kit",
+                        "executable_path": f"/opt/codify-kit/harness/{key}/bin/{key}",
+                        "version": "0.84.2",
+                        "binary_digest": "e" * 64,
+                    },
+                    "verification_input_digest": "verified",
+                    "image_identity": image_identity,
+                    "generation": 0,
+                    "verified_at": "2026-08-24T00:00:00+00:00",
+                }
+                for key in (enabled_harnesses or [harness_key])
+            },
         )
 
     async def _seed_issue_and_run(

@@ -81,7 +81,14 @@ else
 fi
 
 # All visual helpers write to stderr
-_e()   { printf "$@" >&2; }
+_e()   {
+  # Formal V2 execution mirrors all durable Canonical Events through the
+  # shared writer. Suppress the old native pretty-printer so Raw logs do not
+  # show the same thinking/tool/message twice; diagnostics still reach the
+  # canonical failure summary when the stream cannot settle.
+  [[ "${CODIFY_FORMAL_HARNESS_RUN:-0}" == "1" ]] && return 0
+  printf "$@" >&2
+}
 log()  { _e "${DIM}[claude-run] %s${RESET}\n" "$*"; }
 info() { _e "${BLUE}ℹ  %s${RESET}\n" "$*"; }
 ok()   { _e "${GREEN}✅ %s${RESET}\n" "$*"; }

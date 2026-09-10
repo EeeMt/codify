@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.core.worker_kit import BAKED_IMAGE_MODE, MOUNTED_KIT_MODE
+from app.core.worker_kit import MOUNTED_KIT_MODE
 from app.core.worker_profiles import WorkerProfileValidationError
 from app.core.worker_shared_configuration import (
     ENV_OPERATION_MASK,
@@ -65,9 +65,9 @@ def _profile(**overrides):
         "name": "Worker",
         "image": "codify-worker/java21:2026.07",
         "worker_kit_source": WORKER_KIT_SOURCE_PROFILE,
-        "runtime_mode": BAKED_IMAGE_MODE,
-        "worker_kit_version": None,
-        "worker_kit_path": None,
+        "runtime_mode": MOUNTED_KIT_MODE,
+        "worker_kit_version": "0.4.0",
+        "worker_kit_path": "/opt/codify/worker-kits/0.4.0",
         "volume_mounts": [],
         "volume_mount_masks": [],
         "environment_variables": [],
@@ -92,8 +92,8 @@ def test_resolve_fully_explicit_profile_without_shared_baseline():
     effective = resolve_effective_configuration(_profile())
 
     assert effective.image == "codify-worker/java21:2026.07"
-    assert effective.runtime_mode == BAKED_IMAGE_MODE
-    assert effective.worker_kit_version is None
+    assert effective.runtime_mode == MOUNTED_KIT_MODE
+    assert effective.worker_kit_version == "0.4.0"
     assert effective.pre_script == ""
     assert effective.default_execute_run_instruction_template == "execute {{user_prompt}}"
     assert effective.shared_configuration_revision is None
@@ -104,8 +104,8 @@ def test_explicit_profile_keeps_own_kit_and_scalars_with_shared_baseline():
     """F1: an explicit profile keeps its own Kit and scalar overrides."""
     effective = resolve_effective_configuration(_profile(), _shared())
 
-    assert effective.runtime_mode == BAKED_IMAGE_MODE
-    assert effective.worker_kit_version is None
+    assert effective.runtime_mode == MOUNTED_KIT_MODE
+    assert effective.worker_kit_version == "0.4.0"
     assert effective.pre_script == ""
     assert effective.default_execute_run_instruction_template == "execute {{user_prompt}}"
 
@@ -202,7 +202,7 @@ def test_kit_source_system_inherits_kit_from_shared():
     effective = resolve_effective_configuration(
         _profile(
             worker_kit_source=WORKER_KIT_SOURCE_SYSTEM,
-            runtime_mode=BAKED_IMAGE_MODE,
+            runtime_mode=MOUNTED_KIT_MODE,
             worker_kit_version=None,
             worker_kit_path=None,
         ),

@@ -70,14 +70,14 @@ def _source_task(**overrides) -> Task:
         default_plan_run_instruction_template="Plan {{user_prompt}}",
         ci_auto_repair_run_instruction_template="Repair {{issue_title}}",
         harness_key="claude",
-        runtime_contract_version="codify.worker.harness/v1",
+        runtime_contract_version="codify.worker.harness/v2",
         runtime_bundle_digest="a" * 64,
     )
     # Retry is now an execution writer and must pass the same central contract
-    # guard as execute/schedule.  Keep this lineage fixture focused by giving
-    # it the immutable V1 truth that a real historical runnable task carries.
+    # guard as execute/schedule. Keep this lineage fixture on executable V2;
+    # historical V1 rows are intentionally retry-blocked.
     task.runtime_bundle = WorkerRuntimeBundle(
-        contract_version="codify.worker.harness/v1",
+        contract_version="codify.worker.harness/v2",
         digest="a" * 64,
         manifest={"adapters": {"claude": {}}},
         bundle_bytes=b"",

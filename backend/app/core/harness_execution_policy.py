@@ -1,31 +1,18 @@
-"""Iteration-1 execution contract policy (phase1-design §2.3).
+"""V2-only execution contract policy.
 
-Gates whether a Task/attempt/Bundle is executable under the configured harness
-execution mode. Two modes are supported:
-
-- ``dual_canary`` (default): both canonical V1 bundles and V2 bundles are
-  executable; V1 read paths stay available.
-- ``v2_only``: fails closed. Only exact canonical V2 contracts run; any residual
-  legacy V1 contract is not executable and is idempotently terminalized at
-  startup/recovery with a unified ``legacy_contract_not_executable`` code.
-
-The functions accept duck-typed objects (``event_schema``/``harness_key`` on an
-attempt, ``contract_version`` on a bundle, ``runtime_contract_version`` on a
-snapshot) so they are pure and unit-testable; the worker/scheduler call sites
-pass the real ORM objects.
+Historical V1 contracts stay available to read APIs, but every executable
+writer boundary requires an exact canonical V2 Task/Bundle identity.
 """
 
 from __future__ import annotations
 
 from app.core.harness_protocol import (
-    CANONICAL_EVENT_SCHEMA,
     CANONICAL_EVENT_SCHEMA_V2,
-    HARNESS_CONTRACT_VERSION,
     HARNESS_CONTRACT_VERSION_V2,
 )
 from app.core.harness_registry import HarnessRegistryError, runtime_bundle_model_protocols
 
-HARNESS_EXECUTION_MODES = frozenset({"dual_canary", "v2_only"})
+HARNESS_EXECUTION_MODES = frozenset({"v2_only"})
 
 # Unified code for a legacy V1 contract that is not executable (v2_only).
 LEGACY_CONTRACT_NOT_EXECUTABLE = "legacy_contract_not_executable"
@@ -71,14 +58,7 @@ def require_explicit_harness_execution_mode(settings) -> str:
 
 
 def is_v2_only(mode: str) -> bool:
-    """True when the mode is exactly ``v2_only``.
-
-    A pure predicate: it never raises on an unknown mode. Strict validation of
-    the mode string belongs in :func:`validate_harness_execution_mode`, which
-    config/startup call to fail fast; runtime call sites (e.g. the worker
-    container gate) treat anything that is not exactly ``v2_only`` as the
-    permissive dual path.
-    """
+    """Return whether the only supported execution mode is selected."""
     return mode == "v2_only"
 
 
@@ -93,16 +73,18 @@ def _attempt_is_v2(attempt) -> bool:
 def require_executable_contract(bundle) -> None:
     """Require an executable canonical contract on a bound Runtime Bundle.
 
-    A bundle with no frozen contract is never executable. Both V1 and V2
-    canonical contracts are executable in ``dual_canary``; the strict V2
-    requirement is enforced separately by :func:`require_executable_contract_v2`
-    at the points that need an exact V2 attempt.
+    A bundle with no frozen contract is never executable. V1 bundles are
+    historical read-only data and are rejected by the executable writer gate.
     """
     version = getattr(bundle, "contract_version", None)
-    if version not in (HARNESS_CONTRACT_VERSION, HARNESS_CONTRACT_VERSION_V2):
+    if version != HARNESS_CONTRACT_VERSION_V2:
         raise ExecutionPolicyError(
             f"Runtime Bundle has no executable canonical contract (contract_version={version!r})",
-            code="missing_executable_contract",
+            code=(
+                LEGACY_CONTRACT_NOT_EXECUTABLE
+                if version == "codify.worker.harness/v1"
+                else "missing_executable_contract"
+            ),
         )
 
 
@@ -198,15 +180,8 @@ def require_task_executable_contract(
                 code="execution_contract_mismatch",
             )
 
-    if is_v2_only(mode) and bundle_contract != HARNESS_CONTRACT_VERSION_V2:
-        raise ExecutionPolicyError(
-            f"task {getattr(task, 'id', '?')} pins a legacy V1 contract that is "
-            "read-only under HARNESS_EXECUTION_MODE=v2_only",
-            code=LEGACY_CONTRACT_NOT_EXECUTABLE,
-        )
-
     if attempt is None:
-        if require_attempt_for_v2 and bundle_contract == HARNESS_CONTRACT_VERSION_V2:
+        if require_attempt_for_v2:
             raise ExecutionPolicyError(
                 f"task {getattr(task, 'id', '?')} has no durable execution attempt for V2 "
                 "resume/recovery",
@@ -220,13 +195,7 @@ def require_task_executable_contract(
             "Task snapshot Harness",
             code="execution_contract_mismatch",
         )
-    if bundle_contract == HARNESS_CONTRACT_VERSION_V2:
-        require_executable_contract_v2(attempt, bundle)
-    elif getattr(attempt, "event_schema", None) != CANONICAL_EVENT_SCHEMA:
-        raise ExecutionPolicyError(
-            f"legacy attempt {getattr(attempt, 'attempt_id', '?')} has a non-V1 event schema",
-            code="execution_contract_mismatch",
-        )
+    require_executable_contract_v2(attempt, bundle)
 
 
 def execution_rejection_detail(error: ExecutionPolicyError, *, action: str, subject) -> dict:
@@ -240,14 +209,13 @@ def execution_rejection_detail(error: ExecutionPolicyError, *, action: str, subj
 
 
 def require_creatable_bundle_v2(bundle, mode: str, subject=None) -> None:
-    """Under ``v2_only``, refuse to create a Task that pins a non-V2 contract.
+    """Refuse to create a Task that pins a non-V2 contract.
 
     Runs at the task-creation entry so a legacy V1 contract is rejected up
     front (``legacy_contract_not_executable``) instead of accepted and then
-    terminalized by recovery. No-op in any non-``v2_only`` mode.
+    terminalized by recovery.
     """
-    if not is_v2_only(mode):
-        return
+    validate_harness_execution_mode(mode)
     if getattr(bundle, "contract_version", None) != HARNESS_CONTRACT_VERSION_V2:
         raise ExecutionPolicyError(
             f"task {('for ' + str(subject)) if subject else ''}pins a non-V2 "

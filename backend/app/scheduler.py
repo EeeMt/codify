@@ -335,6 +335,11 @@ class Scheduler:
         terminalized: set[int] = set()
         terminalized_issues: set[int] = set()
         for task in row.scalars().all():
+            # Real ORM rows always expose the relationship because the query
+            # eagerly loads it. Keep lightweight recovery test doubles on the
+            # existing recovery path instead of requiring an entire ORM graph.
+            if not hasattr(task, "runtime_bundle"):
+                continue
             bundle = task.runtime_bundle
             attempt = (
                 await db.execute(

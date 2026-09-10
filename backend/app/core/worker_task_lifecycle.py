@@ -512,7 +512,7 @@ async def create_execute_container(
     )
 
     # Always validate the immutable Task snapshot, bound Bundle and attempt;
-    # dual_canary is not a bypass for mismatched frozen execution identity.
+    # Frozen execution identity is authoritative at every worker boundary.
     require_task_executable_contract(
         task,
         runtime_bundle,

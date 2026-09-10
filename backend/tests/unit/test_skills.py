@@ -706,7 +706,7 @@ async def test_worker_runtime_explicitly_loads_deferred_skill_content():
             snapshot.worker_kit_version = None
             snapshot.worker_kit_path = None
             await db.commit()
-            with pytest.raises(WorkerProfileValidationError, match="baked-image mode"):
+            with pytest.raises(WorkerProfileValidationError, match="mounted_kit mode"):
                 await load_task_worker_runtime(db, SimpleNamespace(id=41))
     finally:
         await engine.dispose()

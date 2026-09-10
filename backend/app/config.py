@@ -210,10 +210,9 @@ class Settings(BaseSettings):
     ci_auto_repair_run_instruction_template: str = Field(
         default=BUILT_IN_CI_AUTO_REPAIR_RUN_INSTRUCTION_TEMPLATE
     )
-    # Harness execution mode (open-harness-v2-phase1-design §2.3). Backend and
-    # scheduler each validate this at startup; `v2_only` fails closed on any
-    # residual legacy V1 contract.
-    harness_execution_mode: str = Field(default="dual_canary")
+    # V2 is the only executable contract. Historical V1 rows remain readable,
+    # but cannot be created, retried, or resumed.
+    harness_execution_mode: str = Field(default="v2_only")
     # Port for the Scheduler's standalone /health endpoint (plan §4.8
     # preflight). Set 0 to disable the listener.
     scheduler_health_port: int = Field(default=8001, ge=0, le=65_535)
@@ -223,10 +222,8 @@ class Settings(BaseSettings):
     def _validate_harness_execution_mode(cls, value: object) -> object:
         if isinstance(value, bool):
             raise ValueError("harness_execution_mode must be a string")
-        if value not in {"dual_canary", "v2_only"}:
-            raise ValueError(
-                "harness_execution_mode must be one of {dual_canary, v2_only}"
-            )
+        if value != "v2_only":
+            raise ValueError("harness_execution_mode must be v2_only")
         return value
 
     @field_validator(

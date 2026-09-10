@@ -208,10 +208,17 @@
                   <n-gi>
                     <n-form-item :label="t('config.workerRuntimeMode')">
                       <n-select
+                        v-if="sharedFormValue.runtime_mode === 'mounted_kit'"
                         v-model:value="sharedFormValue.runtime_mode"
                         :options="workerRuntimeModeOptions"
                         class="config-form__input"
                       />
+                      <n-space v-else align="center">
+                        <n-tag type="warning">{{ runtimeModeLabel(sharedFormValue.runtime_mode) }}</n-tag>
+                        <n-button size="small" secondary @click="sharedFormValue.runtime_mode = 'mounted_kit'">
+                          {{ t('config.workerRuntimeModeMountedKit') }}
+                        </n-button>
+                      </n-space>
                     </n-form-item>
                   </n-gi>
                   <n-gi v-if="sharedFormValue.runtime_mode === 'mounted_kit'">
@@ -595,13 +602,17 @@
               <n-gi v-if="workerFormValue.worker_kit_source === 'profile'">
                 <n-form-item :label="t('config.workerRuntimeMode')">
                   <n-select
+                    v-if="workerFormValue.runtime_mode === 'mounted_kit'"
                     v-model:value="workerFormValue.runtime_mode"
                     :options="workerRuntimeModeOptions"
                     class="config-form__input"
                   />
-                  <template v-if="workerFormValue.runtime_mode === 'baked_image'" #feedback>
-                    {{ t('config.workerRuntimeModeBakedImageHint') }}
-                  </template>
+                  <n-space v-else align="center">
+                    <n-tag type="warning">{{ runtimeModeLabel(workerFormValue.runtime_mode) }}</n-tag>
+                    <n-button size="small" secondary @click="workerFormValue.runtime_mode = 'mounted_kit'">
+                      {{ t('config.workerRuntimeModeMountedKit') }}
+                    </n-button>
+                  </n-space>
                 </n-form-item>
               </n-gi>
               <n-gi v-if="workerFormValue.worker_kit_source === 'profile' && workerFormValue.runtime_mode === 'mounted_kit'">
@@ -1298,7 +1309,6 @@ const mountModeOptions = [
 ]
 
 const workerRuntimeModeOptions = [
-  { label: t('config.workerRuntimeModeBakedImage'), value: 'baked_image' },
   { label: t('config.workerRuntimeModeMountedKit'), value: 'mounted_kit' }
 ]
 
@@ -1323,7 +1333,7 @@ const workerFormValue = ref<WorkerFormValue>({
   is_default: false,
   image: '',
   worker_kit_source: 'system',
-  runtime_mode: 'baked_image',
+  runtime_mode: 'mounted_kit',
   worker_kit_version: '',
   worker_kit_path: '',
   use_system_docker: true,
@@ -1584,7 +1594,7 @@ function mapProfileToWorkerFormValue(
     is_default: profile?.is_default ?? false,
     image: profile?.image ?? '',
     worker_kit_source: profile?.worker_kit_source ?? (profile?.overrides?.worker_kit ? 'profile' : 'system'),
-    runtime_mode: profile?.runtime_mode ?? 'baked_image',
+    runtime_mode: profile?.runtime_mode ?? 'mounted_kit',
     worker_kit_version: profile?.worker_kit_version ?? '',
     worker_kit_path: profile?.worker_kit_path ?? '',
     use_system_docker: !profile?.docker_host,
@@ -1819,7 +1829,7 @@ function emptyRuntimeReadiness(): WorkerRuntimeReadiness {
 function createEmptySharedFormValue(): SharedFormValue {
   return {
     revision: 0,
-    runtime_mode: 'baked_image',
+    runtime_mode: 'mounted_kit',
     worker_kit_version: '',
     worker_kit_path: '',
     mounts: [],
@@ -1841,7 +1851,7 @@ function createEmptyWorkerFormValue(): WorkerFormValue {
     is_default: false,
     image: '',
     worker_kit_source: 'system',
-    runtime_mode: 'baked_image',
+    runtime_mode: 'mounted_kit',
     worker_kit_version: '',
     worker_kit_path: '',
     use_system_docker: true,

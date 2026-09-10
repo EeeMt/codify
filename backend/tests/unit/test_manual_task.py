@@ -455,7 +455,7 @@ class TestRescheduleTask:
             ),
             patch(
                 "app.api.task_operations.get_effective_settings",
-                return_value=SimpleNamespace(harness_execution_mode="dual_canary"),
+                return_value=SimpleNamespace(harness_execution_mode="v2_only"),
             ),
         ):
             result = await reschedule_task(

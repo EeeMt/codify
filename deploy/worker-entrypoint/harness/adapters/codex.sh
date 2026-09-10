@@ -28,11 +28,12 @@ codex_adapter_metadata() {
     # Codex emits the V1 or V2 envelope/result per the runtime contract the
     # backend freezes into the attempt. The manifest top-level stays V1 until
     # the Phase 5 hard switch; this operator honours an explicit override.
-    local contract="${CODIFY_RUNTIME_CONTRACT_VERSION:-codify.worker.harness/v1}"
-    local event_schema="${CODIFY_EVENT_SCHEMA:-codify.worker.event/v1}"
-    if [ "${contract}" = "codify.worker.harness/v2" ]; then
-        event_schema="${CODIFY_EVENT_SCHEMA:-codify.worker.event/v2}"
-    fi
+    local contract="${CODIFY_RUNTIME_CONTRACT_VERSION:-codify.worker.harness/v2}"
+    local event_schema="${CODIFY_EVENT_SCHEMA:-codify.worker.event/v2}"
+    [ "${contract}" = "codify.worker.harness/v2" ] || {
+        echo "Codex Adapter requires the V2 runtime contract" >&2
+        return 1
+    }
     # Frozen manifest is the single source of truth for adapter version/digest.
     jq -c \
         --arg key codex \
@@ -190,9 +191,8 @@ EOF
 }
 
 codex_adapter_build_command() {
-    # Model/Provider source is only the frozen Snapshot (via env). The runner
-    # lives under worker-entrypoint/legacy (maps to the same path in the bundle).
-    echo "${CODIFY_HARNESS_COMMAND:-${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/legacy/codex-run.sh}"
+    # Model/Provider source is only the frozen Snapshot (via env).
+    echo "${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/runners/codex-run.sh"
 }
 
 codex_adapter_materialize_skills() {
@@ -248,40 +248,23 @@ codex_adapter_normalize_result() {
     # legacy CLI stdout and must not be used for canonical normalization.
     local authoritative="${CODIFY_HARNESS_RESULT_FILE:-${result_file}}"
     [ -s "${authoritative}" ] || return 1
-    # Accept the result schema matching the active contract (v1 in production
-    # today, v2 once the runtime contract flips). The V2 envelope nests the
-    # harness identity under a `harness` block; the V1 envelope keeps it flat.
-    local schema="codify.worker.result/v1"
-    if [ "${CODIFY_RUNTIME_CONTRACT_VERSION:-}" = "codify.worker.harness/v2" ]; then
-        schema="codify.worker.result/v2"
-        jq -e \
-            --arg harness_key codex \
-            --arg adapter_version "${CODIFY_ADAPTER_VERSION}" \
-            --arg cli_version "${CODIFY_CLI_VERSION}" \
-            --arg schema "${schema}" \
-            '.schema == $schema
-             and .harness.key == $harness_key
-             and .harness.adapter_version == $adapter_version
-             and .harness.cli_version == $cli_version
-             and .harness.control_transport.kind != null
-             and (.harness.model_protocols | type == "array")
-             and (.harness.model_protocols | length > 0)
-             and (.status | IN("completed", "failed", "cancelled", "protocol_error"))
-             and (.success | type == "boolean")
-             and (.usage | type == "object")
-             and (.capability_warnings | type == "array")' \
-            "${authoritative}" >/dev/null || return 1
-        return 0
-    fi
+    [ "${CODIFY_RUNTIME_CONTRACT_VERSION:-}" = "codify.worker.harness/v2" ] || {
+        echo "Codex Adapter requires the V2 runtime contract" >&2
+        return 1
+    }
+    local schema="codify.worker.result/v2"
     jq -e \
         --arg harness_key codex \
         --arg adapter_version "${CODIFY_ADAPTER_VERSION}" \
         --arg cli_version "${CODIFY_CLI_VERSION}" \
         --arg schema "${schema}" \
         '.schema == $schema
-         and .harness_key == $harness_key
-         and .adapter_version == $adapter_version
-         and .cli_version == $cli_version
+         and .harness.key == $harness_key
+         and .harness.adapter_version == $adapter_version
+         and .harness.cli_version == $cli_version
+         and .harness.control_transport.kind != null
+         and (.harness.model_protocols | type == "array")
+         and (.harness.model_protocols | length > 0)
          and (.status | IN("completed", "failed", "cancelled", "protocol_error"))
          and (.success | type == "boolean")
          and (.usage | type == "object")

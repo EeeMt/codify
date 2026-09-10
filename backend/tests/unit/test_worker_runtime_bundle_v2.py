@@ -279,12 +279,6 @@ def test_bundle_digest_is_recursive_over_files():
     assert build_runtime_bundle_v2(removed).digest != baseline.digest
 
 
-def test_v1_bundle_path_still_works_after_allowlist_widening():
-    # The V1 in-place bundle builder and the V1 manifest validator are untouched.
-    v1 = build_runtime_bundle(REPO_ROOT)
-    assert v1.manifest["schema"] == "codify.worker.runtime-bundle/v1"
-    assert v1.manifest["contract_version"] == "codify.worker.harness/v1"
-
-    from app.core.harness_registry import validate_runtime_bundle_manifest
-
-    validate_runtime_bundle_manifest(v1.manifest)
+def test_v1_bundle_builder_is_disabled_after_hard_cut():
+    with pytest.raises(RuntimeError, match="V1 Runtime Bundle construction is disabled"):
+        build_runtime_bundle(REPO_ROOT)

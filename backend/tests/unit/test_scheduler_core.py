@@ -36,12 +36,12 @@ def _claimable_task(task_id: int, issue_id: int, status=TaskStatus.QUEUED) -> Ma
     task.error_message = None
     task.raw_logs_finalized_at = None
     task.runtime_bundle = MagicMock(
-        contract_version="codify.worker.harness/v1",
+        contract_version="codify.worker.harness/v2",
         digest="a" * 64,
         manifest={"adapters": {"claude": {}}},
     )
     task.worker_profile_snapshot = MagicMock(
-        runtime_contract_version="codify.worker.harness/v1",
+        runtime_contract_version="codify.worker.harness/v2",
         runtime_bundle_digest="a" * 64,
         harness_key="claude",
     )
@@ -580,7 +580,14 @@ class SchedulerCrashRecoveryTests(unittest.IsolatedAsyncioTestCase):
         mock_docker.client.containers.list.return_value = []
 
         with patch("app.scheduler.AsyncSessionLocal", return_value=mock_context):
-            with patch("app.scheduler._get_recovery_docker_client", return_value=mock_docker):
+            with (
+                patch.object(
+                    scheduler,
+                    "_remediate_legacy_contracts",
+                    new=AsyncMock(return_value=set()),
+                ),
+                patch("app.scheduler._get_recovery_docker_client", return_value=mock_docker),
+            ):
                 await scheduler._crash_recovery()
 
         self.assertEqual(stuck_task.status, TaskStatus.FAILED)
@@ -611,6 +618,11 @@ class SchedulerCrashRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.scheduler.AsyncSessionLocal", return_value=mock_context),
+            patch.object(
+                scheduler,
+                "_remediate_legacy_contracts",
+                new=AsyncMock(return_value=set()),
+            ),
             patch("app.scheduler._RECOVERY_RETRY_OFFSETS_SECONDS", (0, 0, 0)),
             patch(
                 "app.scheduler._get_recovery_docker_client",
@@ -651,7 +663,14 @@ class SchedulerCrashRecoveryTests(unittest.IsolatedAsyncioTestCase):
         mock_docker.client.containers.list.return_value = []
 
         with patch("app.scheduler.AsyncSessionLocal", return_value=mock_context):
-            with patch("app.scheduler._get_recovery_docker_client", return_value=mock_docker):
+            with (
+                patch.object(
+                    scheduler,
+                    "_remediate_legacy_contracts",
+                    new=AsyncMock(return_value=set()),
+                ),
+                patch("app.scheduler._get_recovery_docker_client", return_value=mock_docker),
+            ):
                 await scheduler._crash_recovery()
 
         # Should still commit (even if nothing to update)
@@ -710,6 +729,9 @@ class SchedulerRunCycleTests(unittest.IsolatedAsyncioTestCase):
         """Helper: create an async context manager mock for AsyncSessionLocal."""
         mock_db = MagicMock()
         mock_db.commit = AsyncMock()
+        empty_result = MagicMock()
+        empty_result.scalars.return_value.all.return_value = []
+        mock_db.execute = AsyncMock(return_value=empty_result)
         mock_context = MagicMock()
         mock_context.__aenter__ = AsyncMock(return_value=mock_db)
         mock_context.__aexit__ = AsyncMock(return_value=False)
@@ -726,7 +748,7 @@ class SchedulerRunCycleTests(unittest.IsolatedAsyncioTestCase):
         mock_settings = SimpleNamespace(
             max_concurrency=2,
             scheduler_interval=1,
-            harness_execution_mode="dual_canary",
+            harness_execution_mode="v2_only",
         )
 
         with patch("app.scheduler.AsyncSessionLocal", return_value=mock_context):
@@ -765,7 +787,7 @@ class SchedulerRunCycleTests(unittest.IsolatedAsyncioTestCase):
         mock_settings = SimpleNamespace(
             max_concurrency=4,
             scheduler_interval=1,
-            harness_execution_mode="dual_canary",
+            harness_execution_mode="v2_only",
         )
 
         with patch("app.scheduler.AsyncSessionLocal", return_value=mock_context):
@@ -812,7 +834,7 @@ class SchedulerRunCycleTests(unittest.IsolatedAsyncioTestCase):
         mock_settings = SimpleNamespace(
             max_concurrency=4,
             scheduler_interval=1,
-            harness_execution_mode="dual_canary",
+            harness_execution_mode="v2_only",
         )
 
         task = MagicMock()
@@ -864,7 +886,7 @@ class SchedulerRunCycleTests(unittest.IsolatedAsyncioTestCase):
         mock_settings = SimpleNamespace(
             max_concurrency=4,
             scheduler_interval=1,
-            harness_execution_mode="dual_canary",
+            harness_execution_mode="v2_only",
         )
 
         task = MagicMock()
@@ -1167,15 +1189,16 @@ class SchedulerExecuteTaskTests(unittest.IsolatedAsyncioTestCase):
                 self.issue_sequence = 1
                 self.scheduled_at = None
                 self.runtime_bundle = MagicMock(
-                    contract_version="codify.worker.harness/v1",
+                    contract_version="codify.worker.harness/v2",
                     digest="a" * 64,
                     manifest={"adapters": {"claude": {}}},
                 )
                 self.worker_profile_snapshot = MagicMock(
-                    runtime_contract_version="codify.worker.harness/v1",
+                    runtime_contract_version="codify.worker.harness/v2",
                     runtime_bundle_digest="a" * 64,
                     harness_key="claude",
                 )
+                self.raw_logs_finalized_at = None
 
             def _read(self, value):
                 if self.expired:

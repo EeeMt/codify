@@ -232,7 +232,7 @@ def _execute_fixtures(
         worker_skip_image_pull=False,
         worker_network="bridge",
         docker_host="tcp://docker.example:2376",
-        harness_execution_mode="dual_canary",
+        harness_execution_mode="v2_only",
     )
     db = MagicMock()
     db.commit = AsyncMock()

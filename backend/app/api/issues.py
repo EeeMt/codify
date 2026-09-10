@@ -189,7 +189,7 @@ async def _resolve_issue_worker_id(
 
 
 def _repository_policy_error_detail(profile: WorkerProfile) -> dict[str, str] | None:
-    if getattr(profile, "runtime_mode", "baked_image") != MOUNTED_KIT_MODE:
+    if getattr(profile, "runtime_mode", MOUNTED_KIT_MODE) != MOUNTED_KIT_MODE:
         return {
             "code": _REPOSITORY_POLICY_REQUIRES_MOUNTED_KIT,
             "message": "Repository clone settings require a mounted-kit worker profile",

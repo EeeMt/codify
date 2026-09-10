@@ -27,14 +27,12 @@ claude_adapter_metadata() {
     if [ ! -r "${manifest_path}" ]; then
         manifest_path="${ENTRYPOINT_LIB_DIR}/harness/manifest.json"
     fi
-    # Claude emits the V1 or V2 envelope/result per the runtime contract the
-    # backend freezes into the attempt. The manifest top-level stays V1 until
-    # the Phase 5 hard switch; this operator honours an explicit override.
-    local contract="${CODIFY_RUNTIME_CONTRACT_VERSION:-codify.worker.harness/v1}"
-    local event_schema="${CODIFY_EVENT_SCHEMA:-codify.worker.event/v1}"
-    if [ "${contract}" = "codify.worker.harness/v2" ]; then
-        event_schema="${CODIFY_EVENT_SCHEMA:-codify.worker.event/v2}"
-    fi
+    local contract="${CODIFY_RUNTIME_CONTRACT_VERSION:-codify.worker.harness/v2}"
+    local event_schema="${CODIFY_EVENT_SCHEMA:-codify.worker.event/v2}"
+    [ "${contract}" = "codify.worker.harness/v2" ] || {
+        echo "Claude Adapter requires the V2 runtime contract" >&2
+        return 1
+    }
     jq -ce \
         --arg contract "${contract}" \
         --arg event_schema "${event_schema}" \
@@ -150,7 +148,7 @@ claude_adapter_prepare_config() {
 }
 
 claude_adapter_build_command() {
-    printf '%s\n' "${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/legacy/claude-run.sh"
+    printf '%s\n' "${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/runners/claude-run.sh"
 }
 
 claude_adapter_materialize_skills() {
@@ -166,11 +164,8 @@ claude_adapter_run() {
     local prompt_file="$1"
     local result_file="$2"
     local raw_file="${CODIFY_HARNESS_RAW_DIR}/claude.jsonl"
-    local legacy_runner
-    legacy_runner="${CODIFY_HARNESS_COMMAND:-}"
-    if [ -z "${legacy_runner}" ]; then
-        legacy_runner="$(claude_adapter_build_command)" || return 1
-    fi
+    local runner_path
+    runner_path="$(claude_adapter_build_command)" || return 1
     : > "${raw_file}"
     chown 0:0 "${raw_file}"
     chmod 644 "${raw_file}"
@@ -178,10 +173,11 @@ claude_adapter_run() {
     CODIFY_CLAUDE_EVENT_TRANSLATOR="${CODIFY_CLAUDE_TRANSLATOR}" \
     CODIFY_CANONICAL_EVENT_WRITER="${CODIFY_CANONICAL_EVENT_WRITER}" \
     CODIFY_CLAUDE_RUN_AS="${CODIFY_RUN_AS:-}" \
+    CODIFY_FORMAL_HARNESS_RUN=1 \
     ARTIFACT_DIR="${CODIFY_RUNTIME_DIR}" \
     CI_CLAUDE_DISABLE_CONSOLE_TEE=1 \
     PROMPT_FILE="${prompt_file}" \
-    timeout "${TASK_TIMEOUT:-1800}" "${legacy_runner}" > "${result_file}"
+    timeout "${TASK_TIMEOUT:-1800}" "${runner_path}" > "${result_file}"
 }
 
 claude_adapter_stream_events() {
@@ -192,40 +188,23 @@ claude_adapter_stream_events() {
 claude_adapter_normalize_result() {
     # The streaming translator atomically writes the Canonical Result. Validate
     # its portable shape and frozen Adapter identity before public delivery.
-    # Accept the result schema matching the active contract (v1 in production
-    # today, v2 once the runtime contract flips). The V2 envelope nests the
-    # harness identity under a `harness` block; the V1 envelope keeps it flat.
-    local schema="codify.worker.result/v1"
-    if [ "${CODIFY_RUNTIME_CONTRACT_VERSION:-}" = "codify.worker.harness/v2" ]; then
-        schema="codify.worker.result/v2"
-        jq -e \
-            --arg harness_key "${CODIFY_HARNESS_KEY}" \
-            --arg adapter_version "${CODIFY_ADAPTER_VERSION}" \
-            --arg cli_version "${CODIFY_CLI_VERSION}" \
-            --arg schema "${schema}" \
-            '.schema == $schema
-             and .harness.key == $harness_key
-             and .harness.adapter_version == $adapter_version
-             and .harness.cli_version == $cli_version
-             and .harness.control_transport.kind != null
-             and (.harness.model_protocols | type == "array")
-             and (.harness.model_protocols | length > 0)
-             and (.status | IN("completed", "failed", "cancelled", "protocol_error"))
-             and (.success | type == "boolean")
-             and (.usage | type == "object")
-             and (.capability_warnings | type == "array")' \
-            "${CODIFY_HARNESS_RESULT_FILE}" >/dev/null
-        return $?
-    fi
+    [ "${CODIFY_RUNTIME_CONTRACT_VERSION:-}" = "codify.worker.harness/v2" ] || {
+        echo "Claude Adapter requires the V2 runtime contract" >&2
+        return 1
+    }
+    local schema="codify.worker.result/v2"
     jq -e \
         --arg harness_key "${CODIFY_HARNESS_KEY}" \
         --arg adapter_version "${CODIFY_ADAPTER_VERSION}" \
         --arg cli_version "${CODIFY_CLI_VERSION}" \
         --arg schema "${schema}" \
         '.schema == $schema
-         and .harness_key == $harness_key
-         and .adapter_version == $adapter_version
-         and .cli_version == $cli_version
+         and .harness.key == $harness_key
+         and .harness.adapter_version == $adapter_version
+         and .harness.cli_version == $cli_version
+         and .harness.control_transport.kind != null
+         and (.harness.model_protocols | type == "array")
+         and (.harness.model_protocols | length > 0)
          and (.status | IN("completed", "failed", "cancelled", "protocol_error"))
          and (.success | type == "boolean")
          and (.usage | type == "object")

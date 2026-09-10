@@ -38,6 +38,52 @@ from app.models import (
 )
 
 
+def _verified_profile_identity(harness_key: str = "claude") -> dict[str, object]:
+    image_identity = {
+        "schema": "codify.worker-image-identity/v1",
+        "daemon_key": "task-update-tests",
+        "image_reference": "registry.example/codify-worker@sha256:" + "a" * 64,
+        "image_id": "sha256:" + "b" * 64,
+        "runtime_platform": "linux/amd64",
+    }
+    return {
+        "worker_kit_identity": {
+            "schema": "codify.worker.kit-identity/v1",
+            "kit_version": "0.4.0",
+            "platform": "linux/amd64",
+            "manifest_sha256": "c" * 64,
+        },
+        "v2_worker_image_identity": image_identity,
+        "v2_worker_image_identity_generation": 0,
+        "v2_harness_verification_evidence": {
+            harness_key: {
+                "schema": "codify.worker-harness-verification/v1",
+                "harness_key": harness_key,
+                "contract_version": "codify.worker.harness/v2",
+                "adapter": {"version": "test", "digest": "d" * 64},
+                "cli": {
+                    "source": "worker_kit",
+                    "executable_path": f"/opt/codify-kit/harness/{harness_key}/bin/{harness_key}",
+                    "version": "0.84.2",
+                    "binary_digest": "e" * 64,
+                },
+                "verification_input_digest": "verified",
+                "image_identity": image_identity,
+                "generation": 0,
+                "verified_at": "2026-08-24T00:00:00+00:00",
+            }
+        },
+    }
+
+
+@pytest.fixture(autouse=True)
+def _stub_runtime_verification_digest(monkeypatch):
+    monkeypatch.setattr(
+        "app.core.worker_profiles.current_runtime_verification_digest",
+        lambda *_args, **_kwargs: "verified",
+    )
+
+
 @pytest_asyncio.fixture
 async def db_factory():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
@@ -126,7 +172,9 @@ async def _seed_profile(
     name: str,
     image: str,
     worker_kit_source: str = "profile",
-    runtime_mode: str = "baked_image",
+    runtime_mode: str = "mounted_kit",
+    worker_kit_version: str = "0.4.0",
+    worker_kit_path: str = "/opt/codify/worker-kits/0.4.0",
     **overrides,
 ) -> WorkerProfile:
     kwargs = dict(
@@ -136,6 +184,8 @@ async def _seed_profile(
         image=image,
         worker_kit_source=worker_kit_source,
         runtime_mode=runtime_mode,
+        worker_kit_version=worker_kit_version,
+        worker_kit_path=worker_kit_path,
         volume_mounts=[],
         pre_script="",
         post_script="",
@@ -143,6 +193,7 @@ async def _seed_profile(
         default_plan_run_instruction_template="Plan {{user_prompt}}",
         ci_auto_repair_run_instruction_template="Repair {{issue_title}}",
     )
+    kwargs.update(_verified_profile_identity(overrides.get("default_harness_key", "claude")))
     kwargs.update(overrides)
     profile = WorkerProfile(**kwargs)
     profile.environment_variables = []
@@ -199,7 +250,7 @@ async def _seed_old_snapshot(db, task: Task, profile: WorkerProfile) -> TaskWork
     bundle = WorkerRuntimeBundle(
         digest=f"{task.id:064x}",
         bundle_bytes=b"fixture-runtime",
-        contract_version="codify.worker.harness/v1",
+        contract_version="codify.worker.harness/v2",
         orchestration_version="fixture",
         manifest={
             "adapters": {
@@ -227,7 +278,7 @@ async def _seed_old_snapshot(db, task: Task, profile: WorkerProfile) -> TaskWork
         default_plan_run_instruction_template="Plan {{user_prompt}}",
         ci_auto_repair_run_instruction_template="Repair {{issue_title}}",
         harness_key="claude",
-        runtime_contract_version="codify.worker.harness/v1",
+        runtime_contract_version="codify.worker.harness/v2",
         runtime_bundle_digest=bundle.digest,
         skill_selection_source="profile",
         shared_configuration_revision=1,

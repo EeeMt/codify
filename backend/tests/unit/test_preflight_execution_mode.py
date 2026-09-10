@@ -41,8 +41,8 @@ def _run_with_health_payloads(
     )
 
 
-@pytest.mark.parametrize("mode", ["dual_canary", "v2_only"])
-def test_preflight_accepts_matching_known_modes(tmp_path: Path, mode: str):
+def test_preflight_accepts_matching_v2_only_mode(tmp_path: Path):
+    mode = "v2_only"
     payload = f'{{"harness_execution_mode":"{mode}"}}'
     result = _run_with_health_payloads(tmp_path, payload, payload)
     assert result.returncode == 0
@@ -52,7 +52,7 @@ def test_preflight_accepts_matching_known_modes(tmp_path: Path, mode: str):
 def test_preflight_rejects_mismatched_modes(tmp_path: Path):
     result = _run_with_health_payloads(
         tmp_path,
-        '{"harness_execution_mode":"dual_canary"}',
+        '{"harness_execution_mode":"legacy"}',
         '{"harness_execution_mode":"v2_only"}',
     )
     assert result.returncode == 1
@@ -62,7 +62,7 @@ def test_preflight_rejects_mismatched_modes(tmp_path: Path):
 def test_preflight_rejects_missing_mode(tmp_path: Path):
     result = _run_with_health_payloads(
         tmp_path,
-        '{"harness_execution_mode":"dual_canary"}',
+        '{"harness_execution_mode":"v2_only"}',
         '{"status":"running"}',
     )
     assert result.returncode == 1

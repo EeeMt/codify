@@ -932,7 +932,7 @@ class WorkerSharedConfiguration(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     runtime_mode: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="baked_image"
+        String(32), nullable=False, default="mounted_kit"
     )
     worker_kit_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     worker_kit_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
@@ -1017,7 +1017,7 @@ class WorkerProfile(Base):
         String(16), nullable=False, default="profile", server_default=text("'profile'")
     )
     runtime_mode: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="baked_image"
+        String(32), nullable=False, default="mounted_kit"
     )
     worker_kit_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     worker_kit_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
@@ -1267,7 +1267,7 @@ class TaskWorkerProfileSnapshot(Base):
     profile_name: Mapped[str] = mapped_column(String(100), nullable=False)
     image: Mapped[str] = mapped_column(String(255), nullable=False)
     runtime_mode: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="baked_image"
+        String(32), nullable=False, default="mounted_kit"
     )
     worker_kit_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     worker_kit_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)

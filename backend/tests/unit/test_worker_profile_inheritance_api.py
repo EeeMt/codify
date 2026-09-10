@@ -128,7 +128,7 @@ async def test_create_system_kit_profile_inherits_shared_runtime(db_factory):
     async with session_factory() as db:
         await _seed_shared(db)
         response = await create_worker_profile(
-            _create_request(worker_kit_source="system", runtime_mode="baked_image"),
+            _create_request(worker_kit_source="system", runtime_mode="mounted_kit"),
             db=db,
         )
         effective = await _effective(db, response["id"])
@@ -147,7 +147,7 @@ async def test_create_profile_defaults_to_system_kit_and_inherits_shared(db_fact
     async with session_factory() as db:
         await _seed_shared(db)
         response = await create_worker_profile(
-            _create_request(runtime_mode="baked_image"),
+            _create_request(runtime_mode="mounted_kit"),
             db=db,
         )
         effective = await _effective(db, response["id"])
@@ -255,7 +255,9 @@ async def test_update_profile_to_system_kit_validates_against_shared(db_factory)
             is_default=False,
             image="codify-worker/java21:2026.07",
             worker_kit_source="profile",
-            runtime_mode="baked_image",
+            runtime_mode="mounted_kit",
+            worker_kit_version="0.4.0",
+            worker_kit_path="/opt/codify/worker-kits/0.4.0",
             volume_mounts=[],
             pre_script="",
             post_script="",
@@ -293,7 +295,9 @@ async def test_duplicate_preserves_inheritance_intent(db_factory):
             is_default=False,
             image="codify-worker/java21:2026.07",
             worker_kit_source="system",
-            runtime_mode="baked_image",
+            runtime_mode="mounted_kit",
+            worker_kit_version="0.4.0",
+            worker_kit_path="/opt/codify/worker-kits/0.4.0",
             volume_mounts=[],
             volume_mount_masks=["/shared"],
             pre_script="",
@@ -404,7 +408,9 @@ async def test_update_profile_mounts_only_rejects_set_mask_conflict(db_factory):
             is_default=False,
             image="codify-worker/java21:2026.07",
             worker_kit_source="profile",
-            runtime_mode="baked_image",
+            runtime_mode="mounted_kit",
+            worker_kit_version="0.4.0",
+            worker_kit_path="/opt/codify/worker-kits/0.4.0",
             volume_mounts=[],
             volume_mount_masks=["/data"],
             pre_script="",
@@ -443,7 +449,9 @@ def _overridden_profile(*, name="Override Worker"):
         is_default=False,
         image="codify-worker/java21:2026.07",
         worker_kit_source="profile",
-        runtime_mode="baked_image",
+        runtime_mode="mounted_kit",
+        worker_kit_version="0.4.0",
+        worker_kit_path="/opt/codify/worker-kits/0.4.0",
         volume_mounts=[],
         pre_script="",
         post_script="",
@@ -605,7 +613,9 @@ async def test_duplicate_preserves_harness_intent(db_factory):
             is_default=False,
             image="codify-worker/java21:2026.07",
             worker_kit_source="system",
-            runtime_mode="baked_image",
+            runtime_mode="mounted_kit",
+            worker_kit_version="0.4.0",
+            worker_kit_path="/opt/codify/worker-kits/0.4.0",
             volume_mounts=[],
             volume_mount_masks=[],
             pre_script="",

@@ -40,8 +40,9 @@ from app.core.utcnow import utcnow
 from app.core.worker_docker_targets import docker_daemon_key
 from app.core.worker_kit import (
     BAKED_IMAGE_MODE,
+    MOUNTED_KIT_MODE,
     WorkerKitValidationError,
-    validate_worker_kit_config,
+    validate_worker_kit_write_config,
 )
 from app.core.worker_profiles import (
     TaskWorkerRuntime,
@@ -191,7 +192,7 @@ class WorkerProfileCreateRequest(WorkerProfileRequestBase):
     name: str = Field(max_length=100)
     image: str = Field(max_length=255)
     worker_kit_source: str = WORKER_KIT_SOURCE_SYSTEM
-    runtime_mode: str = BAKED_IMAGE_MODE
+    runtime_mode: str = MOUNTED_KIT_MODE
     volume_mounts: list[dict[str, Any]] = Field(default_factory=list)
     volume_mount_masks: list[str] = Field(default_factory=list)
     environment_variables: list[WorkerProfileEnvironmentVariableRequest] = Field(
@@ -1195,11 +1196,24 @@ async def create_worker_profile(
             docker_tls_cert=request.docker_tls_cert,
             docker_tls_key=request.docker_tls_key,
         )
-        runtime_mode, kit_version, kit_path = validate_worker_kit_config(
-            runtime_mode=request.runtime_mode,
-            worker_kit_version=request.worker_kit_version,
-            worker_kit_path=request.worker_kit_path,
+        shared = await _load_shared_for_validation(
+            db,
+            expected_shared_revision=request.expected_shared_revision,
         )
+        if kit_source == WORKER_KIT_SOURCE_SYSTEM:
+            if request.runtime_mode != MOUNTED_KIT_MODE:
+                raise WorkerKitValidationError(
+                    "worker profile writes require mounted_kit mode"
+                )
+            # The effective system Kit is resolved below. Profile-local Kit
+            # coordinates are intentionally empty when the source is shared.
+            runtime_mode, kit_version, kit_path = MOUNTED_KIT_MODE, None, None
+        else:
+            runtime_mode, kit_version, kit_path = validate_worker_kit_write_config(
+                runtime_mode=request.runtime_mode,
+                worker_kit_version=request.worker_kit_version,
+                worker_kit_path=request.worker_kit_path,
+            )
         mounts = parse_worker_profile_mounts(request.volume_mounts)
         masks = validate_worker_profile_mount_masks(
             request.volume_mount_masks,
@@ -1238,10 +1252,6 @@ async def create_worker_profile(
             image_digest=request.image_digest,
             harness_runtimes=request.harness_runtimes or {},
             default_skills=[],
-        )
-        shared = await _load_shared_for_validation(
-            db,
-            expected_shared_revision=request.expected_shared_revision,
         )
         effective = _validate_combined_configuration(profile, shared, default_skills=[])
         db.add(profile)
@@ -1322,7 +1332,7 @@ async def update_worker_profile(
                 raise WorkerProfileValidationError("Worker profile image cannot be blank")
         kit_fields = {"runtime_mode", "worker_kit_version", "worker_kit_path"}
         if kit_fields & fields:
-            runtime_mode, kit_version, kit_path = validate_worker_kit_config(
+            runtime_mode, kit_version, kit_path = validate_worker_kit_write_config(
                 runtime_mode=(
                     request.runtime_mode
                     if "runtime_mode" in fields

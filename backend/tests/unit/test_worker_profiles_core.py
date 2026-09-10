@@ -26,6 +26,65 @@ from app.core.worker_shared_configuration import (
 )
 
 
+def _verified_v2_profile_fields(harness_key: str = "claude") -> dict[str, object]:
+    image_identity = {
+        "schema": "codify.worker-image-identity/v1",
+        "daemon_key": "tcp://worker.example:2376",
+        "image_reference": "registry.example/worker@sha256:" + "a" * 64,
+        "image_id": "sha256:" + "b" * 64,
+        "runtime_platform": "linux/amd64",
+    }
+    return {
+        "runtime_mode": MOUNTED_KIT_MODE,
+        "worker_kit_version": "0.4.0",
+        "worker_kit_path": "/opt/codify/worker-kits/0.4.0-linux-amd64",
+        "worker_kit_identity": {
+            "schema": "codify.worker.kit-identity/v1",
+            "kit_version": "0.4.0",
+            "platform": "linux/amd64",
+            "manifest_sha256": "c" * 64,
+        },
+        "enabled_harnesses": [harness_key],
+        "default_harness_key": harness_key,
+        "harness_runtimes": {
+            harness_key: {
+                "source": "worker_kit",
+                "contract_version": "codify.worker.harness/v2",
+            }
+        },
+        "v2_worker_image_identity": image_identity,
+        "v2_worker_image_identity_generation": 0,
+        "v2_harness_verification_evidence": {
+            harness_key: {
+                "schema": "codify.worker-harness-verification/v1",
+                "harness_key": harness_key,
+                "contract_version": "codify.worker.harness/v2",
+                "adapter": {"version": "test", "digest": "d" * 64},
+                "cli": {
+                    "source": "worker_kit",
+                    "executable_path": (
+                        f"/opt/codify-kit/harness/{harness_key}/bin/{harness_key}"
+                    ),
+                    "version": "0.84.2",
+                    "binary_digest": "e" * 64,
+                },
+                "verification_input_digest": "verified",
+                "image_identity": image_identity,
+                "generation": 0,
+                "verified_at": "2026-08-24T00:00:00+00:00",
+            }
+        },
+    }
+
+
+@pytest.fixture(autouse=True)
+def stub_runtime_verification_digest(monkeypatch):
+    monkeypatch.setattr(
+        "app.core.worker_profiles.current_runtime_verification_digest",
+        lambda *_args, **_kwargs: "verified",
+    )
+
+
 def test_validate_worker_profile_mounts_normalizes_mode():
     mounts = validate_worker_profile_mounts(
         [
@@ -210,6 +269,7 @@ def test_worker_profile_serialization_and_snapshot_preserve_codegraph_toggle():
         created_at=None,
         updated_at=None,
     )
+    profile.__dict__.update(_verified_v2_profile_fields())
     task = SimpleNamespace(id=44)
 
     assert serialize_worker_profile_for_api(profile)["codegraph_enabled"] is True
@@ -240,6 +300,7 @@ def test_worker_profile_docker_target_is_admin_only_and_snapshotted():
         created_at=None,
         updated_at=None,
     )
+    profile.__dict__.update(_verified_v2_profile_fields())
 
     assert "docker_host" not in serialize_worker_profile_for_api(profile)
     admin_payload = serialize_worker_profile_for_api(profile, include_docker_target=True)
@@ -352,24 +413,13 @@ def test_snapshot_explicitly_freezes_requested_v2_contract_from_harness_runtime(
     with pytest.raises(WorkerProfileValidationError, match="no verified Worker Kit identity"):
         snapshot_from_profile(SimpleNamespace(id=47), profile)
 
-    # Baked-image V2 targets have no Kit to freeze, so the snapshot omits it.
-    profile.worker_kit_identity = {
-        "schema": "codify.worker.kit-identity/v1",
-        "kit_version": "0.4.0",
-        "platform": "linux/amd64",
-        "manifest_sha256": "c" * 64,
-    }
-    profile.v2_harness_verification_evidence = {
-        "pi": {
-            **snapshot.harness_config_snapshot["v2_harness_verification_evidence"],
-            "generation": 0,
-        }
-    }
+    # Baked-image V2 targets are historical configuration and cannot create a
+    # new executable snapshot after the hard cut.
     profile.runtime_mode = BAKED_IMAGE_MODE
     profile.worker_kit_version = None
     profile.worker_kit_path = None
-    baked_snapshot = snapshot_from_profile(SimpleNamespace(id=48), profile)
-    assert "worker_kit_identity" not in baked_snapshot.harness_config_snapshot
+    with pytest.raises(WorkerProfileValidationError, match="runtime_mode"):
+        snapshot_from_profile(SimpleNamespace(id=48), profile)
 
 
 def test_v2_image_identity_rejects_ambiguous_repo_digests_and_never_uses_tag():
@@ -411,6 +461,7 @@ def test_system_docker_profile_snapshots_resolved_deployment_target():
         default_plan_run_instruction_template="plan {{user_prompt}}",
         ci_auto_repair_run_instruction_template="repair {{issue_title}}",
     )
+    profile.__dict__.update(_verified_v2_profile_fields())
     settings = SimpleNamespace(
         docker_host="tcp://system-worker:2376",
         docker_tls_ca="/system/ca.pem",
@@ -432,7 +483,7 @@ def test_system_docker_profile_snapshots_resolved_deployment_target():
 
 def test_worker_profile_snapshot_freezes_capability_and_sandbox_policy():
     def make_profile(constraints):
-        return SimpleNamespace(
+        profile = SimpleNamespace(
             id=11,
             name="Harness Worker",
             description=None,
@@ -452,6 +503,8 @@ def test_worker_profile_snapshot_freezes_capability_and_sandbox_policy():
             created_at=None,
             updated_at=None,
         )
+        profile.__dict__.update(_verified_v2_profile_fields("codex"))
+        return profile
 
     default_snapshot = snapshot_from_profile(
         SimpleNamespace(id=50),
@@ -496,6 +549,7 @@ def test_snapshot_freezes_profile_and_partial_task_opencode_options():
             }
         },
     )
+    profile.__dict__.update(_verified_v2_profile_fields("opencode"))
 
     snapshot = snapshot_from_profile(
         SimpleNamespace(id=52),
@@ -646,6 +700,7 @@ def test_snapshot_from_profile_freezes_shared_effective_configuration():
         created_at=None,
         updated_at=None,
     )
+    profile.__dict__.update(_verified_v2_profile_fields())
     shared = WorkerSharedConfigurationContext(
         row=SimpleNamespace(
             revision=4,

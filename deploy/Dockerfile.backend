@@ -82,7 +82,7 @@ COPY deploy/entrypoint.worker.sh /opt/codify/runtime-source/deploy/entrypoint.wo
 COPY deploy/worker-entrypoint/ /opt/codify/runtime-source/deploy/worker-entrypoint/
 RUN chmod -R a+rX /opt/codify/runtime-source \
     && chmod 755 /opt/codify/runtime-source/deploy/entrypoint.worker.sh \
-      /opt/codify/runtime-source/deploy/worker-entrypoint/legacy/claude-run.sh
+      /opt/codify/runtime-source/deploy/worker-entrypoint/harness/runners/claude-run.sh
 
 ENV CODIFY_RUNTIME_SOURCE_DIR=/opt/codify/runtime-source
 

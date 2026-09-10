@@ -35,7 +35,7 @@ def _stub_runtime_bundle_binding():
         bundle = SimpleNamespace(
             id=task.runtime_bundle_id,
             digest="d" * 64,
-            contract_version="codify.worker.harness/v1",
+            contract_version="codify.worker.harness/v2",
             orchestration_version="1.0.0",
             manifest={
                 "adapters": {
@@ -254,6 +254,17 @@ class CancelTaskEndpointTests(unittest.TestCase):
         task.status = TaskStatus.PENDING
         task.scheduled_at = None
         task.container_id = None
+        task.runtime_bundle = SimpleNamespace(
+            contract_version="codify.worker.harness/v2",
+            digest="d" * 64,
+            manifest={"adapters": {"claude": {"model_protocols": ["anthropic_messages"]}}},
+        )
+        task.worker_profile_snapshot = SimpleNamespace(
+            runtime_contract_version="codify.worker.harness/v2",
+            runtime_bundle_digest="d" * 64,
+            harness_key="claude",
+            model_endpoint_snapshot={"model_protocol": "anthropic_messages"},
+        )
 
         client, app, _mock_db = self._get_client(task)
 
@@ -567,6 +578,7 @@ class TestEndpointProtocolLegacyFallback(unittest.TestCase):
         from app.api import task_responses as tr
 
         snapshot = _make_worker_snapshot()
+        snapshot.runtime_contract_version = "codify.worker.harness/v1"
         snapshot.harness_key = "opencode"
         snapshot.harness_config_snapshot = {
             "options": {
@@ -626,6 +638,7 @@ class TestEndpointProtocolLegacyFallback(unittest.TestCase):
         from app.api import task_responses as tr
 
         snapshot = _make_worker_snapshot()
+        snapshot.runtime_contract_version = "codify.worker.harness/v1"
         with (
             patch.object(tr, "_serialize_task_base", return_value={}),
             patch.object(tr, "loaded_task_relationship", return_value=snapshot),
@@ -697,7 +710,7 @@ def _make_serializable_task(task_status=TaskStatus.PENDING, task_id=1, project_i
         worker_profile_id=task.worker_profile_id,
     )
     task.runtime_bundle = MagicMock(
-        contract_version="codify.worker.harness/v1",
+        contract_version="codify.worker.harness/v2",
         digest="a" * 64,
         manifest={"adapters": {"claude": {}}},
     )
@@ -762,7 +775,7 @@ def _make_worker_snapshot(task_id=101, worker_profile_id=12):
         default_plan_run_instruction_template="Plan {{user_prompt}}",
         ci_auto_repair_run_instruction_template="Repair {{issue_title}}",
         harness_key="claude",
-        runtime_contract_version="codify.worker.harness/v1",
+        runtime_contract_version="codify.worker.harness/v2",
         runtime_bundle_digest="a" * 64,
         created_at=datetime(2024, 1, 1, 12, 0, 0),
     )

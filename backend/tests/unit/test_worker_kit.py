@@ -33,11 +33,10 @@ def _source_adapter_digest(source: dict, key: str) -> str:
             }
         else:
             prefix = f"worker-entrypoint/harness/adapters/{adapter_key}"
-            legacy = f"legacy/{adapter_key}-run.sh"
             adapter_paths[adapter_key] = {
                 item["path"]
                 for item in files
-                if item["path"].startswith(prefix) or item["path"] == legacy
+                if item["path"].startswith(prefix)
             }
     private = set().union(*adapter_paths.values())
     shared = [item for item in files if item["path"] not in private]
@@ -306,12 +305,13 @@ from app.core.worker_kit import (
 from app.core.worker_profiles import TaskWorkerRuntime, WorkerProfileValidationError
 
 
-def test_baked_mode_remains_default_and_rejects_kit_coordinates():
-    assert validate_worker_kit_config(
-        runtime_mode=None,
-        worker_kit_version=None,
-        worker_kit_path=None,
-    ) == (BAKED_IMAGE_MODE, None, None)
+def test_mounted_kit_is_the_new_default_and_requires_coordinates():
+    with pytest.raises(WorkerKitValidationError, match="mounted_kit"):
+        validate_worker_kit_config(
+            runtime_mode=None,
+            worker_kit_version=None,
+            worker_kit_path=None,
+        )
 
     with pytest.raises(WorkerKitValidationError, match="require mounted_kit"):
         validate_worker_kit_config(

@@ -23,7 +23,7 @@ from app.core.worker_environment_variables import (
     validate_worker_environment_variable_key,
 )
 from app.core.worker_kit import (
-    BAKED_IMAGE_MODE,
+    MOUNTED_KIT_MODE,
     WORKER_RUNTIME_MODES,
     WorkerKitValidationError,
     validate_worker_kit_config,
@@ -228,11 +228,11 @@ def resolve_effective_configuration(
                 "worker_kit_source=system requires a configured shared worker "
                 "configuration"
             )
-        raw_runtime_mode = shared_row.runtime_mode or BAKED_IMAGE_MODE
+        raw_runtime_mode = shared_row.runtime_mode or MOUNTED_KIT_MODE
         raw_kit_version = shared_row.worker_kit_version
         raw_kit_path = shared_row.worker_kit_path
     else:
-        raw_runtime_mode = _profile_value(profile, "runtime_mode", BAKED_IMAGE_MODE)
+        raw_runtime_mode = _profile_value(profile, "runtime_mode", MOUNTED_KIT_MODE)
         raw_kit_version = _profile_value(profile, "worker_kit_version", None)
         raw_kit_path = _profile_value(profile, "worker_kit_path", None)
     try:

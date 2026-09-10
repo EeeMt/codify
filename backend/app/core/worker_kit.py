@@ -13,7 +13,9 @@ from typing import Any, Mapping
 
 BAKED_IMAGE_MODE = "baked_image"
 MOUNTED_KIT_MODE = "mounted_kit"
-WORKER_RUNTIME_MODES = frozenset({BAKED_IMAGE_MODE, MOUNTED_KIT_MODE})
+# ``baked_image`` remains a historical read value only. New configuration and
+# executable runtime validation are mounted-kit only.
+WORKER_RUNTIME_MODES = frozenset({MOUNTED_KIT_MODE})
 
 KIT_CONTAINER_PATH = "/opt/codify-kit"
 KIT_STORE_CONTAINER_PATH = "/nix/store"
@@ -34,8 +36,16 @@ def validate_worker_kit_config(
     worker_kit_version: str | None,
     worker_kit_path: str | None,
 ) -> tuple[str, str | None, str | None]:
-    """Normalize one profile's worker delivery mode and kit coordinates."""
-    mode = (runtime_mode or BAKED_IMAGE_MODE).strip()
+    """Normalize a persisted worker delivery mode, including legacy reads."""
+    mode = (runtime_mode or MOUNTED_KIT_MODE).strip()
+    if mode == BAKED_IMAGE_MODE:
+        version = (worker_kit_version or "").strip() or None
+        path = (worker_kit_path or "").strip() or None
+        if version is not None or path is not None:
+            raise WorkerKitValidationError(
+                "worker_kit_version and worker_kit_path require mounted_kit mode"
+            )
+        return mode, None, None
     if mode not in WORKER_RUNTIME_MODES:
         raise WorkerKitValidationError(
             f"runtime_mode must be one of: {', '.join(sorted(WORKER_RUNTIME_MODES))}"
@@ -43,13 +53,6 @@ def validate_worker_kit_config(
 
     version = (worker_kit_version or "").strip() or None
     path = (worker_kit_path or "").strip() or None
-    if mode == BAKED_IMAGE_MODE:
-        if version is not None or path is not None:
-            raise WorkerKitValidationError(
-                "worker_kit_version and worker_kit_path require mounted_kit mode"
-            )
-        return mode, None, None
-
     if version is None or not _KIT_VERSION_PATTERN.fullmatch(version):
         raise WorkerKitValidationError(
             "mounted_kit mode requires a simple worker_kit_version"
@@ -64,6 +67,27 @@ def validate_worker_kit_config(
             "worker_kit_path must not be the Docker host filesystem root"
         )
     return mode, version, normalized_path
+
+
+def validate_worker_kit_write_config(
+    *,
+    runtime_mode: str | None,
+    worker_kit_version: str | None,
+    worker_kit_path: str | None,
+) -> tuple[str, str, str]:
+    """Validate the mounted-kit-only shape accepted by write APIs."""
+    mode = (runtime_mode or MOUNTED_KIT_MODE).strip()
+    if mode != MOUNTED_KIT_MODE:
+        raise WorkerKitValidationError(
+            "runtime_mode writes require mounted_kit mode"
+        )
+    normalized_mode, version, path = validate_worker_kit_config(
+        runtime_mode=mode,
+        worker_kit_version=worker_kit_version,
+        worker_kit_path=worker_kit_path,
+    )
+    assert version is not None and path is not None
+    return normalized_mode, version, path
 
 
 def worker_kit_mounts(worker_kit_path: str) -> dict[str, dict[str, str]]:

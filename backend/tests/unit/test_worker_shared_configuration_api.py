@@ -142,7 +142,9 @@ def _explicit_profile_kwargs() -> dict:
         is_default=True,
         image="codify-worker/java21:2026.07",
         worker_kit_source="profile",
-        runtime_mode="baked_image",
+        runtime_mode="mounted_kit",
+        worker_kit_version="0.4.0",
+        worker_kit_path="/opt/codify/worker-kits/0.4.0",
         volume_mounts=[],
         pre_script="profile-pre",
         post_script="profile-post",
@@ -329,9 +331,9 @@ async def test_patch_shared_configuration_rejects_statically_invalid_profile(
     session_factory = await db_factory()
     async with session_factory() as db:
         await _seed_shared_configuration(db)
-        # The profile inherits its kit from the shared baseline and carries a
-        # default skill; a shared edit that flips the shared runtime to baked
-        # image (no skills) must be rejected on the combined config.
+        # The profile deliberately carries a historical baked-image runtime;
+        # any shared edit must still reject the enabled Profile's combined
+        # configuration instead of allowing a new executable task.
         version = SkillVersion(
             name="review-changes",
             description="Review changes before delivery.",
@@ -350,7 +352,9 @@ async def test_patch_shared_configuration_rejects_statically_invalid_profile(
             enabled=True,
         )
         profile_kwargs = _explicit_profile_kwargs()
-        profile_kwargs["worker_kit_source"] = "system"
+        profile_kwargs["runtime_mode"] = "baked_image"
+        profile_kwargs["worker_kit_version"] = None
+        profile_kwargs["worker_kit_path"] = None
         profile = WorkerProfile(
             **profile_kwargs,
             default_skills=[skill],
@@ -362,9 +366,7 @@ async def test_patch_shared_configuration_rejects_statically_invalid_profile(
             await update_shared_configuration(
                 WorkerSharedConfigurationPatchRequest(
                     expected_revision=1,
-                    runtime_mode="baked_image",
-                    worker_kit_version=None,
-                    worker_kit_path=None,
+                    pre_script="shared-pre-v2",
                 ),
                 db=db,
             )

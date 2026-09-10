@@ -177,7 +177,7 @@ async def _seed_task(
 
     The scheduler claim gate requires a bound Runtime Bundle plus a Worker
     snapshot whose contract, digest and harness_key match that Bundle, so the
-    fixture freezes a consistent legacy-V1 identity (dual_canary executable).
+    fixture freezes a consistent V2 identity for the scheduler claim gate.
     """
     async with maker() as db:
         bundle_digest = uuid.uuid4().hex + uuid.uuid4().hex
@@ -185,7 +185,7 @@ async def _seed_task(
             sa.text(
                 "INSERT INTO worker_runtime_bundles "
                 "(digest, bundle_bytes, contract_version, orchestration_version, manifest, size_bytes, created_at) "
-                "VALUES (:digest, 'x', 'codify.worker.harness/v1', '1.0.0', CAST(:manifest AS json), 1, now()) "
+                "VALUES (:digest, 'x', 'codify.worker.harness/v2', '1.0.0', CAST(:manifest AS json), 1, now()) "
                 "RETURNING id"
             ),
             {
@@ -216,7 +216,7 @@ async def _seed_task(
                 "runtime_contract_version, orchestration_version, runtime_bundle_digest) "
                 "VALUES (:t, 'concurrency-test', 'test-image', 'baked_image', 'claude', "
                 "'', '', '', "
-                "'codify.worker.harness/v1', '1.0.0', :digest)"
+                "'codify.worker.harness/v2', '1.0.0', :digest)"
             ),
             {"t": task.id, "digest": bundle_digest},
         )
