@@ -118,8 +118,8 @@ def test_multi_commit_delivery_renders_commits_recovery_and_stats():
     assert "worker commit" in desc
     # Short SHA chips for each commit.
     assert f"`{('c' * 40)[:12]}`" in desc
-    # Recovered delivery is separate, never merged into the commit count.
-    assert "已有提交补交/确认（1）" in desc
+    # Previous-task commits are separate, never merged into the commit count.
+    assert "前序任务提交（1）" in desc
     assert "older pending work" in desc
     # Net diff line.
     assert "**净变更**：+10 -4，新增 1 / 修改 1 / 删除 0 个文件" in desc

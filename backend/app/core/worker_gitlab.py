@@ -454,7 +454,7 @@ def _git_delivery_detail_lines(meta: dict) -> list[str]:
             lines.append(f"- ...共 {len(commits)} 个提交")
         lines.append("")
     if recovered:
-        lines.append(f"**已有提交补交/确认（{len(recovered)}）**")
+        lines.append(f"**前序任务提交（{len(recovered)}）**")
         lines.append("")
         for commit in recovered[:200]:
             subject = _escape_mr_text(str(commit.get("subject") or ""))

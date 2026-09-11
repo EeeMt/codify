@@ -24,10 +24,12 @@ const messages: Record<string, string> = {
   'taskView.copied': 'Copied',
   'taskView.copyFailed': 'Copy failed',
   'taskView.gitDeliveryStatsUnavailable': 'Change stats not collected',
-  'taskView.gitDeliveryBranch': 'Branch: {branch}',
+  'taskView.gitDeliveryNewFiles': '{count} new file(s)',
+  'taskView.gitDeliveryModifiedFiles': '{count} modified file(s)',
+  'taskView.gitDeliveryDeletedFiles': '{count} deleted file(s)',
+  'taskView.gitDeliveryNoNetChanges': 'No net file changes',
   'taskView.gitDeliveryCommits': 'This task commits ({count})',
-  'taskView.gitDeliveryRecovered': 'Recovered delivery ({count})',
-  'taskView.gitDeliveryPush': 'Push:',
+  'taskView.gitDeliveryRecovered': 'Previous task commits ({count})',
   'taskView.gitDeliveryPushed': 'Pushed',
   'taskView.gitDeliveryAlreadyPresent': 'Already on remote',
   'taskView.gitDeliveryNotNeeded': 'Nothing to deliver',
@@ -276,13 +278,14 @@ describe('TaskResultPanel git delivery', () => {
     })
   }
 
-  it('renders this-task commits with net diff, pushed status, and an MR link', () => {
+  it('renders this-task commits with net diff, pushed status, and a head commit link', () => {
     const commitUrl = 'https://gitlab.example.com/group/test-project/-/merge_requests/9'
+    const headSha = '2222222222222222222222222222222222222222'
     const wrapper = mountGitTask(makeGitDelivery({
-      head_sha: 'abcdef1234567890abcdef1234567890abcdef12',
+      head_sha: headSha,
       commits: [
         { sha: '1111111111111111111111111111111111111111', subject: 'feat: add login flow' },
-        { sha: '2222222222222222222222222222222222222222', subject: 'fix: style login page' },
+        { sha: headSha, subject: 'fix: style login page' },
       ],
       diff: {
         additions: 5,
@@ -294,7 +297,7 @@ describe('TaskResultPanel git delivery', () => {
       },
       push: {
         status: 'pushed',
-        remote_sha: 'abcdef1234567890abcdef1234567890abcdef12',
+        remote_sha: headSha,
         error: null,
       },
       commit_url: commitUrl,
@@ -306,39 +309,46 @@ describe('TaskResultPanel git delivery', () => {
     expect(text).toContain('+5')
     expect(text).toContain('-2')
     expect(text).toContain('Pushed')
+    expect(text).toContain('1 new file(s)')
+    expect(text).toContain('1 modified file(s)')
+    expect(text).not.toContain('0 deleted file(s)')
     expect(text).toContain('This task commits')
-    expect(text).not.toContain('Recovered delivery')
-    expect(text).not.toContain('+0 -0')
+    expect(text).not.toContain('Previous task commits')
 
-    const headLink = wrapper.get('.git-delivery__head a.commit-sha-chip--link')
+    // The head SHA lives in its commit row only; the summary never repeats it.
+    const headLink = wrapper.get('.git-delivery__commit-sha--link')
     expect(headLink.attributes('href')).toBe(commitUrl)
-    expect(headLink.text()).toContain('abcdef12')
+    expect(headLink.text()).toContain('22222222')
+    expect(wrapper.findAll('.git-delivery__commit-sha--link')).toHaveLength(1)
   })
 
-  it('shows recovered commits separately with an already-on-remote push label', () => {
+  it('shows previous-task commits separately with an already-on-remote push label', () => {
+    const headSha = '3333333333333333333333333333333333333333'
+    const commitUrl = 'https://gitlab.example.com/group/test-project/-/commit/' + headSha
     const wrapper = mountGitTask(makeGitDelivery({
-      head_sha: 'cccccccccccccccccccccccccccccccccccccccc',
+      head_sha: headSha,
       commits: [],
       recovered_commits: [
-        { sha: '3333333333333333333333333333333333333333', subject: 'feat: inherited earlier work' },
+        { sha: headSha, subject: 'feat: inherited earlier work' },
       ],
       diff: null,
       push: {
         status: 'already_present',
-        remote_sha: 'cccccccccccccccccccccccccccccccccccccccc',
+        remote_sha: headSha,
         error: null,
       },
+      commit_url: commitUrl,
     }))
     const text = wrapper.text()
 
-    expect(text).toContain('Recovered delivery')
+    expect(text).toContain('Previous task commits')
     expect(text).toContain('feat: inherited earlier work')
     expect(text).toContain('Already on remote')
     expect(text).not.toContain('This task commits')
-    // The final head is a recovered delivery endpoint, not a commit created
-    // by this task, so it must not appear as a standalone task commit chip.
-    expect(wrapper.find('.git-delivery__head').exists()).toBe(false)
+    // The sha lives in the previous-task row; it is never presented as a
+    // commit created by this task.
     expect(wrapper.findAll('.git-delivery__commit-row')).toHaveLength(1)
+    expect(wrapper.get('.git-delivery__commit-sha--link').attributes('href')).toBe(commitUrl)
   })
 
   it('does not render a commit record for a canonical no-change delivery', () => {
@@ -392,6 +402,46 @@ describe('TaskResultPanel git delivery', () => {
     expect(text).toContain('Delivery failed — not confirmed')
     expect(text).toContain('The remote task branch changed between verification and push.')
     expect(wrapper.find('.git-delivery__push--failed').exists()).toBe(true)
+  })
+
+  it('keeps the head sha copyable when delivery is not confirmed', () => {
+    const headSha = '5555555555555555555555555555555555555555'
+    const wrapper = mountGitTask(makeGitDelivery({
+      head_sha: headSha,
+      commits: [{ sha: headSha, subject: 'chore: unconfirmed work' }],
+      push: {
+        status: 'failed',
+        remote_sha: null,
+        error: { code: 'remote_diverged', message: 'The remote branch diverged.' },
+      },
+    }))
+
+    // Without a confirmed remote state there is no commit link, only the copy
+    // affordance and the delivery diagnosis.
+    expect(wrapper.find('.git-delivery__commit-sha--link').exists()).toBe(false)
+    expect(wrapper.get('button.git-delivery__commit-sha').text()).toContain('55555555')
+    expect(wrapper.get('.git-delivery__push-error').text()).toContain('The remote branch diverged.')
+  })
+
+  it('labels a collected all-zero diff as no net file changes', () => {
+    const wrapper = mountGitTask(makeGitDelivery({
+      head_sha: '6666666666666666666666666666666666666666',
+      commits: [{ sha: '6666666666666666666666666666666666666666', subject: 'revert experiment' }],
+      diff: {
+        additions: 0,
+        deletions: 0,
+        total: 0,
+        new_files: [],
+        modified_files: [],
+        deleted_files: [],
+      },
+      push: { status: 'pushed', remote_sha: null, error: null },
+    }))
+    const text = wrapper.text()
+
+    expect(text).toContain('No net file changes')
+    expect(text).not.toContain('+0')
+    expect(text).not.toContain('-0')
   })
 
   it('does not fabricate zero change stats when diff stats were not collected', () => {
