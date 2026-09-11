@@ -9,7 +9,7 @@ export GIT_COMMIT
 # Enable Docker BuildKit for faster builds
 export DOCKER_BUILDKIT := 1
 export COMPOSE_DOCKER_CLI_BUILD := 1
-WORKER_KIT_VERSION ?= 0.3.15
+WORKER_KIT_VERSION ?= 0.6.17
 WORKER_KIT_PLATFORM ?= linux/amd64
 WORKER_KIT_CLI_SELECTION ?= pi,opencode
 RUNTIME_IMAGE ?= codify-worker/java21-maven:2026.07

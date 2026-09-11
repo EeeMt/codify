@@ -292,6 +292,10 @@ def test_verify_runtime_scripts_mount_claude_without_breaking_docker_args():
         launcher.chmod(launcher.stat().st_mode | stat.S_IEXEC)
         (kit / "bridge-selfcheck-claude").write_text("#!/bin/sh\n", encoding="utf-8")
         (kit / "bridge-selfcheck-claude").chmod(0o755)
+        model_proxy = kit / "bin" / "codify-model-proxy"
+        model_proxy.parent.mkdir(parents=True, exist_ok=True)
+        model_proxy.write_text("#!/bin/sh\n", encoding="utf-8")
+        model_proxy.chmod(0o755)
         (kit / "manifest.json").write_text(
             json.dumps(
                 {
@@ -302,6 +306,11 @@ def test_verify_runtime_scripts_mount_claude_without_breaking_docker_args():
                     "harness_inventory": {
                         key: {"availability": "absent", "reason_code": "not_selected"}
                         for key in ("pi", "opencode", "claude", "codex")
+                    },
+                    "model_proxy": {
+                        "version": "0.1.0",
+                        "path": "/opt/codify-kit/bin/codify-model-proxy",
+                        "sha256": hashlib.sha256(model_proxy.read_bytes()).hexdigest(),
                     },
                 }
             ),

@@ -81,6 +81,26 @@ for key, entry in inventory.items():
     else:
         if entry.get('reason_code') not in {'not_selected', 'missing_payload'}:
             fail('Kit inventory absent reason_code is invalid: ' + key)
+proxy = kit.get('model_proxy')
+if not isinstance(proxy, dict):
+    fail('Kit manifest must record the model request options proxy')
+proxy_path = proxy.get('path')
+proxy_version = proxy.get('version')
+proxy_digest = proxy.get('sha256')
+if proxy_path != '/opt/codify-kit/bin/codify-model-proxy':
+    fail('Kit model proxy path is invalid')
+if not isinstance(proxy_version, str) or not proxy_version:
+    fail('Kit model proxy version is missing')
+if not isinstance(proxy_digest, str) or len(proxy_digest) != 64 or set(proxy_digest) - set('0123456789abcdef'):
+    fail('Kit model proxy SHA-256 is invalid')
+content = kit.get('content_inventory')
+if not isinstance(content, list):
+    fail('Kit manifest has no content inventory')
+proxy_entries = [item for item in content if isinstance(item, dict) and item.get('path') == 'bin/codify-model-proxy']
+if len(proxy_entries) != 1 or proxy_entries[0].get('kind') != 'file':
+    fail('Kit model proxy is not inventoried exactly once')
+if proxy_entries[0].get('sha256') != proxy_digest:
+    fail('Kit model proxy SHA-256 does not match the content inventory')
 PY
 if ! python3 "${TRUSTED_CONTENT_VERIFIER}" --root "${KIT_PATH}" >/dev/null; then
     echo "verify-runtime: Worker Kit content inventory does not match installed bytes" >&2

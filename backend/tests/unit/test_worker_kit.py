@@ -91,6 +91,11 @@ def _runtime_verifier_fixture(tmp_path: Path, *, schema: str = "codify.worker.ru
             "sha256": payload_sha,
             "size": len(payload_bytes),
         }
+    model_proxy_path = kit / "bin" / "codify-model-proxy"
+    model_proxy_path.parent.mkdir(parents=True, exist_ok=True)
+    model_proxy_path.write_bytes(payload_bytes)
+    model_proxy_path.chmod(0o755)
+    model_proxy_sha = payload_sha
     kit_manifest = {
         "schema_version": 2,
         "manifest_kind": "codify.worker.kit-manifest/v1",
@@ -104,6 +109,11 @@ def _runtime_verifier_fixture(tmp_path: Path, *, schema: str = "codify.worker.ru
             "event_schemas": ["codify.worker.event/v2"],
         },
         "harness_inventory": inventory,
+        "model_proxy": {
+            "version": "1.0.0",
+            "path": "/opt/codify-kit/bin/codify-model-proxy",
+            "sha256": model_proxy_sha,
+        },
     }
     (kit / "manifest.json").write_text(json.dumps(kit_manifest))
     repo_root = Path(__file__).resolve().parents[3]

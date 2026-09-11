@@ -114,6 +114,23 @@ test -x "${STAGED_KIT}/launcher"
 test -s "${STAGED_KIT}/manifest.json"
 test -d "${STAGED_KIT}/nix/store"
 test -f "${STAGED_KIT}/verify-kit-content.py"
+# The Task-local model request options proxy is part of the Kit's execution
+# contract: it must exist, be executable, and match the manifest SHA-256 that
+# the content inventory already pinned.
+MODEL_PROXY_PATH="$(jq -r '.model_proxy.path // empty' "${STAGED_KIT}/manifest.json")"
+MODEL_PROXY_SHA256="$(jq -r '.model_proxy.sha256 // empty' "${STAGED_KIT}/manifest.json")"
+if [ "${MODEL_PROXY_PATH}" != "/opt/codify-kit/bin/codify-model-proxy" ] || [ -z "${MODEL_PROXY_SHA256}" ]; then
+    echo "Worker kit manifest has no valid model proxy identity" >&2
+    exit 2
+fi
+test -x "${STAGED_KIT}/bin/codify-model-proxy" || {
+    echo "Worker kit model proxy is missing or not executable" >&2
+    exit 2
+}
+if [ "$(sha256sum "${STAGED_KIT}/bin/codify-model-proxy" | awk '{print $1}')" != "${MODEL_PROXY_SHA256}" ]; then
+    echo "Worker kit model proxy digest does not match the manifest" >&2
+    exit 2
+fi
 if ! python3 "${CONTENT_VERIFIER}" --root "${STAGED_KIT}" >/dev/null; then
     echo "Worker Kit content inventory does not match the extracted Kit bytes" >&2
     exit 2

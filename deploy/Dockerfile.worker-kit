@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 ARG NIX_IMAGE=nixos/nix:2.24.11
-ARG WORKER_KIT_VERSION=0.4.0
+ARG WORKER_KIT_VERSION=0.6.17
 # Build selection: comma/plus-separated subset of pi,opencode,claude,codex.
 # An empty value builds a Kit with no Harness CLI payloads. The manifest
 # always records all four keys (availability=present|absent + reason_code).
@@ -13,8 +13,13 @@ ARG TARGETARCH
 WORKDIR /src
 COPY deploy/worker-kit/launcher/main.go ./launcher/main.go
 COPY deploy/worker-kit/run-as/main.go ./run-as/main.go
+COPY deploy/worker-kit/model-proxy/ ./model-proxy/
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/launcher ./launcher/main.go \
-    && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/codify-run-as ./run-as/main.go
+    && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/codify-run-as ./run-as/main.go \
+    && cd model-proxy \
+    && go vet ./... \
+    && go test ./... -count=1 \
+    && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/codify-model-proxy .
 
 FROM ${NIX_IMAGE} AS closure-builder
 # Some macOS-hosted Linux build environments reject Nix's nested seccomp BPF
@@ -63,12 +68,13 @@ RUN nix-build default.nix -o /tmp/codify-worker-kit-runtime \
        /src/verify-cli-payloads.sh
 
 FROM alpine:3.21 AS artifact
-ARG WORKER_KIT_VERSION=0.4.0
+ARG WORKER_KIT_VERSION=0.6.17
 ARG TARGETARCH
 ARG KIT_CLI_SELECTION
 RUN apk add --no-cache jq
 COPY --from=launcher-builder /out/launcher /worker-kit/launcher
 COPY --from=launcher-builder /out/codify-run-as /worker-kit/bin/codify-run-as
+COPY --from=launcher-builder /out/codify-model-proxy /worker-kit/bin/codify-model-proxy
 COPY --from=closure-builder /out/nix /worker-kit/nix
 COPY --from=closure-builder /tmp/runtime-store-path /tmp/runtime-store-path
 COPY --from=closure-builder /tmp/nixpkgs-version /tmp/nixpkgs-version
@@ -85,6 +91,8 @@ COPY deploy/scripts/validate_mermaid_summary.mjs /worker-kit/validate_mermaid_su
 RUN runtime_store="$(cat /tmp/runtime-store-path)" \
     && nixpkgs_version="$(cat /tmp/nixpkgs-version)" \
     && nixpkgs_revision="$(cat /tmp/nixpkgs-revision)" \
+    && model_proxy_version="$(/worker-kit/bin/codify-model-proxy --version | awk '{print $2}')" \
+    && model_proxy_sha256="$(sha256sum /worker-kit/bin/codify-model-proxy | awk '{print $1}')" \
     && inventory="$(jq -n --argjson evidence "$(cat /tmp/payload-evidence.json)" --arg selection "${KIT_CLI_SELECTION:-}" 'reduce ["pi","opencode","claude","codex"][] as $key ({}; .[$key] = (if ($evidence.present | has($key)) then ({availability: "present"} + $evidence.present[$key]) elif (($selection | split(",|\\+"; null) | map(select(length > 0))) | index($key)) then {availability: "absent", reason_code: "missing_payload"} else {availability: "absent", reason_code: "not_selected"} end))')" \
     && jq -n \
       --arg version "${WORKER_KIT_VERSION}" \
@@ -93,12 +101,15 @@ RUN runtime_store="$(cat /tmp/runtime-store-path)" \
       --arg bash "${runtime_store}/bin/bash" \
       --arg nixpkgs_version "${nixpkgs_version}" \
       --arg nixpkgs_revision "${nixpkgs_revision}" \
+      --arg proxy_version "${model_proxy_version}" \
+      --arg proxy_sha256 "${model_proxy_sha256}" \
       --argjson harness_inventory "${inventory}" \
-      '{schema_version: 2, manifest_kind:"codify.worker.kit-manifest/v1", kit_version: $version, platform: $platform, runtime_bin: $runtime_bin, bash: $bash, entrypoint: "/opt/codify-kit/entrypoint.sh", runtime_compatibility: {harness_contracts:["codify.worker.harness/v2","codify.worker.harness/v1"], event_schemas:["codify.worker.event/v2","codify.worker.event/v1"], bootstrap_version:"1.0.0"}, harness_inventory: $harness_inventory, components: {nixpkgs: $nixpkgs_version, nixpkgs_revision: $nixpkgs_revision}}' \
+      '{schema_version: 2, manifest_kind:"codify.worker.kit-manifest/v1", kit_version: $version, platform: $platform, runtime_bin: $runtime_bin, bash: $bash, entrypoint: "/opt/codify-kit/entrypoint.sh", runtime_compatibility: {harness_contracts:["codify.worker.harness/v2","codify.worker.harness/v1"], event_schemas:["codify.worker.event/v2","codify.worker.event/v1"], bootstrap_version:"1.0.0"}, harness_inventory: $harness_inventory, model_proxy: {version: $proxy_version, path: "/opt/codify-kit/bin/codify-model-proxy", sha256: $proxy_sha256}, components: {nixpkgs: $nixpkgs_version, nixpkgs_revision: $nixpkgs_revision}}' \
       > /worker-kit/manifest.json \
     && test "$(jq -r '.harness_inventory | keys | length' /worker-kit/manifest.json)" = 4 \
+    && test "$(jq -r '.model_proxy.path' /worker-kit/manifest.json)" = "/opt/codify-kit/bin/codify-model-proxy" \
     && for key in pi opencode claude codex; do availability="$(jq -r --arg k "${key}" '.harness_inventory[$k].availability' /worker-kit/manifest.json)"; if [ "${availability}" = "present" ]; then test -x "/worker-kit/$(jq -r --arg k "${key}" '.harness_inventory[$k].path | sub("^/opt/codify-kit/"; "")' /worker-kit/manifest.json)"; fi; done \
-    && chmod 755 /worker-kit/launcher /worker-kit/bin/codify-run-as /worker-kit/entrypoint.sh \
+    && chmod 755 /worker-kit/launcher /worker-kit/bin/codify-run-as /worker-kit/bin/codify-model-proxy /worker-kit/entrypoint.sh \
       /worker-kit/verify-kit-content.py \
       /worker-kit/verify-runtime.sh \
       /worker-kit/validate-runtime-manifest.py \
@@ -116,6 +127,9 @@ RUN runtime_store="$(cat /tmp/runtime-store-path)" \
     && ln -s /worker-kit/nix/store /nix/store \
     && runtime_python="/worker-kit$(cat /tmp/runtime-store-path)/bin/python3" \
     && "${runtime_python}" /worker-kit/verify-kit-content.py --root /worker-kit --write-manifest \
+    && test -x /worker-kit/bin/codify-model-proxy \
+    && test "$(jq -r '[.content_inventory[] | select(.path == "bin/codify-model-proxy")] | length' /worker-kit/manifest.json)" = 1 \
+    && test "$(jq -r '.model_proxy.sha256' /worker-kit/manifest.json)" = "$(jq -r '.content_inventory[] | select(.path == "bin/codify-model-proxy") | .sha256' /worker-kit/manifest.json)" \
     && rm /nix/store \
     && test -d /worker-kit/nix/store \
     && test -s /worker-kit/manifest.json \
