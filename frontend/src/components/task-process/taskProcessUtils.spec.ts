@@ -4,7 +4,7 @@ import { mount } from '@vue/test-utils'
 import type { TaskLog } from '../../api'
 import TaskProcessPanel from '../TaskProcessPanel.vue'
 import TaskProcessToolRow from './TaskProcessToolRow.vue'
-import { formatInput, getInputSummary, normalizeTaskProcessRows, parseControlEntry, parseTextEntry, summarizeSkillUsage } from './taskProcessUtils'
+import { controlEventStatusKey, formatInput, getInputSummary, normalizeTaskProcessRows, parseControlEntry, parseTextEntry, summarizeSkillUsage, type NormalizedControlEventRow } from './taskProcessUtils'
 
 vi.mock('vue-i18n', () => ({
   createI18n: () => ({ global: { locale: { value: 'zh-CN' } } }),
@@ -183,6 +183,56 @@ describe('taskProcessUtils', () => {
     })
 
     expect(normalizeTaskProcessRows([log])).toEqual([])
+  })
+
+  it('drops control.queue.updated audit rows without hiding command outcomes', () => {
+    // One steer produces enqueue + drain queue updates plus one native ACK;
+    // only the ACK is a user action.
+    const logs: TaskLog[] = [
+      createTaskLog({
+        id: 50,
+        log_type: 'control_event',
+        created_at: '2026-09-11T00:44:54Z',
+        metadata: JSON.stringify({ type: 'control.queue.updated', queue: [{ id: 'steering[0]', text: '完成后简要总结即可' }] }),
+      }),
+      createTaskLog({
+        id: 51,
+        log_type: 'control_event',
+        created_at: '2026-09-11T00:44:55Z',
+        metadata: JSON.stringify({ type: 'control.command.delivered', command_id: '<UUID:1>', sequence_no: 1, command_type: 'steer', text: '完成后简要总结即可' }),
+      }),
+      createTaskLog({
+        id: 52,
+        log_type: 'control_event',
+        created_at: '2026-09-11T00:44:56Z',
+        metadata: JSON.stringify({ type: 'control.queue.updated', queue: [] }),
+      }),
+    ]
+
+    const rows = normalizeTaskProcessRows(logs)
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].kind).toBe('control_event')
+    expect((rows[0] as NormalizedControlEventRow).controlEntry.eventType).toBe('control.command.delivered')
+  })
+
+  it('keeps control rows readable when the projection added no command facts', () => {
+    // Events ingested before the projection enhancement carry no type/text;
+    // the row must still resolve its status and sequence.
+    const log = createTaskLog({
+      id: 53,
+      log_type: 'control_event',
+      metadata: JSON.stringify({ type: 'control.command.outcome_unknown', command_id: '<UUID:2>', sequence_no: 3, code: 'delivery_outcome_unknown' }),
+    })
+
+    const rows = normalizeTaskProcessRows([log])
+
+    expect(rows).toHaveLength(1)
+    const entry = (rows[0] as NormalizedControlEventRow).controlEntry
+    expect(entry.commandType).toBeNull()
+    expect(entry.text).toBe('')
+    expect(entry.sequenceNo).toBe(3)
+    expect(controlEventStatusKey(entry.eventType)).toBe('taskView.steeringStatusOutcomeUnknown')
   })
 
   it('formats Edit input using old_string and new_string keys', () => {

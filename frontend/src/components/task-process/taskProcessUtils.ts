@@ -474,9 +474,13 @@ export function normalizeTaskProcessRows(taskLogs: TaskLog[]): NormalizedTaskPro
       rows.push({ kind: 'context_compact', event })
     } else if (event.log_type === 'control_event') {
       const controlEntry = parseControlEntry(event.metadata)
-      // Internal audit signals such as `agent_settled` share the storage type
-      // but do not have a user-facing event representation.
-      if (controlEntry.eventType) rows.push({ kind: 'control_event', event, controlEntry })
+      // Internal signals share the storage type but have no user-facing
+      // representation: `agent_settled` is a control-gate signal, and
+      // `control.queue.updated` is attempt-level transport audit (enqueue and
+      // drain). The latter stays in persistence and archives only.
+      const isVisible =
+        controlEntry.eventType !== '' && controlEntry.eventType !== 'control.queue.updated'
+      if (isVisible) rows.push({ kind: 'control_event', event, controlEntry })
     }
   }
   return rows

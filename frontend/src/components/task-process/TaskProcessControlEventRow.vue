@@ -5,13 +5,11 @@
         <n-icon size="15"><ChatbubbleEllipsesOutline /></n-icon>
       </div>
       <div class="event-info">
-        <span class="event-name">{{ statusLabel }}</span>
-        <span class="event-control-id">
-          <template v-if="row.controlEntry.commandType">{{ typeLabel }} · </template>
-          <template v-if="row.controlEntry.sequenceNo !== null">#{{ row.controlEntry.sequenceNo }} · </template>
-          <template v-if="row.controlEntry.commandId">cmd {{ row.controlEntry.commandId }}</template>
+        <span class="event-control-type">
+          <template v-if="row.controlEntry.commandType">[{{ typeLabel }}]</template>
           <template v-else>{{ row.controlEntry.eventType }}</template>
         </span>
+        <span class="event-name">{{ statusLabel }}</span>
       </div>
       <span class="event-ts">{{ formatTimestamp(row.event.created_at) }}</span>
     </div>
@@ -19,7 +17,10 @@
       <pre class="control-pre">{{ row.controlEntry.text }}</pre>
     </div>
     <div v-if="row.controlEntry.rejectionMessage" class="control-rejection">
-      {{ row.controlEntry.rejectionMessage }}
+      {{ t('taskView.steeringRejectionReason', { message: row.controlEntry.rejectionMessage }) }}
+    </div>
+    <div v-if="row.controlEntry.sequenceNo !== null" class="control-sequence">
+      #{{ row.controlEntry.sequenceNo }}
     </div>
   </div>
 </template>
@@ -66,7 +67,9 @@ const typeLabel = computed(() => {
 .event-info {
   flex: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
   min-width: 0;
 }
 .event-name {
@@ -92,13 +95,12 @@ const typeLabel = computed(() => {
   color: var(--event-accent);
 }
 
-.event-control-id {
-  color: var(--n-text-color-3, #8a8f98);
-  font-size: 11px;
+.event-control-type {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--event-accent);
+  flex-shrink: 0;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
 }
 
 .control-text {
@@ -126,5 +128,13 @@ const typeLabel = computed(() => {
   color: #d03050;
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+.control-sequence {
+  margin-top: 4px;
+  padding-left: 30px;
+  color: var(--n-text-color-3, #8a8f98);
+  font-family: var(--n-font-family-mono, monospace);
+  font-size: 11px;
 }
 </style>
