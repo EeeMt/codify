@@ -1,5 +1,6 @@
 """Protocol-specific worker environment construction regressions."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -105,6 +106,7 @@ def test_openai_snapshot_emits_no_anthropic_credentials():
         ("anthropic_messages", "CODIFY_HARNESS_MODEL_PROTOCOL"),
         ("anthropic_messages", "CODIFY_CLI_VERSION"),
         ("anthropic_messages", "CODIFY_RUNTIME_PATH"),
+        ("anthropic_messages", "CODIFY_MODEL_PROVIDER_OPTIONS_JSON"),
         ("anthropic_messages", "CODIFY_PI_BIN"),
         ("anthropic_messages", "CODIFY_OPENCODE_BIN"),
         ("anthropic_messages", "OPENCODE_PROVIDER_NPM"),
@@ -278,3 +280,53 @@ async def test_resolve_provider_fails_closed_when_frozen_credential_is_revoked(m
 
     with pytest.raises(RuntimeError, match="credential resolution failed"):
         await resolve_provider(db, task)
+
+
+def test_empty_provider_options_leave_the_direct_path_untouched():
+    task, issue, provider = _task_issue_provider("anthropic_messages")
+    provider.provider_options = {}
+
+    env = build_container_env(task, issue, None, None, provider, settings=_settings())
+
+    assert "CODIFY_MODEL_PROVIDER_OPTIONS_JSON" not in env
+
+
+def test_non_empty_provider_options_are_injected_for_the_proxy():
+    task, issue, provider = _task_issue_provider("openai_responses")
+    provider.provider_options = {
+        "temperature": 0.6,
+        "chat_template_kwargs": {"thinking": True},
+    }
+
+    env = build_container_env(task, issue, None, None, provider, settings=_settings())
+
+    assert json.loads(env["CODIFY_MODEL_PROVIDER_OPTIONS_JSON"]) == {
+        "temperature": 0.6,
+        "chat_template_kwargs": {"thinking": True},
+    }
+
+
+@pytest.mark.asyncio
+async def test_resolve_provider_freezes_provider_options_and_ignores_live_drift(monkeypatch):
+    frozen_provider = _endpoint_provider(provider_options={"temperature": 0.6})
+    live_provider = _endpoint_provider(provider_options={"temperature": 1.0})
+    task, issue, _ = _task_issue_provider("openai_responses")
+    task.provider_id = frozen_provider.id
+    task.worker_profile_snapshot = _task_with_endpoint_snapshot(
+        frozen_provider
+    ).worker_profile_snapshot
+    db = SimpleNamespace(get=AsyncMock(return_value=live_provider))
+    monkeypatch.setattr(
+        "app.core.worker_runtime.resolve_task_credential",
+        AsyncMock(return_value={"secret": "frozen-key", "status": "active"}),
+    )
+    monkeypatch.setattr(
+        "app.core.worker_runtime.get_settings",
+        lambda: SimpleNamespace(claude_max_turns=20),
+    )
+
+    resolved = await resolve_provider(db, task)
+    env = build_container_env(task, issue, None, None, resolved, settings=_settings())
+
+    assert resolved.provider_options == {"temperature": 0.6}
+    assert json.loads(env["CODIFY_MODEL_PROVIDER_OPTIONS_JSON"]) == {"temperature": 0.6}

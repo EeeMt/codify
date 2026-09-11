@@ -1,0 +1,162 @@
+{
+  "schema": "codify.model-proxy.golden-vectors/v1",
+  "reserved_request_fields": [
+    "model",
+    "messages",
+    "input",
+    "instructions",
+    "tools",
+    "tool_choice",
+    "stream",
+    "stream_options"
+  ],
+  "merge_cases": [
+    {
+      "name": "recursive_object_merge_overrides_hardcoded_default",
+      "body": {
+        "model": "qwen3",
+        "stream": true,
+        "messages": [{ "role": "user", "content": "hello" }],
+        "chat_template_kwargs": { "reasoning_effort": "medium" }
+      },
+      "options": {
+        "temperature": 0.6,
+        "chat_template_kwargs": { "thinking": true, "reasoning_effort": "high" }
+      },
+      "expected": {
+        "model": "qwen3",
+        "stream": true,
+        "messages": [{ "role": "user", "content": "hello" }],
+        "temperature": 0.6,
+        "chat_template_kwargs": { "reasoning_effort": "high", "thinking": true }
+      }
+    },
+    {
+      "name": "arrays_replace_wholesale",
+      "body": { "stop": ["a"], "messages": [{ "role": "user", "content": "hi" }] },
+      "options": { "stop": ["b", "c"] },
+      "expected": {
+        "stop": ["b", "c"],
+        "messages": [{ "role": "user", "content": "hi" }]
+      }
+    },
+    {
+      "name": "null_replaces_scalar",
+      "body": { "top_p": 0.9, "temperature": 0.2 },
+      "options": { "top_p": null },
+      "expected": { "top_p": null, "temperature": 0.2 }
+    },
+    {
+      "name": "null_inside_recursive_object",
+      "body": { "extra": { "keep": "x", "drop": 1 } },
+      "options": { "extra": { "drop": null } },
+      "expected": { "extra": { "keep": "x", "drop": null } }
+    },
+    {
+      "name": "non_ascii_payload_preserved",
+      "body": {
+        "messages": [{ "role": "user", "content": "你好，世界" }],
+        "metadata": { "note": "日本語・emoji ✅" }
+      },
+      "options": { "chat_template_kwargs": { "thinking": true } },
+      "expected": {
+        "messages": [{ "role": "user", "content": "你好，世界" }],
+        "metadata": { "note": "日本語・emoji ✅" },
+        "chat_template_kwargs": { "thinking": true }
+      }
+    },
+    {
+      "name": "reserved_fields_never_merged",
+      "body": {
+        "model": "qwen3",
+        "stream": true,
+        "messages": [{ "role": "user", "content": "hello" }],
+        "tools": [{ "name": "read" }],
+        "stream_options": { "include_usage": true }
+      },
+      "options": {
+        "model": "hijacked",
+        "input": "hijacked",
+        "instructions": "hijacked",
+        "messages": [],
+        "tools": [],
+        "tool_choice": "none",
+        "stream": false,
+        "stream_options": { "include_usage": false },
+        "temperature": 0.6
+      },
+      "expected": {
+        "model": "qwen3",
+        "stream": true,
+        "messages": [{ "role": "user", "content": "hello" }],
+        "tools": [{ "name": "read" }],
+        "stream_options": { "include_usage": true },
+        "temperature": 0.6
+      }
+    },
+    {
+      "name": "large_integer_keeps_precision",
+      "body": { "seed": 12345678901234567890, "model": "qwen3" },
+      "options": { "temperature": 0.6 },
+      "expected": { "seed": 12345678901234567890, "model": "qwen3", "temperature": 0.6 }
+    },
+    {
+      "name": "object_replaced_by_scalar",
+      "body": { "chat_template_kwargs": { "thinking": true }, "stream": true },
+      "options": { "chat_template_kwargs": "disabled" },
+      "expected": { "chat_template_kwargs": "disabled", "stream": true }
+    },
+    {
+      "name": "three_level_recursive_merge",
+      "body": {
+        "a": { "b": { "c": 1, "keep": true }, "sibling": "x" },
+        "model": "qwen3"
+      },
+      "options": { "a": { "b": { "c": 2, "added": "y" }, "new": [1, 2] } },
+      "expected": {
+        "a": { "b": { "c": 2, "keep": true, "added": "y" }, "sibling": "x", "new": [1, 2] },
+        "model": "qwen3"
+      }
+    },
+    {
+      "name": "empty_options_leave_body_untouched",
+      "body": { "model": "qwen3", "messages": [], "stream": true },
+      "options": {},
+      "expected": { "model": "qwen3", "messages": [], "stream": true }
+    }
+  ],
+  "reserved_rejection_cases": [
+    { "name": "single_reserved_field", "options": { "model": "hijack" }, "fields": ["model"] },
+    { "name": "two_reserved_fields_sorted", "options": { "stream": true, "tools": [] }, "fields": ["stream", "tools"] },
+    {
+      "name": "all_reserved_fields_sorted",
+      "options": {
+        "stream_options": {},
+        "stream": true,
+        "tool_choice": "auto",
+        "tools": [],
+        "instructions": "x",
+        "input": "x",
+        "messages": [],
+        "model": "x"
+      },
+      "fields": [
+        "input",
+        "instructions",
+        "messages",
+        "model",
+        "stream",
+        "stream_options",
+        "tool_choice",
+        "tools"
+      ]
+    },
+    { "name": "unknown_fields_are_allowed", "options": { "temperature": 0.6, "chat_template_kwargs": { "thinking": true } }, "fields": [] }
+  ],
+  "invalid_options_cases": [
+    { "name": "array_is_not_an_object", "options": [1, 2] },
+    { "name": "string_is_not_an_object", "options": "temperature=0.6" },
+    { "name": "number_is_not_an_object", "options": 5 },
+    { "name": "null_is_not_an_object", "options": null }
+  ]
+}

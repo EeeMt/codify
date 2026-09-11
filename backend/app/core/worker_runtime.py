@@ -446,6 +446,18 @@ def _build_container_env_with_settings(
     if isinstance(endpoint_fingerprint, str) and endpoint_fingerprint:
         environment["CODIFY_MODEL_ENDPOINT_FINGERPRINT"] = endpoint_fingerprint
 
+    # Frozen, non-sensitive request options for the Task-local egress proxy.
+    # An empty object keeps the existing direct-connection path and never
+    # starts the proxy.
+    provider_options = getattr(provider, "provider_options", None)
+    if isinstance(provider_options, dict) and provider_options:
+        environment["CODIFY_MODEL_PROVIDER_OPTIONS_JSON"] = json.dumps(
+            provider_options,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
     if model_protocol == "anthropic_messages":
         environment.update(
             {

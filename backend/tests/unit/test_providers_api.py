@@ -856,3 +856,203 @@ class ProviderCredentialLifecycleTests(unittest.TestCase):
 async def _create_schema(engine):
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+
+
+# ---------------------------------------------------------------------------
+# Phase: Provider request options (provider_options)
+# ---------------------------------------------------------------------------
+
+
+class ProviderRequestOptionsSchemaTests(unittest.TestCase):
+    """Create/update schemas keep the provider_options contract."""
+
+    def test_create_accepts_arbitrary_request_options(self):
+        request = CreateProviderRequest(
+            **_valid_create_kwargs(
+                provider_options={
+                    "temperature": 0.6,
+                    "chat_template_kwargs": {
+                        "thinking": True,
+                        "reasoning_effort": "high",
+                    },
+                }
+            )
+        )
+
+        self.assertEqual(
+            request.provider_options["chat_template_kwargs"],
+            {"thinking": True, "reasoning_effort": "high"},
+        )
+
+    def test_create_rejects_reserved_request_options(self):
+        with self.assertRaises(ValidationError) as error:
+            CreateProviderRequest(
+                **_valid_create_kwargs(
+                    provider_options={"model": "hijack", "stream": False}
+                )
+            )
+
+        message = str(error.exception)
+        self.assertIn("model", message)
+        self.assertIn("stream", message)
+
+    def test_update_rejects_reserved_request_options(self):
+        with self.assertRaises(ValidationError) as error:
+            UpdateProviderRequest(
+                provider_kind="anthropic_compatible",
+                model_protocol="anthropic_messages",
+                provider_options={"tools": []},
+            )
+
+        self.assertIn("tools", str(error.exception))
+
+
+class ProviderRequestOptionsApiTests(unittest.TestCase):
+    """Endpoint-level provider_options behavior, including the connection test."""
+
+    def setUp(self):
+        self._original_key = os.environ.get("CONFIG_ENCRYPTION_KEY")
+        os.environ["CONFIG_ENCRYPTION_KEY"] = "unit-test-config-key"
+
+        self.mock_db = MagicMock()
+        self.mock_db.execute = AsyncMock()
+        self.mock_db.get = AsyncMock()
+        self.mock_db.commit = AsyncMock()
+        self.mock_db.flush = AsyncMock()
+        self.mock_db.add = MagicMock()
+        self.mock_db.refresh = AsyncMock()
+        self.mock_db.delete = AsyncMock()
+
+        app.dependency_overrides[get_db] = lambda: self.mock_db
+        app.dependency_overrides[require_authenticated_user] = lambda: MagicMock()
+        app.dependency_overrides[require_admin_user] = lambda: MagicMock()
+
+        self.client = TestClient(app, raise_server_exceptions=False)
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+        if self._original_key is None:
+            os.environ.pop("CONFIG_ENCRYPTION_KEY", None)
+        else:
+            os.environ["CONFIG_ENCRYPTION_KEY"] = self._original_key
+
+    def test_create_rejects_reserved_request_options(self):
+        response = self.client.post(
+            "/api/providers",
+            json={
+                "name": "reserved-options",
+                "base_url": "https://api.example.com/v1",
+                "model": "model-x",
+                "provider_options": {"model": "hijack", "stream": False},
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+        detail = str(response.json())
+        self.assertIn("model", detail)
+        self.assertIn("stream", detail)
+
+    def test_create_accepts_arbitrary_request_options(self):
+        name_check = MagicMock()
+        name_check.scalar_one_or_none.return_value = None
+        count_result = MagicMock()
+        count_result.scalar.return_value = 1
+        self.mock_db.execute = AsyncMock(side_effect=[name_check, count_result])
+
+        async def fake_refresh(provider):
+            provider.created_at = datetime(2026, 1, 1)
+            provider.updated_at = datetime(2026, 1, 1)
+
+        self.mock_db.refresh = AsyncMock(side_effect=fake_refresh)
+
+        response = self.client.post(
+            "/api/providers",
+            json={
+                "name": "arbitrary-options",
+                "base_url": "https://api.example.com/v1",
+                "model": "model-x",
+                "provider_options": {
+                    "temperature": 0.6,
+                    "chat_template_kwargs": {"thinking": True},
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(
+            response.json()["provider_options"],
+            {"temperature": 0.6, "chat_template_kwargs": {"thinking": True}},
+        )
+
+    def test_update_rejects_reserved_request_options(self):
+        provider = _make_provider(id=1)
+        provider.provider_kind = "anthropic_compatible"
+        provider.model_protocol = "anthropic_messages"
+        provider.provider_options = {}
+        self.mock_db.get = AsyncMock(return_value=provider)
+
+        response = self.client.patch(
+            "/api/providers/1",
+            json={"provider_options": {"messages": []}},
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("messages", response.json()["detail"])
+
+    def test_update_clears_options_with_an_empty_object(self):
+        provider = _make_provider(id=1)
+        provider.provider_kind = "anthropic_compatible"
+        provider.model_protocol = "anthropic_messages"
+        provider.provider_options = {"temperature": 0.6}
+        self.mock_db.get = AsyncMock(return_value=provider)
+
+        response = self.client.patch("/api/providers/1", json={"provider_options": {}})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(provider.provider_options, {})
+
+    def test_connection_test_sends_merged_provider_options(self):
+        provider = _make_provider(
+            id=1,
+            base_url="https://api.example/v1",
+            api_key="test-key",
+            model="claude-test",
+        )
+        provider.model_protocol = "anthropic_messages"
+        provider.provider_options = {
+            "temperature": 0.6,
+            "chat_template_kwargs": {"thinking": True, "reasoning_effort": "high"},
+        }
+        self.mock_db.get = AsyncMock(return_value=provider)
+
+        upstream = MagicMock(status_code=200)
+        http_client = MagicMock()
+        http_client.__aenter__ = AsyncMock(return_value=http_client)
+        http_client.__aexit__ = AsyncMock(return_value=None)
+        http_client.post = AsyncMock(return_value=upstream)
+
+        with patch("app.api.providers.httpx.AsyncClient", return_value=http_client):
+            response = self.client.post("/api/providers/1/test-connection")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = http_client.post.await_args.kwargs["json"]
+        self.assertEqual(payload["temperature"], 0.6)
+        self.assertEqual(
+            payload["chat_template_kwargs"],
+            {"thinking": True, "reasoning_effort": "high"},
+        )
+        self.assertEqual(payload["model"], "claude-test")
+        self.assertEqual(payload["messages"], [{"role": "user", "content": "ping"}])
+
+    def test_connection_test_rejects_legacy_reserved_options(self):
+        provider = _make_provider(id=1, api_key="test-key")
+        provider.model_protocol = "anthropic_messages"
+        provider.provider_options = {"stream": False}
+        self.mock_db.get = AsyncMock(return_value=provider)
+
+        with patch("app.api.providers.httpx.AsyncClient") as client_cls:
+            response = self.client.post("/api/providers/1/test-connection")
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("stream", response.json()["detail"])
+        client_cls.assert_not_called()

@@ -28,6 +28,10 @@ from app.core.model_credentials import (
     soft_retire_credential,
 )
 from app.core.model_endpoints import COMPAT_PROFILES
+from app.core.provider_request_options import (
+    merge_provider_request_options,
+    validate_provider_request_options,
+)
 from app.core.ssl_utils import get_ssl_verify
 from app.database import get_db
 from app.dependencies.auth import require_admin_user
@@ -67,8 +71,7 @@ def _validate_kind_protocol(
             f"provider_kind {provider_kind!r} cannot consume model_protocol "
             f"{model_protocol!r}"
         )
-    if not isinstance(provider_options, dict):
-        raise ValueError("provider_options must be an object")
+    validate_provider_request_options(provider_options)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -341,6 +344,21 @@ def _provider_connection_request(provider: AIProvider, api_key: str) -> tuple[st
     hostname = (urlsplit(base_url).hostname or "").lower()
     if hostname == "opencode.ai" or hostname.endswith(".opencode.ai"):
         headers["x-opencode-session"] = f"codify-connection-test-{uuid.uuid4().hex}"
+
+    # The connection test exercises the same merge contract the Worker's
+    # Task-local proxy applies to the live Harness request, so a Provider that
+    # passes here cannot fail on a rejected/legacy provider_options payload.
+    # The column is NOT NULL; a transient ORM object that was never flushed
+    # (or a test double) exposes None, which means "no options".
+    provider_options = getattr(provider, "provider_options", None)
+    if provider_options is None:
+        provider_options = {}
+    try:
+        validate_provider_request_options(provider_options)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if provider_options:
+        payload = merge_provider_request_options(payload, provider_options)
 
     return url, headers, payload
 
