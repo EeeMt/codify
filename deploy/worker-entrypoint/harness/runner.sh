@@ -52,6 +52,10 @@ codify_harness_initialize() {
     }
     CODIFY_HARNESS_CAPABILITIES="${capabilities}"
     export CODIFY_HARNESS_CAPABILITIES
+    # Ordered common step: validate the frozen provider_options, start the
+    # Task-local egress proxy and mirror the frozen Base URL before the Adapter
+    # maps its protocol endpoint. Adapters only consume the mirrored variable.
+    codify_model_proxy_start || return 1
     adapter_prepare_config || return 1
     adapter_materialize_skills || return 1
     command_path="$(adapter_build_command)" || return 1
@@ -119,6 +123,7 @@ codify_harness_run() {
             codify_emit_event "harness.failed" \
                 '{"failure":{"kind":"configuration_error","message":"Harness Adapter initialization failed"}}'
         fi
+        codify_model_proxy_stop
         CODIFY_HARNESS_TERMINAL_SEEN=1
         return 1
     fi
@@ -180,6 +185,7 @@ codify_harness_run() {
     if [ "${result}" -eq 0 ] && codify_event_type_exists "harness.failed"; then
         result=1
     fi
+    codify_model_proxy_stop
     return "${result}"
 }
 
@@ -190,4 +196,144 @@ codify_harness_run_text() {
         return 1
     fi
     adapter_run_text "$@"
+}
+
+# ---------------------------------------------------------------------------
+# Task-local model request options proxy.
+#
+# The Backend freezes the Provider's non-sensitive provider_options into
+# CODIFY_MODEL_PROVIDER_OPTIONS_JSON. When it is non-empty the common runner
+# starts the Kit's Task-local egress proxy, mirrors the frozen upstream Base
+# URL onto the loopback listener, and lets every Adapter keep consuming its
+# normal ANTHROPIC_BASE_URL / OPENAI_BASE_URL variable. Adapters never parse,
+# filter or merge provider_options themselves.
+# ---------------------------------------------------------------------------
+
+CODIFY_MODEL_PROXY_BIN="${CODIFY_MODEL_PROXY_BIN:-${CODIFY_KIT_HOME:-/opt/codify-kit}/bin/codify-model-proxy}"
+CODIFY_MODEL_PROXY_READINESS="${CODIFY_RUNTIME_DIR}/model-proxy-readiness.json"
+CODIFY_MODEL_PROXY_OPTIONS_FILE="${CODIFY_RUNTIME_DIR}/model-proxy-options.json"
+CODIFY_MODEL_PROXY_PID=""
+CODIFY_MODEL_PROXY_PROTOCOL=""
+
+# Preserve the frozen upstream path: only the scheme and authority are
+# replaced, so Adapter URL normalization produces the same final request path
+# as the direct-connection path.
+codify_model_proxy_mirror_base_url() {
+    local upstream="$1"
+    local authority="$2"
+    local rest="${upstream#*://}"
+    local path=""
+    case "${rest}" in
+        */*) path="/${rest#*/}" ;;
+    esac
+    case "${path}" in
+        *'?'*) path="${path%%\?*}" ;;
+    esac
+    printf 'http://%s%s' "${authority}" "${path}"
+}
+
+codify_model_proxy_upstream_base_url() {
+    case "${CODIFY_MODEL_PROXY_PROTOCOL}" in
+        anthropic_messages) printf '%s' "${ANTHROPIC_BASE_URL:-}" ;;
+        openai_responses | openai_chat_completions) printf '%s' "${OPENAI_BASE_URL:-}" ;;
+        *) printf '' ;;
+    esac
+}
+
+codify_model_proxy_start() {
+    local options_json="${CODIFY_MODEL_PROVIDER_OPTIONS_JSON:-}"
+    if [ -z "${options_json}" ]; then
+        return 0
+    fi
+    if ! printf '%s' "${options_json}" | jq -e 'type == "object" and length > 0' >/dev/null 2>&1; then
+        echo "Frozen provider_options is not a non-empty JSON object" >&2
+        return 1
+    fi
+    local protocol="${CODIFY_MODEL_PROTOCOL:-anthropic_messages}"
+    case "${protocol}" in
+        anthropic_messages | openai_responses | openai_chat_completions) ;;
+        *)
+            echo "Frozen model protocol has no proxy target path: ${protocol}" >&2
+            return 1
+            ;;
+    esac
+    CODIFY_MODEL_PROXY_PROTOCOL="${protocol}"
+    local upstream
+    upstream="$(codify_model_proxy_upstream_base_url)"
+    if [ -z "${upstream}" ]; then
+        echo "Frozen model Base URL is unavailable for protocol ${protocol}" >&2
+        return 1
+    fi
+    if [ ! -x "${CODIFY_MODEL_PROXY_BIN}" ]; then
+        echo "Model request options proxy is unavailable: ${CODIFY_MODEL_PROXY_BIN}" >&2
+        return 1
+    fi
+    if ! printf '%s' "${options_json}" | jq -S -c '.' > "${CODIFY_MODEL_PROXY_OPTIONS_FILE}" 2>/dev/null; then
+        echo "Frozen provider_options could not be materialized" >&2
+        return 1
+    fi
+    chmod 600 "${CODIFY_MODEL_PROXY_OPTIONS_FILE}" 2>/dev/null || true
+    rm -f "${CODIFY_MODEL_PROXY_READINESS}"
+    "${CODIFY_MODEL_PROXY_BIN}" \
+        --listen 127.0.0.1:0 \
+        --upstream "${upstream}" \
+        --protocol "${protocol}" \
+        --options-file "${CODIFY_MODEL_PROXY_OPTIONS_FILE}" \
+        --readiness "${CODIFY_MODEL_PROXY_READINESS}" &
+    CODIFY_MODEL_PROXY_PID=$!
+    export CODIFY_MODEL_PROXY_PID
+    local attempt=0
+    while [ "${attempt}" -lt 200 ]; do
+        attempt=$((attempt + 1))
+        if [ -s "${CODIFY_MODEL_PROXY_READINESS}" ]; then
+            break
+        fi
+        if ! kill -0 "${CODIFY_MODEL_PROXY_PID}" 2>/dev/null; then
+            echo "Model request options proxy exited before readiness" >&2
+            CODIFY_MODEL_PROXY_PID=""
+            export CODIFY_MODEL_PROXY_PID
+            return 1
+        fi
+        sleep 0.05
+    done
+    local listen_addr
+    listen_addr="$(jq -r '.listen // empty' "${CODIFY_MODEL_PROXY_READINESS}" 2>/dev/null)"
+    if [ -z "${listen_addr}" ]; then
+        echo "Model request options proxy did not become ready" >&2
+        codify_model_proxy_stop
+        return 1
+    fi
+    local mirror
+    mirror="$(codify_model_proxy_mirror_base_url "${upstream}" "${listen_addr}")"
+    case "${protocol}" in
+        anthropic_messages)
+            export ANTHROPIC_BASE_URL="${mirror}"
+            ;;
+        *)
+            export OPENAI_BASE_URL="${mirror}"
+            ;;
+    esac
+    echo "Model request options proxy active for protocol ${protocol}"
+    return 0
+}
+
+codify_model_proxy_stop() {
+    if [ -z "${CODIFY_MODEL_PROXY_PID:-}" ]; then
+        return 0
+    fi
+    local pid="${CODIFY_MODEL_PROXY_PID}"
+    CODIFY_MODEL_PROXY_PID=""
+    export CODIFY_MODEL_PROXY_PID
+    if kill -0 "${pid}" 2>/dev/null; then
+        kill -TERM "${pid}" 2>/dev/null || true
+        local attempt=0
+        while [ "${attempt}" -lt 100 ] && kill -0 "${pid}" 2>/dev/null; do
+            attempt=$((attempt + 1))
+            sleep 0.05
+        done
+        kill -KILL "${pid}" 2>/dev/null || true
+    fi
+    wait "${pid}" 2>/dev/null || true
+    rm -f "${CODIFY_MODEL_PROXY_READINESS}" 2>/dev/null || true
+    return 0
 }

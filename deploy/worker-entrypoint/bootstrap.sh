@@ -300,6 +300,7 @@ codify_drain_console_tee() {
 
 codify_finalize_on_exit() {
     local exit_code="${1:-0}"
+    if declare -F codify_model_proxy_stop >/dev/null 2>&1; then codify_model_proxy_stop || true; fi
     if declare -F repo_finalize_preparation_on_exit >/dev/null 2>&1; then
         repo_finalize_preparation_on_exit "${exit_code}" || true
     fi
