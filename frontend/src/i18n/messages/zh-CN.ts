@@ -1239,6 +1239,7 @@ const zhCN = {
     copySkillName: '复制 Skill 名称',
     manualTaskBranchConflict: '手动任务的源分支和目标分支必须不同',
     failedToCreateTask: '创建任务失败',
+    workerProfileRuntimeNotVerified: '当前 Worker 配置需要重新验证运行时，请先在“配置 → Worker”中点击“验证运行时”，验证通过后再创建任务。',
     usageLimitExceededTitle: '用量已超限',
     usageLimitUsed: '已使用',
     usageLimitReset: '重置时间',

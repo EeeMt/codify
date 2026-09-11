@@ -1256,6 +1256,7 @@ const en = {
     manualTaskBranchConflict:
       'Source branch and target branch must be different for manual tasks',
     failedToCreateTask: 'Failed to create task',
+    workerProfileRuntimeNotVerified: 'This Worker Profile needs runtime verification. Open Configuration → Worker, click “Verify runtime”, then create the task again.',
     usageLimitExceededTitle: 'Usage limit exceeded',
     usageLimitUsed: 'Used',
     usageLimitReset: 'Resets',

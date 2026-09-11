@@ -18,6 +18,17 @@ function isSlotFullDetail(detail: unknown): detail is SlotFullDetail {
   )
 }
 
+function formatTaskCreationError(
+  detail: unknown,
+  t: ComposerTranslation,
+): string | null {
+  if (typeof detail !== 'object' || detail === null) return null
+  if ((detail as Record<string, unknown>).code !== 'worker_profile_runtime_not_verified') {
+    return null
+  }
+  return t('createTask.workerProfileRuntimeNotVerified')
+}
+
 /**
  * Format a 409 slot-full error into a localized, timezone-correct message.
  * Returns null if the error is not a slot-full error.
@@ -51,6 +62,7 @@ export function extractSlotErrorMessage(
 ): string {
   const detail = error?.response?.data?.detail
   return formatSlotError(detail, t)
+    ?? formatTaskCreationError(detail, t)
     ?? formatTaskConflict(detail, t)
     ?? (typeof detail === 'string' ? detail : t(fallbackKey))
 }

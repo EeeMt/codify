@@ -1997,6 +1997,69 @@ class CreateTaskAPITests(unittest.TestCase):
         created_task = mock_db.add.call_args_list[0].args[0]
         self.assertEqual(created_task.session_mode, "fresh")
 
+    def test_create_task_returns_actionable_422_when_runtime_verification_is_missing(self):
+        """A stale V2 profile returns a localized-friendly error envelope, not a 500."""
+        mock_db = MagicMock()
+        mock_db.add = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.flush = AsyncMock()
+        mock_db.rollback = AsyncMock()
+        mock_db.refresh = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=_make_scalars_all_result([]))
+
+        mock_issue = MagicMock()
+        mock_issue.id = 1
+        mock_issue.project_id = 1
+        mock_issue.description = "Fix the login bug"
+        mock_db.get = AsyncMock(return_value=mock_issue)
+
+        client, app = _make_app_client_with_db(mock_db)
+        with (
+            patch("app.api.tasks.get_project_metadata", new=AsyncMock(return_value={})),
+            patch(
+                "app.api.tasks.resolve_worker_profile_for_issue",
+                new=AsyncMock(return_value=_make_mock_worker_profile()),
+            ),
+            patch(
+                "app.api.tasks.resolve_provider_for_issue",
+                new=AsyncMock(return_value=_make_mock_provider(id=1)),
+            ),
+            patch(
+                "app.api.tasks.prepare_task_runtime_snapshot",
+                new=AsyncMock(
+                    side_effect=WorkerProfileValidationError(
+                        "explicit V2 Profile has no verified Worker image identity"
+                    )
+                ),
+            ),
+        ):
+            response = client.post(
+                "/api/tasks",
+                json={
+                    "issue_id": 1,
+                    "user_prompt": "Fix the login bug",
+                    "priority": 0,
+                    "provider_id": 1,
+                    "session_mode": "fresh",
+                },
+            )
+
+        app.dependency_overrides.clear()
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json()["detail"],
+            {
+                "code": "worker_profile_runtime_not_verified",
+                "message": (
+                    "Worker Profile runtime verification is required. Verify the runtime "
+                    "in Worker settings, then create the task again."
+                ),
+            },
+        )
+        mock_db.commit.assert_not_awaited()
+        mock_db.rollback.assert_awaited_once()
+
     def test_create_freeform_task_success(self):
         """POST /api/tasks with task_mode=freeform enforces canonical invariants."""
         from app.database import get_db

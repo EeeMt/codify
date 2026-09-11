@@ -86,6 +86,22 @@ class TaskCreationServices:
     notify_task_retried: Callable[..., Any]
 
 
+def _task_creation_worker_profile_error_detail(
+    exc: WorkerProfileValidationError,
+) -> str | dict[str, str]:
+    """Return an actionable API detail for V2 runtime verification failures."""
+    message = str(exc)
+    if message.startswith("explicit V2 "):
+        return {
+            "code": "worker_profile_runtime_not_verified",
+            "message": (
+                "Worker Profile runtime verification is required. Verify the runtime "
+                "in Worker settings, then create the task again."
+            ),
+        }
+    return message
+
+
 async def _raise_if_usage_limited(
     db: AsyncSession,
     current_user: User | None,
@@ -713,6 +729,12 @@ async def create_task_record(
             bundle,
             get_effective_settings().harness_execution_mode,
         )
+    except WorkerProfileValidationError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=_task_creation_worker_profile_error_detail(exc),
+        ) from exc
     except (TaskPromptValidationError, SkillValidationError, RuntimeError) as exc:
         await db.rollback()
         raise HTTPException(
