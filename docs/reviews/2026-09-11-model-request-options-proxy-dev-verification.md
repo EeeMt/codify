@@ -126,3 +126,12 @@ systemd-run --unit=vllm-cpu --collect -p MemoryMax=7G -p MemorySwapMax=0 \
 | 清空后恢复直连 | Task 602：completed（commit `6137657e`），`console.log` 无代理启动行，上游 body 不含该对象 |
 
 **已知限制（模型能力，非本改动）**：`Qwen3-0.6B` 在 CPU 上开启 reasoning parser 时只产出 thinking，Pi 要求回合以 final assistant text 收尾，因此带 reasoning 的三个 Task 终态为 `run.failed`；关闭 reasoning parser 时 Task 601 可 completed 但不产生 reasoning 事件。要同一 Task 同时满足"completed + reasoning 事件"，需换用更大的模型（如 Qwen3-4B/1.7B）或 GPU 主机。此外 OpenCode 固定发送 `max_tokens=32000`，本 CPU 服务器 `max-model-len` 受内存限制为 12288，故 §11.3 用例选用 Pi；`Codex`/`Pi` 的 `max_completion_tokens=8192` 在 12288 上下文内可正常服务。
+
+## 7. Review 修复记录（2026-09-11 提交后自审）
+
+提交后对本次改动做了一轮 review，发现一个真实生命周期缺陷并修复：
+
+- **缺陷**：`codify_harness_run` 返回后立即停止代理，但 `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` 仍指向已死掉的 loopback 镜像；Harness 在 delivery 阶段还要用同一 Adapter 生成 commit message 与 MR summary（`main.sh` / `delivery.sh` 的 `codify_harness_run_text`），因此设置 `provider_options` 的任务这两个调用会静默降级为 fallback。证据：Task 601 console `Harness commit message generation failed with exit code 1; using fallback` / `Harness overall summary generation failed with exit code 1`。
+- **修复**（commit `fe733f05`）：把停止点收敛到信号 trap 与 EXIT finalizer，代理覆盖整个 Worker 生命周期（含 delivery 文本生成），不再在 `codify_harness_run` 内停止；`runner.sh` 净减 2 行。
+- **修复后开发环境复验**：Task 606（provider 3 + `{"temperature":0.6,"top_p":0.95}` 经记录型上游）completed，`console.log` 显示代理在整个 delivery 期间存活、`stopping signal=received` 出现在任务收尾之后；Task 607 为直连对照。
+- **同时观察到（与本改动无关）**：该 dev Provider（opencode zen）上 claude 的 `run_text` 生成在**直连对照**下同样失败（Task 607），即属既有 Provider/网关行为，不是代理引入。
