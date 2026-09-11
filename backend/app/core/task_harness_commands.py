@@ -41,9 +41,41 @@ from app.models import (
 class CommandError(ValueError):
     """A command could not be created or terminalized."""
 
-    def __init__(self, message: str, *, code: str = "command_error") -> None:
+    def __init__(self, message: str, *, code: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+# Public, non-diagnostic rejection projection for task viewers.  The persisted
+# reason can come from a container bridge or an exception path: it is
+# diagnostic data, never an HTTP or UI contract.
+PUBLIC_REJECTION_MESSAGES: dict[str, str] = {
+    "existing_conflict": "This command ID is already in use.",
+    "task_not_running": "The task is not running.",
+    "attempt_mismatch": "The current attempt does not support commands.",
+    "unsupported_harness": "The current runtime does not support this command.",
+    "control_gate_closed": "The command channel is not accepting commands.",
+    "payload_too_large": "The command content exceeds the allowed length.",
+    "invalid_command_id": "The command ID format is invalid.",
+    "invalid_command_type": "The command type is invalid.",
+    "not_authorized": "You are not authorized to send this command.",
+    "wrong_attempt": "The command does not belong to the active attempt.",
+    "container_unreachable": "Command delivery is temporarily unavailable.",
+    "container_missing": "Command delivery is temporarily unavailable.",
+    "delivery_outcome_unknown": "The command delivery outcome is unknown.",
+}
+PUBLIC_FALLBACK_REJECTION_CODE = "command_rejected"
+PUBLIC_FALLBACK_REJECTION_MESSAGE = "The command was rejected."
+
+
+def public_rejection(rejection_code: str | None) -> tuple[str | None, str | None]:
+    """Return the stable, non-diagnostic rejection projection for viewers."""
+    if rejection_code is None:
+        return None, None
+    message = PUBLIC_REJECTION_MESSAGES.get(rejection_code)
+    if message is not None:
+        return rejection_code, message
+    return PUBLIC_FALLBACK_REJECTION_CODE, PUBLIC_FALLBACK_REJECTION_MESSAGE
 
 
 @dataclass(frozen=True, slots=True)
@@ -429,6 +461,38 @@ async def write_command_outcome_unknown(
     command.last_attempt_at = occurred_at
     await db.flush()
     return True
+
+
+def sanitized_command_text(command: TaskHarnessCommand) -> str | None:
+    """Command text scrubbed for product projection (plan §5.3).
+
+    The persisted payload is the corroborated copy of what the user submitted;
+    the shared credential matcher is applied before the text reaches any
+    ``TaskLog`` so tokens are never echoed verbatim. A missing or malformed
+    payload yields None so a corrupted row can never break projection.
+    """
+    from app.core.worker import sanitize_sensitive_data
+
+    payload = command.payload
+    if not isinstance(payload, dict) or not isinstance(payload.get("text"), str):
+        return None
+    return sanitize_sensitive_data(payload["text"])
+
+
+def command_projection_fields(command: TaskHarnessCommand) -> dict:
+    """Common product display fields for one persisted command (plan §6.3).
+
+    Every backend path that projects an admitted command into the visible
+    event stream uses this so a command always renders with the same identity:
+    sequence, type and credential-scrubbed text.
+    """
+    return {
+        "command_id": command.command_id,
+        "payload_digest": command.payload_digest,
+        "sequence_no": command.sequence_no,
+        "command_type": command.command_type,
+        "text": sanitized_command_text(command),
+    }
 
 
 async def list_commands(db: AsyncSession, *, task_id: int) -> list[TaskHarnessCommand]:

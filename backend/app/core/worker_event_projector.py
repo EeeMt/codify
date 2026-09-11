@@ -31,7 +31,7 @@ from app.core.task_event_archive import (
     iter_complete_jsonl_records,
 )
 from app.core.task_log_payloads import append_raw_log_chunk, create_payload
-from app.models import TaskLog
+from app.models import TaskHarnessCommand, TaskLog
 
 logger = logging.getLogger(__name__)
 
@@ -376,6 +376,69 @@ class WorkerEventProjector:
             )
         pending.log_metadata = _dumps(metadata)
 
+    async def _command_display_fields(
+        self,
+        *,
+        db: AsyncSession,
+        task_id: int,
+        attempt_id: str,
+        payload: dict,
+    ) -> dict[str, Any]:
+        """Resolve product display fields for a native command ACK event.
+
+        The ACK carries the attempt-scoped ``sequence_no`` and the full command
+        ``payload_digest``; together they identify the ``TaskHarnessCommand``
+        inside the current attempt (plan §6.2). The archive stably pseudonymizes
+        the real UUID to ``<UUID:...>`` while the command row keeps the raw
+        UUID, so the event's ``command_id`` is never used as a join key.
+
+        A missing or mismatched row yields no fields and only a server-side
+        warning: identity/status evidence still lands and a display
+        enhancement must never fail the Task.
+        """
+        sequence_no = payload.get("sequence_no")
+        payload_digest = payload.get("payload_digest")
+        if isinstance(sequence_no, bool) or not isinstance(sequence_no, int):
+            logger.warning(
+                "[Task %s] control command event lacks a usable sequence_no (attempt=%s)",
+                task_id,
+                attempt_id,
+            )
+            return {}
+        if not isinstance(payload_digest, str):
+            logger.warning(
+                "[Task %s] control command event lacks a usable payload_digest (attempt=%s)",
+                task_id,
+                attempt_id,
+            )
+            return {}
+        command = (
+            await db.execute(
+                select(TaskHarnessCommand).where(
+                    TaskHarnessCommand.task_id == task_id,
+                    TaskHarnessCommand.attempt_id == attempt_id,
+                    TaskHarnessCommand.sequence_no == sequence_no,
+                )
+            )
+        ).scalars().first()
+        if command is None or command.payload_digest != payload_digest:
+            logger.warning(
+                "[Task %s] control command event matches no command "
+                "(attempt=%s sequence_no=%s)",
+                task_id,
+                attempt_id,
+                sequence_no,
+            )
+            return {}
+        fields: dict[str, Any] = {}
+        if isinstance(command.command_type, str):
+            fields["command_type"] = command.command_type
+        command_payload = command.payload
+        text = command_payload.get("text") if isinstance(command_payload, dict) else None
+        if isinstance(text, str):
+            fields["text"] = self._sanitize_sensitive_data(text)
+        return fields
+
     async def ingest_event_record(
         self,
         *,
@@ -645,6 +708,17 @@ class WorkerEventProjector:
                         entry["text"] = self._sanitize_sensitive_data(text)
                     sanitized_queue.append(entry)
                 sanitized_payload["queue"] = sanitized_queue
+            if event_type in {"control.command.delivered", "control.command.rejected"}:
+                # Copy the human-readable command facts from the same-database
+                # command row (plan §6.2); the raw ACK never carries type/text.
+                sanitized_payload.update(
+                    await self._command_display_fields(
+                        db=db,
+                        task_id=task_id,
+                        attempt_id=ingest.attempt.attempt_id,
+                        payload=payload,
+                    )
+                )
             db.add(
                 TaskLog(
                     task_id=task_id,

@@ -7,7 +7,12 @@ import json
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.task_harness_commands import write_command_outcome_unknown, write_command_rejection
+from app.core.task_harness_commands import (
+    command_projection_fields,
+    public_rejection,
+    write_command_outcome_unknown,
+    write_command_rejection,
+)
 from app.core.utcnow import utcnow
 from app.models import Task, TaskHarnessAttempt, TaskHarnessCommand, TaskLog, TaskStatus
 
@@ -55,6 +60,41 @@ async def reopen_control_after_native_turn_start(
     return False
 
 
+def _add_rejected_command_log(
+    db: AsyncSession,
+    command: TaskHarnessCommand,
+    *,
+    rejection_code: str,
+    occurred_at,
+) -> None:
+    """Project one locally rejected command into the visible event stream.
+
+    A command the backend rejects before dispatch never reaches the Harness, so
+    there is no native ACK event to carry it; the product event stream is the
+    only place a viewer can see the rejection (plan §7). The reason is the
+    public, non-diagnostic projection of the persisted rejection code.
+    """
+    public_code, public_message = public_rejection(rejection_code)
+    db.add(
+        TaskLog(
+            task_id=command.task_id,
+            log_level="WARNING",
+            message="",
+            log_type="control_event",
+            log_metadata=json.dumps(
+                {
+                    "type": "control.command.rejected",
+                    **command_projection_fields(command),
+                    "rejection_code": public_code,
+                    "rejection_message": public_message,
+                    "rejected_at": occurred_at.isoformat(),
+                },
+                ensure_ascii=False,
+            ),
+        )
+    )
+
+
 async def close_control_gate(db: AsyncSession, *, attempt: TaskHarnessAttempt, reason: str) -> None:
     """Close an attempt and deterministically reject commands never sent."""
     attempt.control_state = "closed"
@@ -76,13 +116,17 @@ async def close_control_gate(db: AsyncSession, *, attempt: TaskHarnessAttempt, r
     )
     now = utcnow()
     for command in pending:
-        await write_command_rejection(
+        rejected = await write_command_rejection(
             db,
             command_id=command.command_id,
             rejection_code="control_gate_closed",
             rejection_message=reason,
             rejected_at=now,
         )
+        if rejected:
+            _add_rejected_command_log(
+                db, command, rejection_code="control_gate_closed", occurred_at=now
+            )
     dispatching = list(
         (
             await db.execute(
@@ -112,11 +156,10 @@ async def close_control_gate(db: AsyncSession, *, attempt: TaskHarnessAttempt, r
                     log_metadata=json.dumps(
                         {
                             "type": "control.command.outcome_unknown",
-                            "command_id": command.command_id,
-                            "payload_digest": command.payload_digest,
-                            "sequence_no": command.sequence_no,
+                            **command_projection_fields(command),
                             "code": "delivery_outcome_unknown",
-                        }
+                        },
+                        ensure_ascii=False,
                     ),
                 )
             )
@@ -169,13 +212,17 @@ async def request_force_close_after_unknown_follow_up(
     )
     now = utcnow()
     for command in pending:
-        await write_command_rejection(
+        rejected = await write_command_rejection(
             db,
             command_id=command.command_id,
             rejection_code="control_gate_closed",
             rejection_message=reason,
             rejected_at=now,
         )
+        if rejected:
+            _add_rejected_command_log(
+                db, command, rejection_code="control_gate_closed", occurred_at=now
+            )
     await db.flush()
     return True
 

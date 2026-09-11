@@ -34,7 +34,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.task_harness_commands import (
     begin_command_dispatch,
+    command_projection_fields,
     mark_command_native_sent,
+    public_rejection,
     requeue_pre_send_failure,
     write_command_delivery,
     write_command_outcome_unknown,
@@ -512,23 +514,6 @@ async def _record_control_event(
     )
 
 
-def _sanitized_command_text(command: TaskHarnessCommand) -> str | None:
-    """Sanitize the persisted command text for audit projection (plan §5.3).
-
-    The persisted payload is the corroborated copy of what the user
-    submitted; it is scrubbed with the shared credential pattern matcher so
-    the event stream carries the same text the command-history API returns.
-    A missing/malformed payload yields None so a corrupted row can never
-    crash the pump.
-    """
-    from app.core.worker import sanitize_sensitive_data
-
-    payload = command.payload
-    if not isinstance(payload, dict) or not isinstance(payload.get("text"), str):
-        return None
-    return sanitize_sensitive_data(payload["text"])
-
-
 async def _drop_lease(
     db: AsyncSession, *, task_id: int, attempt: TaskHarnessAttempt, owner: str
 ) -> None:
@@ -599,12 +584,31 @@ async def _record_unknown_outcome(db: AsyncSession, command: TaskHarnessCommand)
         task_id=command.task_id,
         event_type="control.command.outcome_unknown",
         payload={
-            "command_id": command.command_id,
-            "payload_digest": command.payload_digest,
-            "sequence_no": command.sequence_no,
-            "command_type": command.command_type,
-            "text": _sanitized_command_text(command),
+            **command_projection_fields(command),
             "code": "delivery_outcome_unknown",
+        },
+    )
+
+
+async def _record_local_rejection(
+    db: AsyncSession, command: TaskHarnessCommand, *, rejection_code: str
+) -> None:
+    """Project a locally rejected command into the visible event stream.
+
+    Rejection is decided before any native request exists, so the Harness
+    emits no ACK event; the product event stream is the only place a viewer
+    can see why the command was refused (plan §7). The persisted diagnostic
+    code is mapped to the public, non-diagnostic reason.
+    """
+    public_code, public_message = public_rejection(rejection_code)
+    await _record_control_event(
+        db,
+        task_id=command.task_id,
+        event_type="control.command.rejected",
+        payload={
+            **command_projection_fields(command),
+            "rejection_code": public_code,
+            "rejection_message": public_message,
         },
     )
 
@@ -750,15 +754,19 @@ async def dispatch_one_command(
         # Transport text is untrusted (it can contain command/endpoint data).
         message = "control command rejected by Pi owner"
         rejected_at = utcnow()
-        await write_command_rejection(
+        rejected = await write_command_rejection(
             db,
             command_id=command.command_id,
             rejection_code=code,
             rejection_message=message,
             rejected_at=rejected_at,
         )
-        # The Harness event stream owns the product-visible rejection event;
-        # keep this path limited to the command row state transition.
+        if rejected and command.native_sent_at is None:
+            # The owner/bridge refused the frame before it reached the Harness,
+            # so no native ACK event exists; project the public rejection here
+            # instead of leaving it invisible in the event stream (plan §7).
+            # A rejection after a native send is owned by the Harness ACK.
+            await _record_local_rejection(db, command, rejection_code=code)
         if command.command_type == "follow_up":
             await _clear_pending_follow_up(db, attempt, command.command_id)
         return "rejected"

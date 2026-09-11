@@ -25,6 +25,7 @@ from app.core.task_harness_commands import (
     CommandCreateResult,
     create_command,
     list_commands,
+    public_rejection,
 )
 from app.database import get_db
 from app.dependencies.auth import get_optional_current_user
@@ -43,25 +44,6 @@ PUBLIC_COMMAND_STATUSES = frozenset(
     {"queued", "dispatching", "delivered", "rejected", "outcome_unknown"}
 )
 
-# The persisted reason can come from a container bridge or an exception path.
-# It is diagnostic data, not an HTTP contract: never expose it to a task viewer.
-PUBLIC_REJECTION_MESSAGES = {
-    "existing_conflict": "This command ID is already in use.",
-    "task_not_running": "The task is not running.",
-    "attempt_mismatch": "The current attempt does not support commands.",
-    "unsupported_harness": "The current runtime does not support this command.",
-    "control_gate_closed": "The command channel is not accepting commands.",
-    "payload_too_large": "The command content exceeds the allowed length.",
-    "invalid_command_id": "The command ID format is invalid.",
-    "invalid_command_type": "The command type is invalid.",
-    "not_authorized": "You are not authorized to send this command.",
-    "wrong_attempt": "The command does not belong to the active attempt.",
-    "container_unreachable": "Command delivery is temporarily unavailable.",
-    "container_missing": "Command delivery is temporarily unavailable.",
-    "delivery_outcome_unknown": "The command delivery outcome is unknown.",
-}
-PUBLIC_FALLBACK_REJECTION_CODE = "command_rejected"
-PUBLIC_FALLBACK_REJECTION_MESSAGE = "The command was rejected."
 PUBLIC_PROJECTION_ERROR_CODE = "command_projection_unavailable"
 PUBLIC_PROJECTION_ERROR_MESSAGE = "Command history is temporarily unavailable."
 MAX_COMMAND_DEADLOCK_RETRIES = 1
@@ -92,12 +74,7 @@ def _created_by(current_user: User | None) -> str:
 
 def _public_rejection(rejection_code: str | None) -> tuple[str | None, str | None]:
     """Return the stable, non-diagnostic rejection projection for viewers."""
-    if rejection_code is None:
-        return None, None
-    message = PUBLIC_REJECTION_MESSAGES.get(rejection_code)
-    if message is not None:
-        return rejection_code, message
-    return PUBLIC_FALLBACK_REJECTION_CODE, PUBLIC_FALLBACK_REJECTION_MESSAGE
+    return public_rejection(rejection_code)
 
 
 def _command_payload_text(cmd: TaskHarnessCommand) -> str:

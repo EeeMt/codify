@@ -25,11 +25,13 @@ from sqlalchemy.pool import NullPool
 from alembic import command
 from app.core.harness_protocol import CANONICAL_EVENT_SCHEMA_V2, HARNESS_CONTRACT_VERSION_V2
 from app.core.task_harness_commands import create_command
+from app.core.worker import sanitize_sensitive_data
 from app.core.worker_command_pump import (
     dispatch_one_command,
     docker_exec_control_transport,
     run_pump_cycle,
 )
+from app.core.worker_event_projector import WorkerEventProjector
 
 ADMIN_URL = os.environ.get(
     "CODIFY_TEST_DATABASE_URL",
@@ -194,7 +196,7 @@ async def _insert_v2_bundle(db):
     ).scalar_one()
 
 
-async def _insert_v2_attempt(db, *, task_id, control_state="accepting"):
+async def _insert_v2_attempt(db, *, task_id, control_state="accepting", attempt_no=1):
     aid = f"task-{task_id}-attempt-{uuid.uuid4().hex[:4]}"
     return (
         await db.execute(
@@ -203,10 +205,10 @@ async def _insert_v2_attempt(db, *, task_id, control_state="accepting"):
                 "event_schema, harness_key, adapter_version, cli_version, last_seq, "
                 "control_state, next_command_sequence, awaiting_follow_up_turn, "
                 "force_close_requested, created_at, updated_at) "
-                "VALUES (:a, :t, 1, :es, 'pi', '2.0.0', '0.84.2', 0, :cs, 1, false, false, now(), now()) "
+                "VALUES (:a, :t, :n, :es, 'pi', '2.0.0', '0.84.2', 0, :cs, 1, false, false, now(), now()) "
                 "RETURNING attempt_id"
             ),
-            {"a": aid, "t": task_id, "es": CANONICAL_EVENT_SCHEMA_V2, "cs": control_state},
+            {"a": aid, "t": task_id, "n": attempt_no, "es": CANONICAL_EVENT_SCHEMA_V2, "cs": control_state},
         )
     ).scalar_one()
 
@@ -667,7 +669,9 @@ async def test_pump_closing_and_recovery_are_task_scoped_under_concurrency(maker
 
 
 async def test_pump_journals_reject_to_rejected(maker):
-    task_id, _, command_ids = await _seed_task_with_commands(maker, count=1)
+    task_id, _, command_ids = await _seed_task_with_commands(
+        maker, count=1, texts=["use glpat-abcdef0123456789abcdef token"]
+    )
     async with maker() as db:
         result = await run_pump_cycle(
             db, task_id=task_id, owner=_owner(), transport=_reject_transport
@@ -685,6 +689,42 @@ async def test_pump_journals_reject_to_rejected(maker):
         ).one()
         assert row.status == "rejected"
         assert row.rejection_code == "control_gate_closed"
+        metadata = await _control_event_metadata(db, task_id)
+
+    # A rejection decided before any native request has no Harness ACK to carry
+    # it, so the pump projects the public reason into the event stream itself.
+    assert len(metadata) == 1
+    entry = metadata[0]
+    assert entry["type"] == "control.command.rejected"
+    assert entry["sequence_no"] == 1
+    assert entry["command_type"] == "steer"
+    assert entry["text"] == "use [GITLAB_TOKEN] token"
+    assert entry["rejection_code"] == "control_gate_closed"
+    assert entry["rejection_message"] == "The command channel is not accepting commands."
+
+
+async def test_pump_leaves_native_send_rejection_to_the_harness_ack(maker):
+    """A rejection after the native send is owned by the Harness ACK stream."""
+    task_id, _, command_ids = await _seed_task_with_commands(maker, count=1)
+
+    async def native_reject_transport(frame, **_kwargs):
+        return {
+            "status": "reject",
+            "native_sent": True,
+            "native_request_id": frame["native_request_id"],
+            "rejection_code": "native_rejected",
+        }
+
+    async with maker() as db:
+        result = await run_pump_cycle(
+            db, task_id=task_id, owner=_owner(), transport=native_reject_transport
+        )
+        await db.commit()
+        assert result.commands_processed == 1
+        assert await _row_status(db, command_ids[0]) == "rejected"
+        metadata = await _control_event_metadata(db, task_id)
+
+    assert metadata == []
 
 
 async def test_pump_journals_unknown_outcome_fail_closed(maker):
@@ -1162,3 +1202,265 @@ async def test_pump_recovers_dispatching_as_outcome_unknown(maker):
         ).one()
         assert row.status == "outcome_unknown"
         assert row.rejection_code == "delivery_outcome_unknown"
+
+
+# ── product projection of control events (live-steering plan §6) ─────────────
+
+
+def _canonical_event(*, task_id: int, attempt_id: str, seq: int, event_type: str, payload: dict) -> dict:
+    return {
+        "schema": CANONICAL_EVENT_SCHEMA_V2,
+        "attempt_id": attempt_id,
+        "event_id": f"{attempt_id}-event-{seq}",
+        "task_id": task_id,
+        "seq": seq,
+        "occurred_at": f"2026-09-11T00:44:{54 + seq:02d}Z",
+        "type": event_type,
+        "harness": {
+            "key": "pi",
+            "adapter_version": "2.0.0",
+            "cli_version": "0.84.2",
+            "control_transport": {"kind": "rpc_stdio", "protocol": "pi-rpc"},
+            "model_protocols": ["anthropic_messages"],
+        },
+        "payload": payload,
+    }
+
+
+async def _control_event_metadata(db, task_id: int) -> list[dict]:
+    rows = (
+        await db.execute(
+            sa.text(
+                "SELECT log_metadata FROM task_logs "
+                "WHERE task_id = :t AND log_type = 'control_event' ORDER BY id"
+            ),
+            {"t": task_id},
+        )
+    ).scalars().all()
+    return [json.loads(raw) for raw in rows]
+
+
+async def _stored_command(db, command_id: str):
+    from app.models import TaskHarnessCommand
+
+    return (
+        await db.execute(
+            select(TaskHarnessCommand).where(TaskHarnessCommand.command_id == command_id)
+        )
+    ).scalar_one()
+
+
+async def _start_attempt(projector: WorkerEventProjector, db, *, task_id: int, attempt_id: str) -> None:
+    await projector.ingest_event_record(
+        task_id=task_id,
+        db=db,
+        record=_canonical_event(task_id=task_id, attempt_id=attempt_id, seq=1, event_type="run.started", payload={}),
+    )
+
+
+async def test_projector_links_native_ack_to_the_exact_command(maker):
+    """A delivered ACK gains the command type and sanitized text in one row."""
+    task_id, attempt_id, command_ids = await _seed_task_with_commands(
+        maker, count=1, texts=["use glpat-abcdef0123456789abcdef token"]
+    )
+    async with maker() as db:
+        command = await _stored_command(db, command_ids[0])
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=2,
+                event_type="control.command.delivered",
+                payload={
+                    "command_id": "<UUID:00000000-0000-0000-0000-000000000001>",
+                    "payload_digest": command.payload_digest,
+                    "sequence_no": command.sequence_no,
+                    "delivered_at": "2026-09-11T00:44:55Z",
+                },
+            ),
+        )
+        await db.commit()
+        metadata = await _control_event_metadata(db, task_id)
+
+    assert len(metadata) == 1
+    entry = metadata[0]
+    assert entry["type"] == "control.command.delivered"
+    assert entry["sequence_no"] == 1
+    assert entry["command_type"] == "steer"
+    assert entry["text"] == "use [GITLAB_TOKEN] token"
+
+
+async def test_projector_enriches_rejected_ack_with_facts_and_public_reason(maker):
+    task_id, attempt_id, command_ids = await _seed_task_with_commands(maker, count=1)
+    async with maker() as db:
+        await db.execute(
+            sa.text("UPDATE task_harness_commands SET command_type = 'follow_up' WHERE command_id = :c"),
+            {"c": command_ids[0]},
+        )
+        await db.commit()
+    async with maker() as db:
+        command = await _stored_command(db, command_ids[0])
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=2,
+                event_type="control.command.rejected",
+                payload={
+                    "command_id": "<UUID:00000000-0000-0000-0000-000000000002>",
+                    "payload_digest": command.payload_digest,
+                    "sequence_no": command.sequence_no,
+                    "rejection_code": "control_gate_closed",
+                    "rejection_message": "task is closing",
+                },
+            ),
+        )
+        await db.commit()
+        metadata = await _control_event_metadata(db, task_id)
+
+    assert len(metadata) == 1
+    entry = metadata[0]
+    assert entry["type"] == "control.command.rejected"
+    assert entry["command_type"] == "follow_up"
+    assert entry["text"] == "msg-0"
+    assert entry["rejection_message"] == "task is closing"
+
+
+async def test_projector_does_not_guess_when_the_digest_mismatches(maker):
+    task_id, attempt_id, command_ids = await _seed_task_with_commands(maker, count=1)
+    async with maker() as db:
+        command = await _stored_command(db, command_ids[0])
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=2,
+                event_type="control.command.delivered",
+                payload={
+                    "command_id": "<UUID:00000000-0000-0000-0000-000000000003>",
+                    "payload_digest": "0" * 64,
+                    "sequence_no": command.sequence_no,
+                    "delivered_at": "2026-09-11T00:44:55Z",
+                },
+            ),
+        )
+        await db.commit()
+        metadata = await _control_event_metadata(db, task_id)
+        status = await _row_status(db, command_ids[0])
+
+    # Identity/status evidence still lands; only the unverifiable facts drop.
+    assert len(metadata) == 1
+    entry = metadata[0]
+    assert entry["type"] == "control.command.delivered"
+    assert entry["sequence_no"] == 1
+    assert entry["delivered_at"] == "2026-09-11T00:44:55Z"
+    assert "command_type" not in entry
+    assert "text" not in entry
+    assert status == "queued"
+
+
+async def test_projector_scopes_command_lookup_to_the_event_attempt(maker):
+    """An ACK under another attempt never borrows a same-sequence command."""
+    task_id, attempt_id, command_ids = await _seed_task_with_commands(maker, count=1)
+    async with maker() as db:
+        other_attempt_id = await _insert_v2_attempt(db, task_id=task_id, attempt_no=2)
+        await db.commit()
+    async with maker() as db:
+        command = await _stored_command(db, command_ids[0])
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=other_attempt_id)
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=other_attempt_id,
+                seq=2,
+                event_type="control.command.delivered",
+                payload={
+                    "command_id": "<UUID:00000000-0000-0000-0000-000000000004>",
+                    "payload_digest": command.payload_digest,
+                    "sequence_no": command.sequence_no,
+                    "delivered_at": "2026-09-11T00:44:55Z",
+                },
+            ),
+        )
+        await db.commit()
+        metadata = await _control_event_metadata(db, task_id)
+
+    assert len(metadata) == 1
+    assert "command_type" not in metadata[0]
+    assert "text" not in metadata[0]
+
+
+async def test_gate_close_projects_queued_rejection_with_public_reason(maker):
+    """A command the gate closed before dispatch is visible where it happened."""
+    from app.core.task_command_gate import close_control_gate
+    from app.models import TaskHarnessAttempt
+
+    task_id, attempt_id, command_ids = await _seed_task_with_commands(
+        maker, count=1, texts=["stale glpat-abcdef0123456789abcdef"]
+    )
+    async with maker() as db:
+        attempt = (
+            await db.execute(
+                select(TaskHarnessAttempt).where(TaskHarnessAttempt.attempt_id == attempt_id)
+            )
+        ).scalar_one()
+        await close_control_gate(db, attempt=attempt, reason="harness reached terminal event")
+        await db.commit()
+        metadata = await _control_event_metadata(db, task_id)
+        status = await _row_status(db, command_ids[0])
+
+    assert status == "rejected"
+    assert len(metadata) == 1
+    entry = metadata[0]
+    assert entry["type"] == "control.command.rejected"
+    assert entry["sequence_no"] == 1
+    assert entry["command_type"] == "steer"
+    assert entry["text"] == "stale [GITLAB_TOKEN]"
+    assert entry["rejection_code"] == "control_gate_closed"
+    assert entry["rejection_message"] == "The command channel is not accepting commands."
+
+
+async def test_gate_journals_dispatching_command_as_unknown_with_facts(maker):
+    """Every outcome_unknown producer carries the same public display fields."""
+    from app.core.task_command_gate import close_control_gate
+    from app.core.task_harness_commands import begin_command_dispatch
+    from app.core.utcnow import utcnow
+    from app.models import TaskHarnessAttempt
+
+    task_id, attempt_id, command_ids = await _seed_task_with_commands(
+        maker, count=1, texts=["keep glpat-abcdef0123456789abcdef out"]
+    )
+    async with maker() as db:
+        await begin_command_dispatch(db, command_id=command_ids[0], started_at=utcnow())
+        attempt = (
+            await db.execute(
+                select(TaskHarnessAttempt).where(TaskHarnessAttempt.attempt_id == attempt_id)
+            )
+        ).scalar_one()
+        await close_control_gate(db, attempt=attempt, reason="harness reached terminal event")
+        await db.commit()
+        metadata = await _control_event_metadata(db, task_id)
+        status = await _row_status(db, command_ids[0])
+
+    assert status == "outcome_unknown"
+    assert len(metadata) == 1
+    entry = metadata[0]
+    assert entry["type"] == "control.command.outcome_unknown"
+    assert entry["command_type"] == "steer"
+    assert entry["text"] == "keep [GITLAB_TOKEN] out"
+    assert entry["code"] == "delivery_outcome_unknown"
