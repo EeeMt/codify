@@ -123,7 +123,6 @@ codify_harness_run() {
             codify_emit_event "harness.failed" \
                 '{"failure":{"kind":"configuration_error","message":"Harness Adapter initialization failed"}}'
         fi
-        codify_model_proxy_stop
         CODIFY_HARNESS_TERMINAL_SEEN=1
         return 1
     fi
@@ -185,7 +184,10 @@ codify_harness_run() {
     if [ "${result}" -eq 0 ] && codify_event_type_exists "harness.failed"; then
         result=1
     fi
-    codify_model_proxy_stop
+    # The proxy stays up for the rest of the worker lifetime: the harness also
+    # serves the commit-message and MR-summary run_text calls during delivery,
+    # and every one of them must observe the same frozen request options. The
+    # signal trap and EXIT finalizer stop it.
     return "${result}"
 }
 
