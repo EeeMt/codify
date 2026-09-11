@@ -523,4 +523,37 @@ describe('AIProvidersPanel', () => {
 
     expect(mockApi.createProvider).not.toHaveBeenCalled()
   })
+
+  it('renders provider cards instead of a table on mobile', async () => {
+    const provider = {
+      id: 10,
+      name: 'mobile-provider',
+      base_url: 'https://api.example/v1',
+      model: 'model-x',
+      max_turns: 20,
+      api_key_configured: true,
+      system_prompt: null,
+      provider_kind: 'openai_compatible',
+      model_protocol: 'openai_responses',
+      is_default: false,
+      is_disabled: false
+    }
+    mockApi.getProviders.mockResolvedValue([provider])
+
+    const wrapper = mount(AIProvidersPanel, {
+      props: { isMobile: true },
+      global: {
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="ai-provider-card-10"]').exists()).toBe(true)
+    })
+
+    expect(wrapper.find('[data-testid="ai-provider-table"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="ai-provider-mobile-list"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('mobile-provider')
+    expect(wrapper.text()).toContain('config.providers.wireProtocolOpenaiResponses')
+  })
 })

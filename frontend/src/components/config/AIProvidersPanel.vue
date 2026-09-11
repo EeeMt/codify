@@ -15,15 +15,137 @@
         </n-button>
       </template>
 
-      <div class="config-table-wrapper">
+      <div
+        v-if="!isMobile"
+        class="config-table-wrapper ai-providers-table-wrapper"
+        data-testid="ai-provider-table"
+      >
         <n-data-table
           :columns="columns"
           :data="providers"
           :loading="loading"
           :bordered="false"
           size="small"
-          :scroll-x="1120"
+          :row-key="(row: AIProvider) => row.id"
         />
+      </div>
+
+      <div
+        v-else
+        class="ai-providers-mobile-list"
+        data-testid="ai-provider-mobile-list"
+        :aria-busy="loading"
+      >
+        <div v-if="!loading && providers.length === 0" class="config-empty">
+          —
+        </div>
+        <article
+          v-for="provider in providers"
+          :key="provider.id"
+          class="ai-provider-mobile-card"
+          :data-testid="`ai-provider-card-${provider.id}`"
+        >
+          <div class="ai-provider-mobile-card__top">
+            <div class="ai-provider-mobile-card__identity">
+              <div class="ai-provider-mobile-card__name">{{ provider.name }}</div>
+              <div class="ai-provider-mobile-card__tags">
+                <n-tag
+                  :type="provider.is_disabled ? 'warning' : 'success'"
+                  size="small"
+                  round
+                >
+                  {{ provider.is_disabled ? t('config.providers.disabled') : t('config.providers.enabled') }}
+                </n-tag>
+                <n-tag v-if="provider.is_default" type="info" size="small" round>
+                  {{ t('config.providers.isDefault') }}
+                </n-tag>
+              </div>
+            </div>
+            <div class="ai-provider-mobile-card__model" :title="provider.model">
+              {{ provider.model }}
+            </div>
+          </div>
+
+          <div class="ai-provider-mobile-card__details">
+            <div class="ai-provider-mobile-card__detail ai-provider-mobile-card__detail--wide">
+              <span class="ai-provider-mobile-card__label">{{ t('config.providers.baseUrl') }}</span>
+              <span class="ai-provider-mobile-card__value" :title="provider.base_url">
+                {{ provider.base_url }}
+              </span>
+            </div>
+            <div class="ai-provider-mobile-card__detail">
+              <span class="ai-provider-mobile-card__label">{{ t('config.providers.wireProtocol') }}</span>
+              <span class="ai-provider-mobile-card__value">{{ getProtocolLabel(provider.model_protocol) }}</span>
+            </div>
+            <div class="ai-provider-mobile-card__detail">
+              <span class="ai-provider-mobile-card__label">{{ t('config.providers.maxTurns') }}</span>
+              <span class="ai-provider-mobile-card__value">{{ provider.max_turns }}</span>
+            </div>
+            <div class="ai-provider-mobile-card__detail">
+              <span class="ai-provider-mobile-card__label">{{ t('config.providers.apiKey') }}</span>
+              <n-tag
+                :type="provider.api_key_configured ? 'success' : 'warning'"
+                size="small"
+                round
+              >
+                {{ provider.api_key_configured
+                  ? t('config.providers.apiKeyConfigured')
+                  : t('config.providers.apiKeyNotConfigured') }}
+              </n-tag>
+            </div>
+          </div>
+
+          <div v-if="provider.system_prompt" class="ai-provider-mobile-card__prompt">
+            <span class="ai-provider-mobile-card__label">{{ t('config.providers.systemPrompt') }}</span>
+            <span class="ai-provider-mobile-card__prompt-value">{{ provider.system_prompt }}</span>
+          </div>
+
+          <div class="ai-provider-mobile-card__actions">
+            <n-button size="small" @click="openEdit(provider)">
+              {{ t('common.edit') }}
+            </n-button>
+            <n-button
+              size="small"
+              :disabled="provider.is_default"
+              @click="handleToggleDisabled(provider)"
+            >
+              {{ provider.is_disabled ? t('config.providers.enable') : t('config.providers.disable') }}
+            </n-button>
+            <n-button
+              size="small"
+              :disabled="provider.is_default || provider.is_disabled"
+              @click="handleSetDefault(provider)"
+            >
+              {{ t('config.providers.setDefault') }}
+            </n-button>
+            <n-button
+              size="small"
+              :loading="testingProviderId === provider.id"
+              :disabled="testingProviderId !== null && testingProviderId !== provider.id"
+              @click="handleTestConnection(provider)"
+            >
+              {{ t('config.providers.testConnection') }}
+            </n-button>
+            <n-popconfirm
+              :positive-text="t('common.delete')"
+              :negative-text="t('common.cancel')"
+              @positive-click="handleDelete(provider)"
+            >
+              <template #trigger>
+                <n-button
+                  size="small"
+                  type="error"
+                  :disabled="provider.is_default && providers.length === 1"
+                >
+                  {{ t('common.delete') }}
+                </n-button>
+              </template>
+              {{ provider.is_default && providers.length === 1
+                ? t('config.providers.deleteLast')
+                : t('config.providers.deleteConfirm') }}
+            </n-popconfirm>
+          </div>
+        </article>
       </div>
     </n-card>
 
@@ -318,6 +440,19 @@ const advancedRequestParamsPlaceholder = computed(() => JSON.stringify({
   }
 }, null, 2))
 
+function getProtocolLabel(protocol?: string): string {
+  if (protocol === 'anthropic_messages') {
+    return t('config.providers.wireProtocolAnthropicMessages')
+  }
+  if (protocol === 'openai_responses') {
+    return t('config.providers.wireProtocolOpenaiResponses')
+  }
+  if (protocol === 'openai_chat_completions') {
+    return t('config.providers.wireProtocolOpenaiChatCompletions')
+  }
+  return protocol || '—'
+}
+
 function parseProviderOptionsJson(raw: string): ProviderOptionsParseResult {
   const text = (raw ?? '').trim()
   if (!text) {
@@ -395,68 +530,62 @@ const rules: FormRules = {
 const columns = computed<DataTableColumns<AIProvider>>(() => [
   {
     title: t('config.providers.name'),
-    key: 'name',
-    minWidth: 140,
+    key: 'provider',
+    minWidth: 220,
     render: (row: AIProvider) =>
-      h(NSpace, { size: 'small', align: 'center' }, {
-        default: () => [
-          h('span', { style: 'font-weight: 600' }, row.name),
+      h('div', { class: 'ai-provider-service-cell' }, [
+        h('div', { class: 'ai-provider-service-cell__name' }, row.name),
+        h('div', { class: 'ai-provider-service-cell__model', title: row.model }, row.model),
+        h('div', { class: 'ai-provider-service-cell__tags' }, [
+          h(NTag, {
+            type: row.is_disabled ? 'warning' : 'success',
+            size: 'small',
+            round: true
+          }, {
+            default: () => row.is_disabled ? t('config.providers.disabled') : t('config.providers.enabled')
+          }),
           row.is_default
             ? h(NTag, { type: 'info', size: 'small', round: true }, { default: () => t('config.providers.isDefault') })
             : null
-        ]
-      })
-  },
-  {
-    title: t('config.providers.status'),
-    key: 'is_disabled',
-    width: 100,
-    render: (row: AIProvider) =>
-      h(NTag, {
-        type: row.is_disabled ? 'warning' : 'success',
-        size: 'small',
-        round: true
-      }, {
-        default: () => row.is_disabled ? t('config.providers.disabled') : t('config.providers.enabled')
-      })
-  },
-  {
-    title: t('config.providers.model'),
-    key: 'model',
-    minWidth: 160,
-    ellipsis: { tooltip: true }
+        ])
+      ])
   },
   {
     title: t('config.providers.baseUrl'),
-    key: 'base_url',
-    minWidth: 160,
-    ellipsis: { tooltip: true }
-  },
-  {
-    title: t('config.providers.maxTurns'),
-    key: 'max_turns',
-    width: 90
-  },
-  {
-    title: t('config.providers.apiKey'),
-    key: 'api_key_configured',
-    width: 110,
+    key: 'endpoint',
+    minWidth: 240,
     render: (row: AIProvider) =>
-      h(NTag, {
-        type: row.api_key_configured ? 'success' : 'warning',
-        size: 'small',
-        round: true
-      }, {
-        default: () =>
-          row.api_key_configured
-            ? t('config.providers.apiKeyConfigured')
-            : t('config.providers.apiKeyNotConfigured')
-      })
+      h('div', { class: 'ai-provider-endpoint-cell' }, [
+        h('div', { class: 'ai-provider-endpoint-cell__url', title: row.base_url }, row.base_url),
+        h('div', { class: 'ai-provider-endpoint-cell__protocol' }, getProtocolLabel(row.model_protocol))
+      ])
+  },
+  {
+    title: t('config.providers.configuration'),
+    key: 'configuration',
+    width: 180,
+    render: (row: AIProvider) =>
+      h('div', { class: 'ai-provider-configuration-cell' }, [
+        h('div', { class: 'ai-provider-configuration-cell__turns' }, [
+          h('span', { class: 'ai-provider-cell__label' }, `${t('config.providers.maxTurns')}:`),
+          h('strong', String(row.max_turns))
+        ]),
+        h(NTag, {
+          type: row.api_key_configured ? 'success' : 'warning',
+          size: 'small',
+          round: true
+        }, {
+          default: () =>
+            row.api_key_configured
+              ? t('config.providers.apiKeyConfigured')
+              : t('config.providers.apiKeyNotConfigured')
+        })
+      ])
   },
   {
     title: t('config.providers.systemPrompt'),
     key: 'system_prompt',
-    minWidth: 120,
+    minWidth: 180,
     ellipsis: {
       tooltip: {
         style: { maxWidth: '420px', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }
@@ -471,9 +600,9 @@ const columns = computed<DataTableColumns<AIProvider>>(() => [
   {
     title: t('config.actions'),
     key: 'actions',
-    width: 360,
+    width: 280,
     render: (row: AIProvider) =>
-      h(NSpace, { size: 'small', wrap: false }, {
+      h(NSpace, { class: 'ai-providers-actions', size: 'small', wrap: true }, {
         default: () => [
           h(NButton, {
             size: 'small',
@@ -718,9 +847,189 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.ai-providers-system-prompt-preview {
+:deep(.ai-providers-system-prompt-preview) {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
+}
+
+.ai-providers-table-wrapper :deep(.n-data-table-td) {
+  white-space: normal;
+  vertical-align: middle;
+}
+
+.ai-providers-table-wrapper :deep(.n-data-table-th) {
+  white-space: nowrap;
+}
+
+:deep(.ai-provider-service-cell),
+:deep(.ai-provider-endpoint-cell),
+:deep(.ai-provider-configuration-cell) {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+:deep(.ai-provider-service-cell__name) {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+:deep(.ai-provider-service-cell__model),
+:deep(.ai-provider-endpoint-cell__url) {
+  overflow: hidden;
+  color: rgba(15, 23, 42, 0.66);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.ai-provider-service-cell__tags) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+:deep(.ai-provider-endpoint-cell__protocol) {
+  overflow: hidden;
+  color: rgba(15, 23, 42, 0.52);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.ai-provider-configuration-cell__turns) {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+:deep(.ai-provider-cell__label) {
+  color: rgba(15, 23, 42, 0.52);
+  font-size: 12px;
+}
+
+:deep(.ai-providers-actions) {
+  width: 100%;
+  max-width: 100%;
+}
+
+.ai-providers-mobile-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.ai-provider-mobile-card {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.8);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.ai-provider-mobile-card__top {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.ai-provider-mobile-card__identity {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 12px;
+}
+
+.ai-provider-mobile-card__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ai-provider-mobile-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.ai-provider-mobile-card__model {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(15, 23, 42, 0.66);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-provider-mobile-card__details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.ai-provider-mobile-card__detail {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 4px;
+}
+
+.ai-provider-mobile-card__detail--wide {
+  grid-column: 1 / -1;
+}
+
+.ai-provider-mobile-card__label {
+  color: rgba(15, 23, 42, 0.52);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.ai-provider-mobile-card__value,
+.ai-provider-mobile-card__prompt-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: rgba(15, 23, 42, 0.74);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ai-provider-mobile-card__value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-provider-mobile-card__prompt {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.ai-provider-mobile-card__prompt-value {
+  white-space: pre-wrap;
+}
+
+.ai-provider-mobile-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.ai-provider-mobile-card__actions :deep(.n-button) {
+  max-width: 100%;
 }
 
 .ai-provider-modal__header {
@@ -816,6 +1125,24 @@ onMounted(() => {
 
   .ai-provider-modal__scroll {
     max-height: min(72vh, 620px);
+  }
+}
+
+@media (max-width: 480px) {
+  .ai-provider-mobile-card__identity {
+    display: grid;
+  }
+
+  .ai-provider-mobile-card__tags {
+    justify-content: flex-start;
+  }
+
+  .ai-provider-mobile-card__details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-provider-mobile-card__detail--wide {
+    grid-column: auto;
   }
 }
 </style>

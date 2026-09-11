@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_effective_settings
+from app.core.config_crypto import ConfigEncryptionError
 from app.core.gitlab_client import GitLabClient
 from app.database import get_db
 from app.dependencies.auth import require_admin_user
@@ -172,7 +173,17 @@ async def setup_gitlab_project_webhook(
     await load_runtime_config_from_db(db)
     settings = get_effective_settings()
     webhook_url = _validate_gitlab_webhook_ready(settings)
-    managed_secret = await get_project_webhook_secret(db, project_id)
+    try:
+        managed_secret = await get_project_webhook_secret(db, project_id)
+    except ConfigEncryptionError:
+        # A rotated CONFIG_ENCRYPTION_KEY leaves stored ciphertext unreadable. The
+        # GitLab-side token can no longer be recovered, so issue a new secret and let
+        # ensure_project_webhook rotate the hook to match it.
+        logger.warning(
+            "Stored webhook secret for project %s cannot be decrypted; issuing a new secret",
+            project_id,
+        )
+        managed_secret = None
     if not managed_secret:
         managed_secret = secrets.token_urlsafe(32)
         await save_project_webhook_secret(db, project_id, managed_secret)

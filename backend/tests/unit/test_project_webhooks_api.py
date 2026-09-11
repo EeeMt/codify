@@ -349,6 +349,38 @@ class SetupGitlabProjectWebhookTests(unittest.TestCase):
         self.assertEqual(response.json()["action"], "updated")
         mock_save.assert_not_awaited()
 
+    def test_setup_rotates_undecryptable_secret(self):
+        """An undecryptable stored secret is replaced instead of failing the request."""
+        from app.core.config_crypto import ConfigEncryptionError
+
+        client, app, mock_db = _get_test_client()
+
+        mock_settings = _make_mock_settings()
+        mock_project = _make_mock_project()
+        mock_client_instance = MagicMock()
+        mock_client_instance.get_project.return_value = mock_project
+        mock_client_instance.ensure_project_webhook.return_value = {
+            "action": "updated",
+            "hook": {"id": 789, "url": "https://backend.example.com/api/webhook/gitlab"},
+        }
+
+        with patch("app.api.project_webhooks.load_runtime_config_from_db", new=AsyncMock()):
+            with patch("app.api.project_webhooks.get_effective_settings", return_value=mock_settings):
+                with patch("app.api.project_webhooks.GitLabClient", return_value=mock_client_instance):
+                    with patch(
+                        "app.api.project_webhooks.get_project_webhook_secret",
+                        new=AsyncMock(side_effect=ConfigEncryptionError("Unable to decrypt persisted secret config value")),
+                    ):
+                        with patch("app.api.project_webhooks.save_project_webhook_secret", new=AsyncMock()) as mock_save:
+                            response = client.post("/api/config/gitlab/projects/42/webhook")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["action"], "updated")
+        mock_save.assert_awaited_once()
+        # The GitLab hook must be rotated to the replacement secret.
+        rotated_secret = mock_save.await_args.args[2]
+        self.assertEqual(mock_client_instance.ensure_project_webhook.call_args.args[2], rotated_secret)
+
     def test_setup_gitlab_error_returns_400(self):
         """GitLab API error during setup should return 400 and close the client."""
         from gitlab.exceptions import GitlabError

@@ -2241,6 +2241,7 @@ const en = {
       baseUrlHint: 'API endpoint URL (e.g. http://host.docker.internal:11434/v1)',
       model: 'Model',
       modelHint: 'Model identifier used during execution',
+      configuration: 'Runtime config',
       maxTurns: 'Max Turns',
       maxTurnsHint: 'Maximum agentic turns per task (1-1000)',
       apiKey: 'API Key',

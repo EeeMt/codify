@@ -2212,6 +2212,7 @@ const zhCN = {
       baseUrlHint: 'API 接口地址（例如 http://host.docker.internal:11434/v1）',
       model: '模型',
       modelHint: '任务执行时使用的模型标识符',
+      configuration: '运行配置',
       maxTurns: '最大轮次',
       maxTurnsHint: '每任务最大代理轮次（1-1000）',
       apiKey: 'API 密钥',
