@@ -1,6 +1,6 @@
 # Model Request Options 与 Task-local Egress Proxy 方案
 
-> 状态：Proposed
+> 状态：Implemented（开发环境验收记录：`docs/reviews/2026-09-11-model-request-options-proxy-dev-verification.md`；§11.1 单元/合同测试、§11.2 Harness × Protocol 矩阵、§11.3 真实 vLLM 用例均通过）
 >
 > 日期：2026-09-10
 >
