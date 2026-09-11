@@ -1609,6 +1609,13 @@ export async function disableWorkerProfile(profileId: number): Promise<WorkerPro
   return data
 }
 
+export async function forceDisableWorkerProfile(
+  profileId: number
+): Promise<WorkerProfile & { closed_issue_count: number }> {
+  const { data } = await api.post(`/worker-profiles/${profileId}/force-disable`)
+  return data
+}
+
 export async function enableWorkerProfile(profileId: number): Promise<WorkerProfile> {
   const { data } = await api.patch(`/worker-profiles/${profileId}`, { enabled: true })
   return data

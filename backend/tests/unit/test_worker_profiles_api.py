@@ -12,6 +12,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -25,6 +26,7 @@ from app.api.worker_profiles import (
     delete_worker_profile,
     disable_worker_profile,
     duplicate_worker_profile,
+    force_disable_worker_profile,
     set_default_worker_profile_endpoint,
     update_worker_profile,
     verify_worker_profile_runtime,
@@ -894,6 +896,92 @@ async def test_disable_worker_profile_still_rejects_active_issue():
 
     assert exc.value.status_code == 422
     assert "assigned to 1 active issue" in str(exc.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_force_disable_worker_profile_closes_active_issues():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with session_factory() as db:
+            profile = WorkerProfile(
+                name="Force Disabled Worker",
+                enabled=True,
+                is_default=False,
+                image="codify-worker:test",
+                volume_mounts=[],
+                pre_script="",
+                post_script="",
+                default_execute_run_instruction_template="{{user_prompt}}",
+                default_plan_run_instruction_template="{{user_prompt}}",
+                ci_auto_repair_run_instruction_template="{{user_prompt}}",
+            )
+            db.add(profile)
+            await db.flush()
+            db.add_all(
+                [
+                    Issue(
+                        title="Open issue",
+                        project_id=100,
+                        status=IssueStatus.OPEN.value,
+                        worker_profile_id=profile.id,
+                    ),
+                    Issue(
+                        title="In progress issue",
+                        project_id=100,
+                        status=IssueStatus.IN_PROGRESS.value,
+                        worker_profile_id=profile.id,
+                    ),
+                    Issue(
+                        title="Closed issue",
+                        project_id=100,
+                        status=IssueStatus.CLOSED.value,
+                        worker_profile_id=profile.id,
+                    ),
+                ]
+            )
+            await db.commit()
+
+            response = await force_disable_worker_profile(profile.id, db=db)
+            issues = (
+                (await db.execute(
+                    select(Issue).where(Issue.worker_profile_id == profile.id).order_by(Issue.id)
+                ))
+                .scalars()
+                .all()
+            )
+
+        assert response["enabled"] is False
+        assert response["closed_issue_count"] == 2
+        assert [issue.status for issue in issues] == [
+            IssueStatus.CLOSED.value,
+            IssueStatus.CLOSED.value,
+            IssueStatus.CLOSED.value,
+        ]
+        assert [issue.closed_via for issue in issues] == [
+            "worker_profile_disabled",
+            "worker_profile_disabled",
+            None,
+        ]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_force_disable_worker_profile_still_rejects_default_profile():
+    profile = _make_profile(id=10, is_default=True)
+    db = MagicMock()
+    db.get = AsyncMock(return_value=profile)
+    db.rollback = AsyncMock()
+
+    with pytest.raises(HTTPException) as exc:
+        await force_disable_worker_profile(profile.id, db=db)
+
+    assert exc.value.status_code == 422
+    assert exc.value.detail == "Default worker profile cannot be disabled"
 
 
 @pytest.mark.asyncio

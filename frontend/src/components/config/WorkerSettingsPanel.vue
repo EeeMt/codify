@@ -456,8 +456,30 @@
                 >
                   {{ t('config.disableWorkerProfile') }}
                 </n-button>
+                <n-popconfirm
+                  v-if="workerFormValue.enabled && !workerFormValue.is_default"
+                  :positive-text="t('common.confirm')"
+                  :negative-text="t('common.cancel')"
+                  @positive-click="handleForceDisableProfile"
+                >
+                  <template #trigger>
+                    <n-button
+                      size="small"
+                      type="error"
+                      secondary
+                      :disabled="selectedProfileId === null || isWorkerBusy"
+                    >
+                      {{ t('config.forceDisableWorkerProfile') }}
+                    </n-button>
+                  </template>
+                  {{
+                    t('config.forceDisableWorkerProfileConfirm', {
+                      name: workerFormValue.name
+                    })
+                  }}
+                </n-popconfirm>
                 <n-button
-                  v-else
+                  v-if="!workerFormValue.enabled"
                   size="small"
                   type="primary"
                   secondary
@@ -1167,6 +1189,7 @@ import {
   disableWorkerProfile,
   duplicateWorkerProfile,
   enableWorkerProfile,
+  forceDisableWorkerProfile,
   getAdminSkills,
   getConfig,
   getAdminWorkerProfiles,
@@ -2419,6 +2442,25 @@ async function handleDisableProfile() {
     replaceLoadedProfile(disabled)
     selectProfile(disabled.id)
     message.success(t('config.saved'))
+  } catch (error: any) {
+    message.error(error?.response?.data?.detail || t('config.saveError'))
+  } finally {
+    workerSaving.value = false
+  }
+}
+
+async function handleForceDisableProfile() {
+  if (selectedProfileId.value === null) return
+  workerSaving.value = true
+  try {
+    const disabled = await forceDisableWorkerProfile(selectedProfileId.value)
+    replaceLoadedProfile(disabled)
+    selectProfile(disabled.id)
+    message.success(
+      t('config.workerProfileForceDisabled', {
+        count: disabled.closed_issue_count ?? 0
+      })
+    )
   } catch (error: any) {
     message.error(error?.response?.data?.detail || t('config.saveError'))
   } finally {

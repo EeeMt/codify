@@ -149,7 +149,13 @@
         </div>
         <div v-if="issue.status === 'closed' && issue.closed_via" class="overview-metadata__row">
           <span><n-icon size="14"><InformationCircleOutline /></n-icon>{{ t('issue.closedViaLabel') }}</span>
-          <strong>{{ issue.closed_via === 'webhook_mr_merged' ? t('issue.closedViaWebhookMrMerged') : t('issue.closedViaManual') }}</strong>
+          <strong>{{
+            issue.closed_via === 'webhook_mr_merged'
+              ? t('issue.closedViaWebhookMrMerged')
+              : issue.closed_via === 'worker_profile_disabled'
+                ? t('issue.closedViaWorkerProfileDisabled')
+                : t('issue.closedViaManual')
+          }}</strong>
         </div>
         <div class="overview-metadata__row">
           <span><n-icon size="14"><TimeOutline /></n-icon>{{ t('common.created') }}</span>

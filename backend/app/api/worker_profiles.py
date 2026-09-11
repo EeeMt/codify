@@ -330,6 +330,21 @@ async def _ensure_profile_can_stop_serving_issues(
         )
 
 
+async def _force_close_profile_issues(db: AsyncSession, profile_id: int) -> int:
+    result = await db.execute(
+        update(Issue)
+        .where(
+            Issue.worker_profile_id == profile_id,
+            Issue.status != IssueStatus.CLOSED.value,
+        )
+        .values(
+            status=IssueStatus.CLOSED.value,
+            closed_via="worker_profile_disabled",
+        )
+    )
+    return int(result.rowcount or 0)
+
+
 async def _unique_copy_name(db: AsyncSession, source_name: str) -> str:
     base_name = f"{source_name} Copy"
     candidate = base_name
@@ -1626,6 +1641,34 @@ async def disable_worker_profile(
         return await _admin_profile_payload(
             db, profile, settings=get_effective_settings()
         )
+    except WorkerProfileValidationError as exc:
+        await _rollback(db)
+        raise _http_profile_error(exc) from exc
+
+
+@router.post("/worker-profiles/{profile_id}/force-disable")
+async def force_disable_worker_profile(
+    profile_id: int,
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_admin_user),
+):
+    """Disable a non-default worker profile and close its active issues."""
+    profile = await _load_profile_or_404(db, profile_id, for_update=True)
+    try:
+        if profile.is_default:
+            raise WorkerProfileValidationError("Default worker profile cannot be disabled")
+        closed_issue_count = await _force_close_profile_issues(db, profile.id)
+        await disable_worker_profile_domain(db, profile)
+        await db.commit()
+        await db.refresh(
+            profile,
+            attribute_names=["environment_variables", "default_skills"],
+        )
+        payload = await _admin_profile_payload(
+            db, profile, settings=get_effective_settings()
+        )
+        payload["closed_issue_count"] = closed_issue_count
+        return payload
     except WorkerProfileValidationError as exc:
         await _rollback(db)
         raise _http_profile_error(exc) from exc

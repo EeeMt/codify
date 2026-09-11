@@ -113,6 +113,7 @@ const {
   mockDeleteWorkerProfile,
   mockDuplicateWorkerProfile,
   mockEnableWorkerProfile,
+  mockForceDisableWorkerProfile,
   mockSetDefaultWorkerProfile,
   mockDisableWorkerProfile,
   mockMessage
@@ -131,6 +132,7 @@ const {
   mockDeleteWorkerProfile: vi.fn(),
   mockDuplicateWorkerProfile: vi.fn(),
   mockEnableWorkerProfile: vi.fn(),
+  mockForceDisableWorkerProfile: vi.fn(),
   mockSetDefaultWorkerProfile: vi.fn(),
   mockDisableWorkerProfile: vi.fn(),
   mockMessage: {
@@ -382,6 +384,7 @@ vi.mock('../../api', () => ({
   deleteWorkerProfile: mockDeleteWorkerProfile,
   duplicateWorkerProfile: mockDuplicateWorkerProfile,
   enableWorkerProfile: mockEnableWorkerProfile,
+  forceDisableWorkerProfile: mockForceDisableWorkerProfile,
   setDefaultWorkerProfile: mockSetDefaultWorkerProfile,
   disableWorkerProfile: mockDisableWorkerProfile
 }))
@@ -422,6 +425,9 @@ describe('WorkerSettingsPanel', () => {
     mockDeleteWorkerProfile.mockResolvedValue(undefined)
     mockDuplicateWorkerProfile.mockResolvedValue(createWorkerProfile({ id: 2, name: 'Default Worker Copy' }))
     mockEnableWorkerProfile.mockResolvedValue(createWorkerProfile({ enabled: true }))
+    mockForceDisableWorkerProfile.mockResolvedValue(
+      createWorkerProfile({ enabled: false, closed_issue_count: 0 })
+    )
     mockSetDefaultWorkerProfile.mockResolvedValue(createWorkerProfile())
     mockDisableWorkerProfile.mockResolvedValue(createWorkerProfile({ enabled: false }))
   })
@@ -1296,6 +1302,33 @@ describe('WorkerSettingsPanel', () => {
     expect(mockEnableWorkerProfile).toHaveBeenCalledWith(2)
     expect(vm.workerFormValue.enabled).toBe(true)
     expect(mockMessage.success).toHaveBeenCalledWith('config.workerProfileEnabled')
+  })
+
+  it('force disables a worker profile and reports closed issues', async () => {
+    const activeProfile = createWorkerProfile({
+      id: 2,
+      name: 'Active Worker',
+      enabled: true,
+      is_default: false
+    })
+    mockGetAdminWorkerProfiles.mockResolvedValueOnce([createWorkerProfile(), activeProfile])
+    mockForceDisableWorkerProfile.mockResolvedValueOnce({
+      ...activeProfile,
+      enabled: false,
+      closed_issue_count: 3
+    })
+    const wrapper = mount(WorkerSettingsPanel, {
+      props: { isMobile: false, reloadKey: 0 }
+    })
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.selectProfile(2)
+    await vm.handleForceDisableProfile()
+
+    expect(mockForceDisableWorkerProfile).toHaveBeenCalledWith(2)
+    expect(vm.workerFormValue.enabled).toBe(false)
+    expect(mockMessage.success).toHaveBeenCalledWith('config.workerProfileForceDisabled')
   })
 
   it('deletes a disabled unassigned worker profile and selects the default profile', async () => {

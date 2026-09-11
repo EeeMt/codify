@@ -275,6 +275,19 @@ describe('API functions', () => {
     })
   })
 
+  describe('forceDisableWorkerProfile', () => {
+    it('POSTs the force-disable endpoint and returns the result', async () => {
+      const response = { id: 4, enabled: false, closed_issue_count: 2 }
+      mockAxiosPost.mockResolvedValue({ data: response })
+
+      const fn = (apiModule as unknown as Record<string, any>).forceDisableWorkerProfile
+      const result = await fn(4)
+
+      expect(result).toEqual(response)
+      expect(mockAxiosPost).toHaveBeenCalledWith('/worker-profiles/4/force-disable')
+    })
+  })
+
   describe('cancelTask', () => {
     it('should POST to /api/tasks/:id/cancel', async () => {
       mockAxiosPost.mockResolvedValue({ data: undefined })
