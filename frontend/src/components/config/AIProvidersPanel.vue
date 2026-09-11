@@ -154,6 +154,34 @@
             </n-form-item>
           </div>
 
+          <n-collapse
+            class="ai-provider-modal__advanced"
+            :default-expanded-names="[]"
+          >
+            <n-collapse-item
+              name="provider-options"
+              :title="t('config.providers.advancedRequestParams')"
+            >
+              <n-form-item
+                path="provider_options_json"
+                :show-label="false"
+                :show-feedback="true"
+              >
+                <n-input
+                  v-model:value="formValue.provider_options_json"
+                  type="textarea"
+                  :rows="8"
+                  spellcheck="false"
+                  class="config-form__input ai-provider-modal__json"
+                  :placeholder="advancedRequestParamsPlaceholder"
+                />
+                <template #feedback>
+                  {{ t('config.providers.advancedRequestParamsHint') }}
+                </template>
+              </n-form-item>
+            </n-collapse-item>
+          </n-collapse>
+
         </n-form>
       </div>
 
@@ -174,6 +202,8 @@ import { computed, h, onMounted, ref } from 'vue'
 import {
   NButton,
   NCard,
+  NCollapse,
+  NCollapseItem,
   NDataTable,
   NModal,
   NForm,
@@ -218,6 +248,23 @@ const MODEL_PROTOCOL_PROVIDER_KIND: Record<string, string> = {
   openai_chat_completions: 'openai_compatible',
 }
 
+// Harness/Model-Endpoint owned request fields. The API rejects them with a
+// 422; surfacing the same field names here keeps the modal self-explanatory.
+const RESERVED_PROVIDER_OPTION_FIELDS = [
+  'model',
+  'messages',
+  'input',
+  'instructions',
+  'tools',
+  'tool_choice',
+  'stream',
+  'stream_options'
+]
+
+type ProviderOptionsParseResult =
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; message: string }
+
 defineProps<{
   isMobile: boolean
 }>()
@@ -242,7 +289,8 @@ const formValue = ref({
   api_key: '',
   system_prompt: '',
   provider_kind: 'anthropic_compatible',
-  model_protocol: 'anthropic_messages'
+  model_protocol: 'anthropic_messages',
+  provider_options_json: '{}'
 })
 
 const providerKindOptions = computed(() => [
@@ -262,6 +310,39 @@ const wireProtocolOptions = computed(() => {
     value: protocol,
   }))
 })
+
+const advancedRequestParamsPlaceholder = computed(() => JSON.stringify({
+  chat_template_kwargs: {
+    thinking: true,
+    reasoning_effort: 'high'
+  }
+}, null, 2))
+
+function parseProviderOptionsJson(raw: string): ProviderOptionsParseResult {
+  const text = (raw ?? '').trim()
+  if (!text) {
+    return { ok: true, value: {} }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return { ok: false, message: t('config.providers.advancedRequestParamsInvalidJson') }
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, message: t('config.providers.advancedRequestParamsNotObject') }
+  }
+  const reserved = RESERVED_PROVIDER_OPTION_FIELDS.filter(field =>
+    Object.prototype.hasOwnProperty.call(parsed, field)
+  )
+  if (reserved.length > 0) {
+    return {
+      ok: false,
+      message: t('config.providers.advancedRequestParamsReserved', { fields: reserved.join(', ') })
+    }
+  }
+  return { ok: true, value: parsed as Record<string, unknown> }
+}
 
 const rules: FormRules = {
   name: [
@@ -300,6 +381,13 @@ const rules: FormRules = {
     max: 1000,
     message: () => t('config.providers.maxTurnsHint'),
     trigger: 'blur'
+  },
+  provider_options_json: {
+    trigger: ['input', 'blur'],
+    validator: (_rule: unknown, value: string) => {
+      const result = parseProviderOptionsJson(value)
+      return result.ok ? true : new Error(result.message)
+    }
   }
 }
 
@@ -449,7 +537,8 @@ function resetForm() {
     api_key: '',
     system_prompt: '',
     provider_kind: 'anthropic_compatible',
-    model_protocol: 'anthropic_messages'
+    model_protocol: 'anthropic_messages',
+    provider_options_json: '{}'
   }
 }
 
@@ -489,7 +578,8 @@ function openEdit(provider: AIProvider) {
     api_key: '',
     system_prompt: provider.system_prompt || '',
     provider_kind: provider.provider_kind || 'anthropic_compatible',
-    model_protocol: provider.model_protocol || 'anthropic_messages'
+    model_protocol: provider.model_protocol || 'anthropic_messages',
+    provider_options_json: JSON.stringify(provider.provider_options ?? {}, null, 2)
   }
   modalVisible.value = true
   clearFormValidation()
@@ -522,6 +612,11 @@ async function handleSave() {
 
   saving.value = true
   try {
+    const parsedOptions = parseProviderOptionsJson(formValue.value.provider_options_json)
+    if (!parsedOptions.ok) {
+      message.error(parsedOptions.message)
+      return
+    }
     if (editingProvider.value) {
       // Update existing
       const req: UpdateProviderRequest = {
@@ -530,7 +625,8 @@ async function handleSave() {
         model: formValue.value.model.trim(),
         max_turns: formValue.value.max_turns,
         provider_kind: formValue.value.provider_kind,
-        model_protocol: formValue.value.model_protocol
+        model_protocol: formValue.value.model_protocol,
+        provider_options: parsedOptions.value
       }
       if (formValue.value.api_key.trim()) {
         req.api_key = formValue.value.api_key.trim()
@@ -550,7 +646,8 @@ async function handleSave() {
         model: formValue.value.model.trim(),
         max_turns: formValue.value.max_turns,
         provider_kind: formValue.value.provider_kind,
-        model_protocol: formValue.value.model_protocol
+        model_protocol: formValue.value.model_protocol,
+        provider_options: parsedOptions.value
       }
       if (formValue.value.api_key.trim()) {
         req.api_key = formValue.value.api_key.trim()
@@ -693,6 +790,19 @@ onMounted(() => {
 .ai-provider-modal__textarea :deep(textarea) {
   min-height: 132px;
   resize: vertical;
+}
+
+.ai-provider-modal__advanced {
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.ai-provider-modal__json :deep(textarea) {
+  min-height: 168px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 @media (max-width: 767px) {

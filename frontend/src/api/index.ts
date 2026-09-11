@@ -220,6 +220,7 @@ export interface CreateProviderRequest {
   provider_kind?: string
   model_protocol?: string
   compat_profile?: string | null
+  provider_options?: Record<string, unknown>
   is_disabled?: boolean
 }
 
@@ -235,6 +236,7 @@ export interface UpdateProviderRequest {
   provider_kind?: string
   model_protocol?: string
   compat_profile?: string | null
+  provider_options?: Record<string, unknown>
   is_disabled?: boolean
 }
 

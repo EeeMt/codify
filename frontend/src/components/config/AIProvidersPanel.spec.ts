@@ -59,7 +59,7 @@ describe('AIProvidersPanel', () => {
     const wrapper = mount(AIProvidersPanel, {
       props: { isMobile: false },
       global: {
-        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
       }
     })
 
@@ -95,7 +95,7 @@ describe('AIProvidersPanel', () => {
     const wrapper = mount(AIProvidersPanel, {
       props: { isMobile: false },
       global: {
-        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
       }
     })
 
@@ -135,7 +135,7 @@ describe('AIProvidersPanel', () => {
     const wrapper = mount(AIProvidersPanel, {
       props: { isMobile: false },
       global: {
-        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
       }
     })
 
@@ -161,7 +161,7 @@ describe('AIProvidersPanel', () => {
     const wrapper = mount(AIProvidersPanel, {
       props: { isMobile: false },
       global: {
-        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
       }
     })
 
@@ -202,7 +202,7 @@ describe('AIProvidersPanel', () => {
     const wrapper = mount(AIProvidersPanel, {
       props: { isMobile: false },
       global: {
-        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
       }
     })
 
@@ -220,7 +220,7 @@ describe('AIProvidersPanel', () => {
     const wrapper = mount(AIProvidersPanel, {
       props: { isMobile: false },
       global: {
-        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
       }
     })
 
@@ -240,7 +240,7 @@ describe('AIProvidersPanel', () => {
     const wrapper = mount(AIProvidersPanel, {
       props: { isMobile: false },
       global: {
-        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
       }
     })
     const provider = {
@@ -267,7 +267,7 @@ describe('AIProvidersPanel', () => {
     const wrapper = mount(AIProvidersPanel, {
       props: { isMobile: false },
       global: {
-        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
       }
     })
 
@@ -302,7 +302,7 @@ describe('AIProvidersPanel', () => {
     const wrapper = mount(AIProvidersPanel, {
       props: { isMobile: false },
       global: {
-        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
       }
     })
 
@@ -315,7 +315,7 @@ describe('AIProvidersPanel', () => {
     const wrapper = mount(AIProvidersPanel, {
       props: { isMobile: false },
       global: {
-        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
       }
     })
 
@@ -376,7 +376,7 @@ describe('AIProvidersPanel', () => {
     const wrapper = mount(AIProvidersPanel, {
       props: { isMobile: false },
       global: {
-        stubs: ['NCard', 'NButton', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
       }
     })
 
@@ -384,5 +384,143 @@ describe('AIProvidersPanel', () => {
 
     expect(mockApi.testProviderConnection).toHaveBeenCalledWith(7)
     expect(wrapper.vm.testingProviderId).toBe(null)
+  })
+
+  it('defaults advanced request parameters to an empty object', async () => {
+    const wrapper = mount(AIProvidersPanel, {
+      props: { isMobile: false },
+      global: {
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+      }
+    })
+
+    await wrapper.vm.openCreate()
+
+    expect(wrapper.vm.formValue.provider_options_json).toBe('{}')
+  })
+
+  it('formats existing provider options when editing', async () => {
+    const provider = {
+      id: 8,
+      name: 'provider1',
+      base_url: 'https://api.example/v1',
+      model: 'model-x',
+      max_turns: 20,
+      api_key_configured: true,
+      system_prompt: null,
+      provider_kind: 'openai_compatible',
+      model_protocol: 'openai_chat_completions',
+      provider_options: { temperature: 0.6, chat_template_kwargs: { thinking: true } },
+      is_default: false,
+      is_disabled: false
+    }
+
+    const wrapper = mount(AIProvidersPanel, {
+      props: { isMobile: false },
+      global: {
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+      }
+    })
+
+    await wrapper.vm.openEdit(provider)
+
+    expect(JSON.parse(wrapper.vm.formValue.provider_options_json)).toEqual({
+      temperature: 0.6,
+      chat_template_kwargs: { thinking: true }
+    })
+  })
+
+  it('sends provider options with the create payload', async () => {
+    const wrapper = mount(AIProvidersPanel, {
+      props: { isMobile: false },
+      global: {
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+      }
+    })
+
+    await wrapper.vm.openCreate()
+    wrapper.vm.formRef = { validate: () => Promise.resolve() }
+    wrapper.vm.formValue.name = 'new'
+    wrapper.vm.formValue.base_url = 'https://x'
+    wrapper.vm.formValue.model = 'm'
+    wrapper.vm.formValue.provider_options_json = '{"chat_template_kwargs":{"thinking":true}}'
+
+    await wrapper.vm.handleSave()
+
+    expect(mockApi.createProvider.mock.calls[0][0].provider_options).toEqual({
+      chat_template_kwargs: { thinking: true }
+    })
+  })
+
+  it('clears provider options when the editor is emptied', async () => {
+    const provider = {
+      id: 9,
+      name: 'provider1',
+      base_url: 'https://api.example/v1',
+      model: 'model-x',
+      max_turns: 20,
+      api_key_configured: true,
+      system_prompt: null,
+      provider_kind: 'anthropic_compatible',
+      model_protocol: 'anthropic_messages',
+      provider_options: { temperature: 0.6 },
+      is_default: false,
+      is_disabled: false
+    }
+
+    const wrapper = mount(AIProvidersPanel, {
+      props: { isMobile: false },
+      global: {
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+      }
+    })
+
+    await wrapper.vm.openEdit(provider)
+    wrapper.vm.formRef = { validate: () => Promise.resolve() }
+    wrapper.vm.formValue.provider_options_json = '   '
+
+    await wrapper.vm.handleSave()
+
+    expect(mockApi.updateProvider.mock.calls[0][1].provider_options).toEqual({})
+  })
+
+  it('rejects invalid provider options before saving', async () => {
+    const wrapper = mount(AIProvidersPanel, {
+      props: { isMobile: false },
+      global: {
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+      }
+    })
+
+    await wrapper.vm.openCreate()
+    wrapper.vm.formRef = { validate: () => Promise.resolve() }
+    wrapper.vm.formValue.name = 'new'
+    wrapper.vm.formValue.base_url = 'https://x'
+    wrapper.vm.formValue.model = 'm'
+    wrapper.vm.formValue.provider_options_json = '{"temperature": '
+
+    await wrapper.vm.handleSave()
+
+    expect(mockApi.createProvider).not.toHaveBeenCalled()
+  })
+
+  it('rejects reserved request fields before saving', async () => {
+    const wrapper = mount(AIProvidersPanel, {
+      props: { isMobile: false },
+      global: {
+        stubs: ['NCard', 'NButton', 'NCollapse', 'NCollapseItem', 'NDataTable', 'NModal', 'NForm', 'NFormItem', 'NInput', 'NInputNumber', 'NPopconfirm', 'NSelect', 'NSpace', 'NSwitch', 'NTag']
+      }
+    })
+
+    await wrapper.vm.openCreate()
+    wrapper.vm.formRef = { validate: () => Promise.resolve() }
+    wrapper.vm.formValue.name = 'new'
+    wrapper.vm.formValue.base_url = 'https://x'
+    wrapper.vm.formValue.model = 'm'
+    wrapper.vm.formValue.provider_options_json = '{"stream": false, "messages": []}'
+
+    await wrapper.vm.handleSave()
+
+    expect(mockApi.createProvider).not.toHaveBeenCalled()
   })
 })
