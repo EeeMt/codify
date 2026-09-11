@@ -128,6 +128,7 @@
                 class="worker-shared-entry"
                 :class="{ 'worker-shared-entry--active': editorMode === 'shared' }"
                 data-testid="worker-shared-configuration-entry"
+                :disabled="isWorkerBusy"
                 @click="selectSharedConfiguration"
               >
                 <span class="worker-shared-entry__eyebrow">{{ t('config.systemBaseline') }}</span>
@@ -136,7 +137,12 @@
               </button>
               <div class="worker-profile-list__header">
                 <span>{{ t('config.workerProfiles') }}</span>
-                <n-button size="small" secondary @click="handleCreateProfile">
+                <n-button
+                  size="small"
+                  secondary
+                  :disabled="isWorkerBusy"
+                  @click="handleCreateProfile"
+                >
                   {{ t('config.createWorkerProfile') }}
                 </n-button>
               </div>
@@ -149,6 +155,7 @@
                   'worker-profile-list__item--active':
                     editorMode === 'profile' && profile.id === selectedProfileId
                 }"
+                :disabled="isWorkerBusy"
                 @click="selectProfile(profile.id)"
               >
                 <span class="worker-profile-list__name">{{ profile.name }}</span>
@@ -168,11 +175,19 @@
                   </n-tag>
                   <n-tag
                     size="small"
-                    :type="profile.runtime_verification?.matches_current_input ? 'success' : 'default'"
+                    :type="
+                      profile.id === selectedProfileId && runtimeVerifying
+                        ? 'warning'
+                        : profile.runtime_verification?.matches_current_input
+                          ? 'success'
+                          : 'default'
+                    "
                     :bordered="false"
                   >
                     {{
-                      profile.runtime_verification?.matches_current_input
+                      profile.id === selectedProfileId && runtimeVerifying
+                        ? t('config.profileRuntimeVerifying')
+                        : profile.runtime_verification?.matches_current_input
                         ? t('config.profileRuntimeVerified')
                         : t('config.profileRuntimeUnverified')
                     }}
@@ -521,11 +536,19 @@
                 <span>{{ t('config.profileRuntimeVerification') }}</span>
                 <n-tag
                   size="small"
-                  :type="workerFormValue.runtime_verification.matches_current_input ? 'success' : 'warning'"
+                  :type="
+                    runtimeVerifying
+                      ? 'warning'
+                      : workerFormValue.runtime_verification.matches_current_input
+                        ? 'success'
+                        : 'warning'
+                  "
                   :bordered="false"
                 >
                   {{
-                    workerFormValue.runtime_verification.matches_current_input
+                    runtimeVerifying
+                      ? t('config.profileRuntimeVerifying')
+                      : workerFormValue.runtime_verification.matches_current_input
                       ? t('config.profileRuntimeVerified')
                       : t('config.profileRuntimeUnverified')
                   }}
@@ -2219,6 +2242,13 @@ function resetSharedConfiguration() {
 async function handleVerifyProfileRuntime() {
   if (selectedProfileId.value === null) return
   runtimeVerifying.value = true
+  workerFormValue.value.runtime_verification = emptyRuntimeVerification()
+  const selectedProfile = workerProfiles.value.find(
+    (profile) => profile.id === selectedProfileId.value
+  )
+  if (selectedProfile) {
+    selectedProfile.runtime_verification = emptyRuntimeVerification()
+  }
   try {
     await verifyWorkerProfileRuntime(selectedProfileId.value)
     await refreshAdminProfiles()

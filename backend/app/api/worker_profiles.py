@@ -8,6 +8,7 @@ import hashlib
 import inspect
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC
 from types import SimpleNamespace
 from typing import Any, Mapping
@@ -871,7 +872,6 @@ async def verify_worker_profile_runtime(
     identity_generation = prior_generation + 1
     await db.commit()
     started_at = time.monotonic()
-    candidate_verified_at = utcnow()
 
     # Layer 1: strict Kit probe through the generation/CAS readiness service.
     try:
@@ -930,29 +930,35 @@ async def verify_worker_profile_runtime(
     if smoke_command:
         base_command.extend(["--smoke", smoke_command])
     candidate_evidence_by_key: dict[str, dict[str, Any]] = {}
+    candidate_verified_at = utcnow()
 
     def verify_runtime() -> tuple[int, str, str, dict[str, str] | None, dict[str, str]]:
-        client = DockerClientWrapper(connection)
-        container = None
-        try:
-            client.client.images.get(runtime.image)
-            image_identity = None
-            if requires_v2_identity:
-                # The V2 identity is read from the same daemon image before the
-                # verification container is created. It is intentionally not the
-                # backend's mounted release lock.
-                image_identity = inspect_v2_worker_image_identity(connection, runtime.image)
-                repo_digest = image_identity["image_reference"]
-            else:
-                repo_digest = client.resolve_image_repo_digest(runtime.image)
-            # V1-only Profiles retain one validation.  Every eligible V2
-            # Harness is independently executed against the same frozen image;
-            # a successful default Harness can never authorize another key.
-            keys = v2_harness_keys or (profile.default_harness_key or "claude",)
-            logs_by_key: dict[str, str] = {}
-            for harness_key in keys:
-                candidate_evidence = None
+        image_identity = None
+        repo_digest: str | None = None
+        if requires_v2_identity:
+            # The V2 identity is read from the same daemon image before the
+            # verification container is created. It is intentionally not the
+            # backend's mounted release lock.
+            image_identity = inspect_v2_worker_image_identity(connection, runtime.image)
+            repo_digest = image_identity["image_reference"]
+        # V1-only Profiles retain one validation. Every eligible V2 Harness is
+        # independently executed against the same frozen image; a successful
+        # default Harness can never authorize another key.
+        keys = v2_harness_keys or (profile.default_harness_key or "claude",)
+
+        def verify_harness(
+            harness_key: str,
+        ) -> tuple[int, str, dict[str, Any] | None, str]:
+            # Docker SDK clients are kept private to each worker thread.
+            # The checks are independent, but sharing one client would
+            # make its underlying HTTP session a concurrency boundary.
+            client = DockerClientWrapper(connection)
+            container = None
+            try:
+                harness_repo_digest = repo_digest or client.resolve_image_repo_digest(runtime.image)
+                candidate_evidence: dict[str, Any] | None = None
                 candidate_archive = None
+                candidate_manifest: dict[str, Any] | None = None
                 cli_identity = (
                     _verification_cli_identity(outcome.readiness, profile, harness_key)
                     if requires_v2_identity
@@ -965,15 +971,18 @@ async def verify_worker_profile_runtime(
                         worker_kit_identity=worker_kit_identity,
                     )
                     candidate_evidence = _v2_harness_evidence(
-                        profile, harness_key=harness_key,
+                        profile,
+                        harness_key=harness_key,
                         verification_digest=current_runtime_verification_digest(
                             profile, effective, settings, harness_key=harness_key
-                        ), image_identity=image_identity, adapter_identity=adapter_identity,
+                        ),
+                        image_identity=image_identity,
+                        adapter_identity=adapter_identity,
                         cli_identity=cli_identity,
-                        generation=identity_generation, verified_at=candidate_verified_at,
+                        generation=identity_generation,
+                        verified_at=candidate_verified_at,
                     )
-                    candidate_evidence_by_key[harness_key] = candidate_evidence
-                    _candidate_manifest, candidate_archive = build_v2_verification_candidate(
+                    candidate_manifest, candidate_archive = build_v2_verification_candidate(
                         source_dir=None,
                         worker_image_identity=image_identity,
                         worker_kit_identity=worker_kit_identity,
@@ -985,40 +994,40 @@ async def verify_worker_profile_runtime(
                     else _verification_cli_bin(outcome.readiness, profile, harness_key)
                 )
                 candidate_bindings: dict[str, str] = {}
-                if candidate_archive is not None:
+                if candidate_archive is not None and candidate_manifest is not None:
                     # The verification candidate is a real frozen Bundle: the
                     # launcher requires the same digest/contract/Adapter
                     # bindings a Task execution would carry.
                     launcher_bytes = v2_launcher_manifest_bytes(
-                        SimpleNamespace(manifest=_candidate_manifest)
+                        SimpleNamespace(manifest=candidate_manifest)
                     )
                     candidate_bindings = {
                         "CODIFY_RUNTIME_MANIFEST_DIGEST": hashlib.sha256(
                             launcher_bytes
                         ).hexdigest(),
                         "CODIFY_RUNTIME_BUNDLE_DIGEST": str(
-                            _candidate_manifest.get("bundle_digest") or ""
+                            candidate_manifest.get("bundle_digest") or ""
                         ),
                         "CODIFY_RUNTIME_CONTRACT_VERSION": str(
-                            _candidate_manifest.get("contract_version") or ""
+                            candidate_manifest.get("contract_version") or ""
                         ),
                         "CODIFY_ADAPTER_VERSION": str(
                             (
-                                (
-                                    _candidate_manifest.get("adapters") or {}
-                                )
+                                (candidate_manifest.get("adapters") or {})
                                 .get(harness_key, {})
                                 .get("adapter", {})
                             ).get("version")
                             or ""
                         ),
-                                        }
+                    }
                 container = client.create_container(
                     image=(image_identity or {}).get("image_reference") or runtime.image,
                     command=list(base_command),
                     environment={
-                        **runtime.environment, **overrides["environment"],
-                        "CODIFY_HARNESS_KEY": harness_key, "CODIFY_RUNTIME_IMAGE": runtime.image,
+                        **runtime.environment,
+                        **overrides["environment"],
+                        "CODIFY_HARNESS_KEY": harness_key,
+                        "CODIFY_RUNTIME_IMAGE": runtime.image,
                         "CODIFY_HARNESS_CLI_BIN": cli_bin,
                         **(
                             {
@@ -1032,16 +1041,27 @@ async def verify_worker_profile_runtime(
                         **(
                             {
                                 "CODIFY_ORCHESTRATION_DIR": "/tmp/codify-runtime/orchestration",
-                                "CODIFY_RUNTIME_VERIFICATION_MANIFEST": "/tmp/codify-runtime/orchestration/manifest.json",
+                                "CODIFY_RUNTIME_VERIFICATION_MANIFEST": (
+                                    "/tmp/codify-runtime/orchestration/manifest.json"
+                                ),
                             }
-                            if candidate_archive is not None else {}
+                            if candidate_archive is not None
+                            else {}
                         ),
                     },
-                    volumes=verification_volumes, entrypoint=overrides["entrypoint"], user=overrides["user"],
+                    volumes=dict(verification_volumes),
+                    entrypoint=overrides["entrypoint"],
+                    user=overrides["user"],
                     tmpfs={"/workspace": "rw,exec,mode=1777"},
                     start=candidate_archive is None,
-                    name=f"codify-worker-kit-verify-{profile_id}-{harness_key}-{uuid.uuid4().hex[:8]}",
-                    labels={"codify.worker_kit_verification": "true", "codify.worker_kit_version": runtime.worker_kit_version or ""},
+                    name=(
+                        f"codify-worker-kit-verify-{profile_id}-{harness_key}-"
+                        f"{uuid.uuid4().hex[:8]}"
+                    ),
+                    labels={
+                        "codify.worker_kit_verification": "true",
+                        "codify.worker_kit_version": runtime.worker_kit_version or "",
+                    },
                 )
                 if candidate_archive is not None:
                     # The archive's top-level directory is codify-runtime/;
@@ -1050,18 +1070,44 @@ async def verify_worker_profile_runtime(
                     client.put_archive(container, "/tmp", candidate_archive)
                     client.start_container(container)
                 exit_code, logs = client.wait_for_container(container, timeout=180)
-                logs_by_key[harness_key] = logs
-                container.remove(force=True, v=True)
-                container = None
-                if exit_code != 0:
-                    return exit_code, logs, repo_digest, image_identity, logs_by_key
-            return 0, "\n".join(logs_by_key.values()), repo_digest, image_identity, logs_by_key
-        finally:
-            if container is not None:
+                return exit_code, logs, candidate_evidence, harness_repo_digest
+            finally:
+                if container is not None:
+                    with contextlib.suppress(Exception):
+                        container.remove(force=True, v=True)
                 with contextlib.suppress(Exception):
-                    container.remove(force=True, v=True)
-            with contextlib.suppress(Exception):
-                client.close()
+                    client.close()
+
+        # The Kit probe remains strict and single-shot. Only the
+        # profile-specific Harness containers run concurrently.
+        with ThreadPoolExecutor(
+            max_workers=len(keys),
+            thread_name_prefix="worker-profile-verify",
+        ) as executor:
+            results = list(executor.map(verify_harness, keys))
+        if repo_digest is None:
+            repo_digest = results[0][3]
+        logs_by_key = {
+            harness_key: result[1]
+            for harness_key, result in zip(keys, results, strict=True)
+        }
+        candidate_evidence_by_key.update(
+            {
+                harness_key: result[2]
+                for harness_key, result in zip(keys, results, strict=True)
+                if result[2] is not None
+            }
+        )
+        failure = next((result for result in results if result[0] != 0), None)
+        if failure is not None:
+            return (
+                failure[0],
+                "\n".join(logs_by_key.values()),
+                repo_digest,
+                image_identity,
+                logs_by_key,
+            )
+        return 0, "\n".join(logs_by_key.values()), repo_digest, image_identity, logs_by_key
 
     try:
         exit_code, logs, repo_digest, image_identity, logs_by_key = await asyncio.wait_for(
@@ -1113,7 +1159,10 @@ async def verify_worker_profile_runtime(
         (WorkerProfile.id == profile.id)
         & (WorkerProfile.v2_worker_image_identity_generation == identity_generation)
     )
-    verified_at = candidate_verified_at
+    # Persist the completion time, not the timestamp used while constructing
+    # the verification candidate. A Profile must never appear older than the
+    # verification operation that actually established its identity.
+    verified_at = utcnow()
     evidence_by_key = dict(candidate_evidence_by_key)
     if requires_v2_identity and set(evidence_by_key) != set(v2_harness_keys):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="worker_profile_verification_superseded")

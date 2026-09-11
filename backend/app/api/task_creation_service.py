@@ -95,8 +95,9 @@ def _task_creation_worker_profile_error_detail(
         return {
             "code": "worker_profile_runtime_not_verified",
             "message": (
-                "Worker Profile runtime verification is required. Verify the runtime "
-                "in Worker settings, then create the task again."
+                "Worker Profile runtime verification is still in progress or required. "
+                "Wait for verification to finish, or verify the runtime in Worker settings, "
+                "then create the task again."
             ),
         }
     return message

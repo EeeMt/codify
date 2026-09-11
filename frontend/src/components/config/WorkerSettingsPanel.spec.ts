@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { h } from 'vue'
+import { h, nextTick } from 'vue'
 import WorkerSettingsPanel from './WorkerSettingsPanel.vue'
 
 function createRuntimeConfig() {
@@ -702,6 +702,42 @@ describe('WorkerSettingsPanel', () => {
     expect(mockVerifyWorkerProfileRuntime).toHaveBeenCalledWith(1)
     expect(mockGetAdminWorkerProfiles).toHaveBeenCalledTimes(2)
     expect(mockMessage.success).toHaveBeenCalledWith('config.runtimeVerificationSucceeded')
+  })
+
+  it('does not show stale verification success while runtime verification is running', async () => {
+    mockGetAdminWorkerProfiles.mockResolvedValue([
+      createWorkerProfile({
+        worker_kit_source: 'system',
+        runtime_mode: 'mounted_kit',
+        runtime_verification: {
+          verified_at: '2026-08-15T00:30:00Z',
+          verified_runtime_configuration_digest: 'digest',
+          matches_current_input: true
+        }
+      })
+    ])
+    let resolveVerification!: (value: unknown) => void
+    mockVerifyWorkerProfileRuntime.mockImplementation(
+      () => new Promise((resolve) => {
+        resolveVerification = resolve
+      })
+    )
+    const wrapper = mount(WorkerSettingsPanel, {
+      props: { isMobile: false, reloadKey: 0 }
+    })
+    await flushPromises()
+
+    const status = wrapper.find('[data-testid="worker-profile-runtime-status"]')
+    expect(status.text()).toContain('config.profileRuntimeVerified')
+
+    const verification = (wrapper.vm as any).handleVerifyProfileRuntime()
+    await nextTick()
+
+    expect(status.text()).toContain('config.profileRuntimeVerifying')
+    expect(status.text()).not.toContain('config.profileRuntimeVerified')
+
+    resolveVerification({ ok: true })
+    await verification
   })
 
   it('reports a stale shared revision without claiming the save succeeded', async () => {

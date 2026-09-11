@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+import threading
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -1373,7 +1374,13 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
     first, second, third = MagicMock(), MagicMock(), MagicMock()
     client = MagicMock()
     client.create_container.side_effect = [first, second, third]
-    client.wait_for_container.return_value = (0, "verified")
+    wait_barrier = threading.Barrier(3)
+
+    def wait_for_container(_container, *, timeout):
+        wait_barrier.wait(timeout=5)
+        return 0, "verified"
+
+    client.wait_for_container.side_effect = wait_for_container
     identity = {
         "schema": "codify.worker-image-identity/v1", "daemon_key": "daemon-key-31",
         "image_reference": "team/java21-maven@sha256:" + "a" * 64,
@@ -1430,30 +1437,34 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
         response = await verify_worker_profile_runtime(31, WorkerRuntimeVerificationRequest(), db=db)
 
     assert response["v2_harnesses_verified"] == ["claude", "pi", "opencode"]
-    assert [call.kwargs["environment"]["CODIFY_HARNESS_KEY"] for call in client.create_container.call_args_list] == ["claude", "pi", "opencode"]
-    assert [
-        call.kwargs["environment"]["CODIFY_HARNESS_CLI_BIN"]
+    calls_by_harness = {
+        call.kwargs["environment"]["CODIFY_HARNESS_KEY"]: call
         for call in client.create_container.call_args_list
-    ] == [
-        "/opt/codify-kit/harness/claude/bin/claude",
-        "/opt/codify-kit/harness/pi/bin/pi",
-        "/opt/codify-kit/harness/opencode/bin/opencode",
-    ]
+    }
+    assert set(calls_by_harness) == {"claude", "pi", "opencode"}
+    assert {
+        key: call.kwargs["environment"]["CODIFY_HARNESS_CLI_BIN"]
+        for key, call in calls_by_harness.items()
+    } == {
+        "claude": "/opt/codify-kit/harness/claude/bin/claude",
+        "pi": "/opt/codify-kit/harness/pi/bin/pi",
+        "opencode": "/opt/codify-kit/harness/opencode/bin/opencode",
+    }
     expected_manifest = "/tmp/codify-runtime/orchestration/manifest.json"
     assert all(
         call.kwargs["environment"]["CODIFY_RUNTIME_VERIFICATION_MANIFEST"] == expected_manifest
-        for call in client.create_container.call_args_list
+        for call in calls_by_harness.values()
     )
     assert all(
         call.kwargs["environment"]["CODIFY_ORCHESTRATION_DIR"]
         == "/tmp/codify-runtime/orchestration"
-        for call in client.create_container.call_args_list
+        for call in calls_by_harness.values()
     )
     evidence = profile.v2_harness_verification_evidence
     assert set(evidence) == {"claude", "pi", "opencode"}
     assert evidence["pi"]["adapter"] == {"version": "pi-version", "digest": "p" * 64}
     assert evidence["opencode"]["verification_input_digest"] != evidence["pi"]["verification_input_digest"]
-    assert all(call.kwargs["start"] is False for call in client.create_container.call_args_list)
+    assert all(call.kwargs["start"] is False for call in calls_by_harness.values())
     assert client.put_archive.call_count == 3
     for put_call in client.put_archive.call_args_list:
         archive_bytes = put_call.args[2]
