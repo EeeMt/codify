@@ -24,6 +24,7 @@
 5. **Pi 无显式协议版本号**：RPC 事件不带 schema/version 字段；协议版本由 Pi CLI 版本 (`0.84.2`) 隐式承载，V2 固定该版本。
 6. **`followUpMode: one-at-a-time`** 与 `steeringMode: one-at-a-time` 为 get_state 暴露的控制面状态，映射到 V2 command 队列约束。
 7. **续会话帧是 `new_session`+`parentSession` 路径，不是 `resume` 或 `parentSessionId`。** 真实 0.84.2 对 `{"id":1,"type":"resume","sessionId":...}` 返回 `{"success":false,"error":"Unknown command: resume"}`；对 `{"id":1,"type":"new_session","parentSession":"/path/to/parent-session.jsonl"}` 返回 `success:true`，随后 `get_state` 返回新的子会话（新 sessionFile）。Codify 从 lineage 保存的 session ID 精确解析该文件；文件不存在时在启动前 fail-closed。首会话则为无 parent 的裸 `new_session`。
+8. **`steer`/`follow_up` 的 ACK 延迟是 turn 级，不是请求级。** probe 的短会话里 ACK 紧跟 `queue_update`，但在真实长 turn 中 ACK 会等到 turn 边界：Task `567`（Pi 0.84.2 / deepseek-flash）的 steer 于 `00:20:48` 写入原生 stdin，`steer success:true` 直到 `00:24:48` `agent_settled` 边界才返回（约 4 分钟）。因此控制面的等待窗口必须覆盖整个 turn（`pi_owner.NATIVE_COMMAND_ACK_TIMEOUT_SECONDS`、`control_client.SOCKET_TIMEOUT_SECONDS`、pump 的 `CONTROL_RESULT_TIMEOUT_SECONDS`/`CONTROL_TRANSPORT_TIMEOUT_SECONDS`）；任何请求级超时都会把**已投递**的命令误记为终态 `outcome_unknown`。
 
 ## 事件类型清单（Observed）
 

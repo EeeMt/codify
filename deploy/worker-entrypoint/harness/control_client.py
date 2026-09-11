@@ -26,6 +26,11 @@ SUPPORTED_FRAME_TYPES = {"steer", "follow_up"}
 # Liveness probe frame: proves the control endpoint is reachable without
 # touching the harness conversation (pump promotes starting -> accepting).
 PROBE_FRAME_TYPE = "get_state"
+# The owner only answers a ``steer``/``follow_up`` at Pi's next turn boundary,
+# so this must outlast the owner's own command window
+# (``pi_owner.NATIVE_COMMAND_ACK_TIMEOUT_SECONDS``) instead of cutting the
+# outcome off at a request round trip.
+SOCKET_TIMEOUT_SECONDS = 1830
 
 
 def _read_frame() -> dict:
@@ -81,7 +86,7 @@ def _forward_to_bridge(frame: dict) -> dict:
     connected = False
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(16)
+            client.settimeout(SOCKET_TIMEOUT_SECONDS)
             client.connect(socket_path)
             connected = True
             client.sendall(json.dumps(frame, separators=(",", ":")).encode() + b"\n")

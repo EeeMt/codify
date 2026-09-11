@@ -62,6 +62,49 @@ async def test_owner_waits_for_real_native_ack_and_fsyncs_journals(pi_owner, tmp
 
 
 @pytest.mark.asyncio
+async def test_owner_waits_out_a_late_steer_ack(pi_owner, tmp_path, monkeypatch):
+    """A turn-boundary steer ACK is delivery, not a timeout.
+
+    Pi only acknowledges ``steer`` at its next turn boundary, which is far
+    beyond a request round trip.  The handshake window is shrunk here so the
+    test stays fast while still proving the command path does not share it.
+    """
+    monkeypatch.setattr(pi_owner, "NATIVE_HANDSHAKE_ACK_TIMEOUT_SECONDS", 0.1)
+    fake_pi = tmp_path / "fake_pi.py"
+    fake_pi.write_text(
+        "import json,sys,time\n"
+        "for line in sys.stdin:\n"
+        " r=json.loads(line)\n"
+        " if r['type'] in ('steer','follow_up'):\n"
+        "  time.sleep(0.6)\n"
+        " print(json.dumps({'id':r['id'],'type':'response','command':r['type'],'success':True}),flush=True)\n",
+        encoding="utf-8",
+    )
+    owner = pi_owner.PiOwner(
+        [sys.executable, str(fake_pi)], tmp_path, tmp_path / "pi-control.sock"
+    )
+    await owner.start()
+    try:
+        outcome = await asyncio.wait_for(
+            owner.dispatch(
+                {
+                    "command_id": "cmd-slow",
+                    "type": "steer",
+                    "control_gate": "accepting",
+                    "payload": {"text": "x"},
+                }
+            ),
+            timeout=5,
+        )
+    finally:
+        assert owner.process is not None
+        owner.process.terminate()
+        await owner.process.wait()
+    assert outcome["status"] == "ack"
+    assert outcome["native_request_id"]
+
+
+@pytest.mark.asyncio
 async def test_owner_get_state_is_a_real_pi_roundtrip(pi_owner, tmp_path):
     fake_pi = tmp_path / "fake_pi.py"
     fake_pi.write_text(

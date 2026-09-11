@@ -49,13 +49,22 @@ logger = logging.getLogger(__name__)
 CONTROL_FRAME_VERSION = "1"
 
 DEFAULT_LEASE_TTL_SECONDS = 120
-# A Docker exec used for a control probe/close must never pin the scheduler
-# pump indefinitely.  The in-container client has its own 16s Unix-socket
-# timeout; this outer bound also covers a remote Docker API that stops
-# returning from put_archive/exec_start.
-CONTROL_TRANSPORT_TIMEOUT_SECONDS = 30
+# Docker API round trips (container lookup, put_archive, exec_start) must never
+# pin the scheduler pump indefinitely.
+CONTROL_LOOKUP_TIMEOUT_SECONDS = 30
+# A ``steer``/``follow_up`` is only ACKed at Pi's next turn boundary
+# (harness-probes/v2/pi), which can be many minutes after the native write; the
+# in-container owner waits ``pi_owner.NATIVE_COMMAND_ACK_TIMEOUT_SECONDS`` (1800s)
+# and its client waits 1830s on the Unix socket.  These outer bounds must exceed
+# both, otherwise a command that Pi really delivered is journaled as a false
+# ``outcome_unknown``.
+CONTROL_TRANSPORT_TIMEOUT_SECONDS = 1890
 CONTROL_RESULT_POLL_INTERVAL_SECONDS = 0.1
-CONTROL_RESULT_TIMEOUT_SECONDS = 20
+# Waiting out a whole turn at 10Hz would mean ~18k Docker archive reads, so the
+# poll interval backs off to this ceiling once the outcome is clearly not an
+# immediate round trip.
+CONTROL_RESULT_POLL_MAX_INTERVAL_SECONDS = 1.0
+CONTROL_RESULT_TIMEOUT_SECONDS = 1860
 
 # Result outcome strings returned by the fixed control_client transport.
 CONTROL_CLIENT_PATH = (
@@ -330,7 +339,7 @@ async def docker_exec_control_transport(
                     getattr(task, "container_id", None)
                     or f"{settings.worker_container_prefix}-{task.id}-issue{task.issue_id}",
                 ),
-                timeout=CONTROL_TRANSPORT_TIMEOUT_SECONDS,
+                timeout=CONTROL_LOOKUP_TIMEOUT_SECONDS,
             )
         except TimeoutError:
             logger.warning("Control container lookup timed out for task %s", task.id)
@@ -423,6 +432,7 @@ async def docker_exec_control_transport(
                     return stream.read() if stream is not None else b""
 
             deadline = time.monotonic() + CONTROL_RESULT_TIMEOUT_SECONDS
+            poll_interval = CONTROL_RESULT_POLL_INTERVAL_SECONDS
             while True:
                 for candidate_path in outcome_paths:
                     try:
@@ -448,7 +458,10 @@ async def docker_exec_control_transport(
                     break
                 if time.monotonic() >= deadline:
                     break
-                time.sleep(CONTROL_RESULT_POLL_INTERVAL_SECONDS)
+                time.sleep(poll_interval)
+                poll_interval = min(
+                    poll_interval * 2, CONTROL_RESULT_POLL_MAX_INTERVAL_SECONDS
+                )
 
             return {
                 "status": DISPATCH_UNKNOWN,

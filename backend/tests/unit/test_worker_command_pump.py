@@ -863,7 +863,7 @@ async def test_control_container_lookup_has_a_bounded_remote_docker_wait(monkeyp
         "find_task_container",
         slow_find_container,
     )
-    monkeypatch.setattr(module, "CONTROL_TRANSPORT_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(module, "CONTROL_LOOKUP_TIMEOUT_SECONDS", 0.01)
 
     result = await docker_exec_control_transport(
         {"type": "close"},

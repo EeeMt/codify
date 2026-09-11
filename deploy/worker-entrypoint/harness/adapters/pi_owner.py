@@ -21,6 +21,16 @@ from pathlib import Path
 
 PI_RPC_STREAM_LIMIT = 16 * 1024 * 1024
 
+# Pi answers ``prompt``/``get_state``/``new_session`` on the RPC round trip, so
+# the start-up handshake stays on a request-scale bound.
+NATIVE_HANDSHAKE_ACK_TIMEOUT_SECONDS = 15
+# ``steer``/``follow_up`` are only ACKed at Pi's next turn boundary
+# (harness-probes/v2/pi: ``queue_update`` + ``success:true``), which can be many
+# minutes after the native write.  That ACK is the only proof of delivery, so
+# the command window must outlast a whole turn instead of reusing the handshake
+# bound; a shorter wait turns a delivered command into a false outcome_unknown.
+NATIVE_COMMAND_ACK_TIMEOUT_SECONDS = 1800
+
 
 def _append_fsync(path: Path, item: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -350,7 +360,14 @@ class PiOwner:
             "_delivered_at": datetime.now(UTC).isoformat(),
         }
         native_id, response = await self._native_roundtrip(
-            frame["type"], (frame.get("payload") or {}).get("text"), native_id=native_id
+            frame["type"],
+            (frame.get("payload") or {}).get("text"),
+            native_id=native_id,
+            ack_timeout=(
+                NATIVE_COMMAND_ACK_TIMEOUT_SECONDS
+                if frame["type"] in {"steer", "follow_up"}
+                else NATIVE_HANDSHAKE_ACK_TIMEOUT_SECONDS
+            ),
         )
         try:
             response = await response
@@ -373,7 +390,10 @@ class PiOwner:
     async def _native_roundtrip(
         self, command: str, message: str | None = None, *, native_id: str | None = None,
         extra: dict | None = None,
+        ack_timeout: float | None = None,
     ):
+        if ack_timeout is None:
+            ack_timeout = NATIVE_HANDSHAKE_ACK_TIMEOUT_SECONDS
         if native_id is None:
             self.next_native_id += 1
             native_id = str(self.next_native_id)
@@ -386,7 +406,7 @@ class PiOwner:
         self.pending[native_id] = waiter
         self.process.stdin.write(json.dumps(native, separators=(",", ":")).encode() + b"\n")
         await self.process.stdin.drain()
-        return native_id, asyncio.wait_for(waiter, timeout=15)
+        return native_id, asyncio.wait_for(waiter, timeout=ack_timeout)
 
     async def serve(self) -> None:
         await self._start_server()
