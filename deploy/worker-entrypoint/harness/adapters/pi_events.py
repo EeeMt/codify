@@ -165,8 +165,66 @@ _STATE: dict = {
     "agent_end_success_line": None,
     "agent_settled_line": None,
     "last_raw_line": 0,
+    # Subagent adaptation (open-harness-v2-subagent-adaptation.md §6.4). The
+    # Kit-fixed `subagent` tool reports every child on the parent RPC stream:
+    # ``details.workflowChildren.children[]`` carries the native child run
+    # identity plus the role, and ``details.results[]`` carries that child's
+    # usage, tool trace and final output. Nothing is read from the plugin's
+    # work directory and nothing is derived from prompt text.
+    "delegations": {},   # tool_call_id -> merged child list + per-child emit flags
 }
 _REAL_SESSION_ID: str = ""
+
+# Parent-facing delegation tool registered by the Kit-fixed pi-subagents.
+SUBAGENT_TOOL_NAME = "subagent"
+# Native child states that end a delegation (plan §5.2 status vocabulary).
+_DELEGATION_TERMINAL_STATES = {
+    "completed": "completed",
+    "complete": "completed",
+    "failed": "failed",
+    "error": "failed",
+    "errored": "failed",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+    "stopped": "cancelled",
+    "aborted": "cancelled",
+}
+# Canonical types that may carry `payload.agent` (frozen backend vocabulary).
+_AGENT_ATTRIBUTED_EVENT_TYPES = frozenset(
+    {
+        "message.delta",
+        "message.completed",
+        "reasoning_summary.started",
+        "reasoning_summary.delta",
+        "reasoning_summary.completed",
+        "reasoning_summary.interrupted",
+        "tool.started",
+        "tool.completed",
+        "context.compacted",
+        "diagnostic",
+    }
+)
+
+
+def _emit(event_type: str, payload: dict, raw_line: int, agent: dict | None = None) -> None:
+    writer = os.environ["CODIFY_CANONICAL_EVENT_WRITER"]
+    if agent is not None and event_type in _AGENT_ATTRIBUTED_EVENT_TYPES:
+        payload = {**payload, "agent": agent}
+    subprocess.run(
+        [
+            sys.executable,
+            writer,
+            event_type,
+            "--payload-stdin",
+            "--raw-stream",
+            "harness-events/pi.jsonl",
+            "--raw-line",
+            str(raw_line),
+        ],
+        input=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(),
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
 
 
 def _capture_real_session_id(raw_text: str) -> None:
@@ -255,25 +313,6 @@ def _failure_kind(message: str) -> str:
 def _failure_message(value: object, fallback: str) -> str:
     """Return a sanitized, bounded message for canonical failure payloads."""
     return clean_message(sanitize(str(value or fallback)))[:_FAILURE_MESSAGE_MAX_CHARS]
-
-
-def _emit(event_type: str, payload: dict, raw_line: int) -> None:
-    writer = os.environ["CODIFY_CANONICAL_EVENT_WRITER"]
-    subprocess.run(
-        [
-            sys.executable,
-            writer,
-            event_type,
-            "--payload-stdin",
-            "--raw-stream",
-            "harness-events/pi.jsonl",
-            "--raw-line",
-            str(raw_line),
-        ],
-        input=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(),
-        check=True,
-        stdout=subprocess.DEVNULL,
-    )
 
 
 def _usage(record: dict) -> dict:
@@ -895,6 +934,197 @@ def _tool_output(record: dict) -> str:
     return json.dumps(sanitized, ensure_ascii=False, separators=(",", ":"))[:_TOOL_OUTPUT_MAX_CHARS]
 
 
+def _subagent_details(record: dict) -> dict | None:
+    """Structured child inventory the Kit-fixed plugin returns in its tool result.
+
+    ``tool_execution_end`` carries it under ``result`` and the streaming
+    ``tool_execution_update`` under ``partialResult``; both are native fields,
+    so no plugin work directory is ever read (plan §6.4).
+    """
+    for key in ("partialResult", "result"):
+        candidate = record.get(key)
+        if not isinstance(candidate, dict):
+            continue
+        details = candidate.get("details")
+        if isinstance(details, dict) and details:
+            return details
+    return None
+
+
+def _merged_children(details: dict) -> list[dict]:
+    """Pair each native child identity with its own run result.
+
+    ``workflowChildren.children[i]`` is the plugin's inventory (native
+    ``runId``, role, state); ``results[i]`` holds that child's usage, tool trace
+    and final output. Position is the plugin's own pairing key; nothing is
+    inferred from prompt text.
+    """
+    container = details.get("workflowChildren")
+    inventory = container.get("children") if isinstance(container, dict) else None
+    results = details.get("results") if isinstance(details.get("results"), list) else []
+    by_index: dict[int, dict] = {}
+    for result in results:
+        if isinstance(result, dict) and isinstance(result.get("index"), int):
+            by_index[result["index"]] = result
+    merged: list[dict] = []
+    if isinstance(inventory, list):
+        for position, child in enumerate(inventory):
+            if not isinstance(child, dict):
+                continue
+            merged.append({"child": child, "result": by_index.get(position, {})})
+    if merged:
+        return merged
+    return [{"child": {}, "result": result} for result in results if isinstance(result, dict)]
+
+
+def _delegation_identity(tool_call_id: str, child: dict, result: dict) -> tuple[str, str]:
+    """Return ``(tool_id, agent_id)`` for one child.
+
+    The delegation row id must be unique per child even when one ``subagent``
+    call fans out to several children, so it is scoped by the plugin's own
+    ``childId`` (or the result index). The agent id prefers the native child run
+    id and only falls back to the derived row id when the plugin reports none
+    (plan §6.4).
+    """
+    scope = child.get("childId") or child.get("key")
+    if not isinstance(scope, str) or not scope.strip():
+        index = result.get("index")
+        scope = str(index) if isinstance(index, int) else "0"
+    tool_id = f"{tool_call_id}:{scope.strip()}"
+    run_id = child.get("runId") or result.get("runId")
+    agent_id = run_id.strip() if isinstance(run_id, str) and run_id.strip() else tool_id
+    return tool_id, agent_id
+
+
+def _child_usage(result: dict) -> dict | None:
+    """Detail-only child usage; ``usage.final`` stays the attempt authority."""
+    usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
+    if not usage:
+        return None
+    detail = {}
+    for source_key, target_key in (
+        ("input", "input_tokens"),
+        ("output", "output_tokens"),
+        ("cacheRead", "cached_input_tokens"),
+    ):
+        value = usage.get(source_key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            detail[target_key] = value
+    return detail or None
+
+
+def _child_tool_rows(result: dict) -> list[str]:
+    """Bounded command texts the child actually ran, in native order."""
+    rows = []
+    tool_calls = result.get("toolCalls")
+    if not isinstance(tool_calls, list):
+        return rows
+    for entry in tool_calls:
+        text = entry.get("text") if isinstance(entry, dict) else None
+        if isinstance(text, str) and text.strip():
+            rows.append(text.strip())
+    return rows
+
+
+def _handle_subagent_tool(record: dict, raw_line: int) -> None:
+    """Project the Kit-fixed plugin's ``subagent`` tool onto delegation rows.
+
+    One parent tool call may fan out to several children, so this emits one
+    ``tool.started`` / ``tool.completed`` pair per child instead of a single
+    generic tool row. Everything comes from the native result payload: the
+    plugin's role, native run id, per-child state, usage, tool trace and final
+    output.
+    """
+    record_type = record.get("type")
+    tool_call_id = str(record.get("toolCallId") or "").strip()
+    if not tool_call_id:
+        _emit("diagnostic", {"code": "tool_missing_id", "name": SUBAGENT_TOOL_NAME}, raw_line)
+        return
+    details = _subagent_details(record)
+    if details is None:
+        # No child inventory yet (the call just started, or it is a
+        # management action such as `status`/`list`): keep the raw evidence and
+        # wait for the structured result instead of inventing a delegation.
+        _STATE["delegations"].setdefault(tool_call_id, {})
+        return
+    delegation = _STATE["delegations"].setdefault(tool_call_id, {})
+    for entry in _merged_children(details):
+        child = entry["child"]
+        result = entry["result"]
+        tool_id, agent_id = _delegation_identity(tool_call_id, child, result)
+        role = child.get("agent") or result.get("agent")
+        role = role.strip() if isinstance(role, str) and role.strip() else "agent"
+        child_state = entry["child"].get("state")
+        state = str(child_state or "").lower()
+        status = _DELEGATION_TERMINAL_STATES.get(state)
+        child_state_flags = delegation.setdefault(
+            tool_id,
+            {"started": False, "completed": False, "task": None},
+        )
+        task = result.get("task")
+        if not isinstance(task, str) or not task.strip():
+            summary = result.get("progressSummary")
+            task = summary.get("sessionName") if isinstance(summary, dict) else None
+        if not child_state_flags["started"]:
+            input_payload: dict = {"role": role}
+            if isinstance(task, str) and task.strip():
+                input_payload["task"] = clean_message(sanitize(task))
+            _emit(
+                "tool.started",
+                {
+                    "tool_id": tool_id,
+                    "name": "Subagent",
+                    "input": input_payload,
+                    "subagent": {"id": agent_id, "parent_id": "root", "role": role},
+                },
+                raw_line,
+            )
+            child_state_flags["started"] = True
+        if status is None or child_state_flags["completed"]:
+            continue
+        child_state_flags["completed"] = True
+        subagent = {"id": agent_id, "parent_id": "root", "role": role, "status": status}
+        usage = _child_usage(result)
+        if usage:
+            subagent["usage"] = usage
+        output = result.get("finalOutput")
+        _emit(
+            "tool.completed",
+            {
+                "tool_id": tool_id,
+                "name": "Subagent",
+                "output": output if isinstance(output, str) else "",
+                "error": status == "failed",
+                "subagent": subagent,
+            },
+            raw_line,
+        )
+        agent_ref = {"id": agent_id, "parent_id": "root", "role": role}
+        if isinstance(output, str) and output.strip():
+            # The child's final answer is its own row; it must never be folded
+            # into the root result (plan §5.4).
+            _emit(
+                "message.completed",
+                {"message_id": tool_id, "text": clean_message(sanitize(output))},
+                raw_line,
+                agent=agent_ref,
+            )
+        for position, command in enumerate(_child_tool_rows(result)):
+            command_id = f"{tool_id}:tool{position}"
+            _emit(
+                "tool.started",
+                {"tool_id": command_id, "name": "Bash", "input": {"command": command}},
+                raw_line,
+                agent=agent_ref,
+            )
+            _emit(
+                "tool.completed",
+                {"tool_id": command_id, "name": "Bash", "output": "", "error": False},
+                raw_line,
+                agent=agent_ref,
+            )
+
+
 def _handle_tool(record: dict, raw_line: int) -> None:
     """Map Pi tool_execution_* records to canonical tool.started/completed.
 
@@ -906,9 +1136,14 @@ def _handle_tool(record: dict, raw_line: int) -> None:
     """
     record_type = record.get("type")
     tool_call_id = str(record.get("toolCallId") or "").strip()
+    raw_tool_name = str(record.get("toolName") or "").strip().lower()
     tool_name = _display_tool_name(record.get("toolName"))
     if not tool_call_id:
         _emit("diagnostic", {"code": "tool_missing_id", "name": tool_name}, raw_line)
+        return
+    if raw_tool_name == SUBAGENT_TOOL_NAME:
+        # Delegation is projected per child, not as one generic tool row.
+        _handle_subagent_tool(record, raw_line)
         return
     tool_states = _STATE.setdefault("tool_starts", {})
     lifecycle = tool_states.setdefault(tool_call_id, {"started": False, "completed": False})

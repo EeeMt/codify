@@ -49,6 +49,10 @@ deploy/worker-cli/**
 !deploy/worker-cli/
 !deploy/worker-cli/kit-staging/
 !deploy/worker-cli/kit-staging/**
+# Codify policy for the pinned Pi extension (ceiling, agent definitions,
+# license, lockfile): a few KB, needed by the Kit build.
+!deploy/worker-cli/pi-subagents/
+!deploy/worker-cli/pi-subagents/**
 # Re-apply generated-file exclusions after the deploy negation above.
 deploy/**/__pycache__/
 deploy/**/*.py[cod]

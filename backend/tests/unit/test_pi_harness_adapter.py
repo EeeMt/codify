@@ -1869,3 +1869,204 @@ def test_pi_failed_eof_with_open_block_emits_interrupted_before_harness_terminal
         {"reasoning_id": "pi-thinking-1", "reason": "message_aborted"},
     ]
     assert writer.events[-1][0] == "harness.failed"
+
+
+def _turn_lifecycle() -> list[dict]:
+    """The minimal ordered turn Pi needs to settle successfully at EOF."""
+    return [
+        {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "done"}],
+                "stopReason": "stop",
+            },
+        },
+        {"type": "agent_end", "messages": []},
+        {"type": "agent_settled"},
+    ]
+
+
+def _subagent_details() -> dict:
+    """Native `subagent` tool details captured from the Kit-fixed plugin.
+
+    Shape taken verbatim from a real 0.84.2 + pi-subagents 0.67.0 run
+    (docs/harness-probes/v2/subagents/README.md); only ids and prompt text are
+    rewritten.
+    """
+    return {
+        "mode": "workflow",
+        "runId": "call_00_wf",
+        "workflowChildren": {
+            "version": 1,
+            "parentToolCallId": "call_00_wf",
+            "workflowRunId": "call_00_wf",
+            "inventoryComplete": True,
+            "workflowState": "completed",
+            "children": [
+                {
+                    "childId": "alpha",
+                    "state": "completed",
+                    "runId": "11111111-1111-4111-8111-111111111111",
+                    "agent": "delegate",
+                    "sessionName": "delegate: echo marker-alpha",
+                    "model": "codify/model",
+                },
+                {
+                    "childId": "beta",
+                    "state": "failed",
+                    "runId": "22222222-2222-4222-8222-222222222222",
+                    "agent": "reviewer",
+                    "sessionName": "delegate: echo marker-beta",
+                    "model": "codify/model",
+                },
+            ],
+        },
+        "results": [
+            {
+                "index": 0,
+                "agent": "delegate",
+                "exitCode": 0,
+                "outputState": "present",
+                "usage": {"input": 421, "output": 248, "cacheRead": 3712, "turns": 2},
+                "finalOutput": "The command ran successfully. Exact stdout: `marker-alpha`",
+                "toolCalls": [{"text": "$ echo marker-alpha"}],
+            },
+            {
+                "index": 1,
+                "agent": "reviewer",
+                "exitCode": 1,
+                "outputState": "present",
+                "usage": {"input": 400, "output": 200, "cacheRead": 0, "turns": 1},
+                "finalOutput": "could not run the command",
+                "toolCalls": [{"text": "$ echo marker-beta"}],
+            },
+        ],
+        "totalChildUsage": {"input": 821, "output": 448, "cacheRead": 3712, "turns": 3},
+    }
+
+
+def test_pi_subagent_tool_fans_out_to_one_delegation_row_per_child(tmp_path):
+    details = _subagent_details()
+    _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate(
+        tmp_path,
+        [
+            {
+                "type": "tool_execution_start",
+                "toolCallId": "call_00_wf",
+                "toolName": "subagent",
+                "args": {"workflowScript": "runs.all([...])"},
+            },
+            {
+                "type": "tool_execution_update",
+                "toolCallId": "call_00_wf",
+                "toolName": "subagent",
+                "partialResult": {"content": [], "details": details},
+            },
+            {
+                "type": "tool_execution_end",
+                "toolCallId": "call_00_wf",
+                "toolName": "subagent",
+                "result": {"content": [{"type": "text", "text": "done"}], "details": details},
+                "isError": False,
+            },
+        ]
+        + _turn_lifecycle(),
+    )
+
+    events = _events(tmp_path)
+    for event in events:
+        validate_event_v2(event)
+
+    started = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.started" and "subagent" in event["payload"]
+    ]
+    assert [payload["name"] for payload in started] == ["Subagent", "Subagent"]
+    # Native child run ids pass through the existing stable sanitizer, so only
+    # their distinctness is asserted here (plan §5.3).
+    child_ids = [payload["subagent"]["id"] for payload in started]
+    assert len(set(child_ids)) == 2
+    assert all(child_id.startswith("<UUID:") for child_id in child_ids)
+    assert [payload["subagent"]["role"] for payload in started] == ["delegate", "reviewer"]
+    assert all(payload["subagent"]["parent_id"] == "root" for payload in started)
+    # Row ids stay unique per child even though one parent call fanned out.
+    assert [payload["tool_id"] for payload in started] == ["call_00_wf:alpha", "call_00_wf:beta"]
+
+    completed = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.completed" and "subagent" in event["payload"]
+    ]
+    assert len(completed) == 2
+    assert [payload["subagent"]["status"] for payload in completed] == ["completed", "failed"]
+    assert [payload["error"] for payload in completed] == [False, True]
+    assert completed[0]["subagent"]["usage"] == {
+        "input_tokens": 421,
+        "output_tokens": 248,
+        "cached_input_tokens": 3712,
+    }
+
+    # Child final answers are attributed rows, never folded into the root text.
+    child_messages = {
+        event["payload"]["text"]: event["payload"]["agent"]["id"]
+        for event in events
+        if event["type"] == "message.completed" and "agent" in event["payload"]
+    }
+    assert sorted(child_messages) == [
+        "The command ran successfully. Exact stdout: `marker-alpha`",
+        "could not run the command",
+    ]
+    child_tools = [
+        (event["payload"]["agent"]["id"], event["payload"]["input"]["command"])
+        for event in events
+        if event["type"] == "tool.started" and "agent" in event["payload"]
+    ]
+    assert [command for _child, command in child_tools] == [
+        "$ echo marker-alpha",
+        "$ echo marker-beta",
+    ]
+    # Every surface of one child shares that child's identity: the delegation
+    # row, its final message and its tool rows never cross-pair.
+    for delegation in completed:
+        child_id = delegation["subagent"]["id"]
+        assert child_messages[
+            "The command ran successfully. Exact stdout: `marker-alpha`"
+            if "alpha" in delegation["output"]
+            else "could not run the command"
+        ] == child_id
+        assert any(candidate == child_id for candidate, _command in child_tools)
+    # Updates and the terminal repeat the same inventory: exactly one pair each.
+    assert len(
+        [e for e in events if e["type"] == "tool.completed" and "agent" in e["payload"]]
+    ) == 2
+
+
+def test_pi_subagent_tool_without_child_inventory_emits_no_delegation(tmp_path):
+    """A management call (`status`/`list`) must not fabricate a delegation row."""
+    _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate(
+        tmp_path,
+        [
+            {
+                "type": "tool_execution_start",
+                "toolCallId": "call_00_status",
+                "toolName": "subagent",
+                "args": {"action": "status"},
+            },
+            {
+                "type": "tool_execution_end",
+                "toolCallId": "call_00_status",
+                "toolName": "subagent",
+                "result": {"content": [{"type": "text", "text": "Spawn budget: 0/4 used"}]},
+                "isError": False,
+            },
+        ]
+        + _turn_lifecycle(),
+    )
+
+    events = _events(tmp_path)
+    assert not [event for event in events if event["type"] == "tool.started"]
+    assert not [event for event in events if event["type"] == "tool.completed"]

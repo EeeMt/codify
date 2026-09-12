@@ -107,6 +107,22 @@ claude_adapter_detect_capabilities() {
     claude_adapter_metadata | jq -ce '.capabilities'
 }
 
+# Whether the frozen Runtime Bundle claims verified Claude subagents.
+#
+# This is the §5.1 claim, not a switch: the runner exposes the `Agent` tool
+# unconditionally, and the manifest only says whether that path passed the
+# real-Task acceptance.
+claude_adapter_subagents_enabled() {
+    local manifest_path="${CODIFY_ORCHESTRATION_DIR:-}/manifest.json"
+    [ -r "${manifest_path}" ] || manifest_path="${ENTRYPOINT_LIB_DIR:-}/harness/manifest.json"
+    local declared
+    declared="$(jq -r '.adapters.claude.capabilities.subagents // false' "${manifest_path}" 2>/dev/null || true)"
+    case "${declared}" in
+        true) printf '1\n' ;;
+        *) printf '0\n' ;;
+    esac
+}
+
 claude_adapter_prepare_config() {
     mkdir -p /home/codify/.claude "${CODIFY_HARNESS_RAW_DIR}"
     codify_chown -R /home/codify/.claude "${CODIFY_HARNESS_RAW_DIR}"
@@ -119,6 +135,17 @@ claude_adapter_prepare_config() {
     export CODIFY_HARNESS_CONTROL_TRANSPORT_KIND="${CODIFY_HARNESS_CONTROL_TRANSPORT_KIND:-cli_stream_json}"
     export CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL="${CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL:-claude-json}"
     export CODIFY_HARNESS_MODEL_PROTOCOLS="${CODIFY_HARNESS_MODEL_PROTOCOLS:-anthropic_messages}"
+
+    # The runner always keeps the `Agent` delegation tool available and
+    # expresses isolation with explicit flags instead of `--bare`
+    # (open-harness-v2-subagent-adaptation.md §6.1). The manifest capability is
+    # the *claim* that this Bundle passed real-Task acceptance, so it stays
+    # false until then and only controls what the catalog advertises.
+    CODIFY_CLAUDE_SUBAGENTS="$(claude_adapter_subagents_enabled)"
+    export CODIFY_CLAUDE_SUBAGENTS
+    if [ "${CODIFY_CLAUDE_SUBAGENTS}" = "1" ]; then
+        echo "Claude manifest declares subagents: true"
+    fi
 
     local claude_system_prompt_file="/tmp/claude_system_prompt.txt"
     if [ -n "${APPEND_SYSTEM_PROMPT:-}" ]; then

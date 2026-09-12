@@ -77,6 +77,77 @@ pi_adapter_detect_capabilities() {
         "${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/manifest.json"
 }
 
+pi_adapter_subagent_payload_dir() {
+    # Kit-fixed payload root. It lives inside the Kit's immutable runtime
+    # closure, so it is resolved from the manifest's own ``runtime_bin`` rather
+    # than copied a second time into the image. The root holds Codify's policy
+    # (config.json, settings.json, the four agent definitions) plus the pinned
+    # upstream package under node_modules/pi-subagents, which is the load path.
+    # Absence is not an error: a Bundle built without it runs Pi without
+    # delegation.
+    local kit_home="${CODIFY_KIT_HOME:-/opt/codify-kit}"
+    local runtime_bin candidate
+    runtime_bin="$(jq -r '.runtime_bin // empty' "${kit_home}/manifest.json" 2>/dev/null || true)"
+    # The manifest reports the in-container store path; resolve it both through
+    # /nix/store (when the launcher has linked it) and directly under the
+    # mounted Kit so the lookup never depends on that link existing yet.
+    local store_relative="${runtime_bin#/nix/store/}"
+    store_relative="${store_relative%/bin}"
+    for candidate in \
+        "$(dirname "${runtime_bin:-/nonexistent}")/../lib/codify-pi-subagents" \
+        "${kit_home}/nix/store/${store_relative}/lib/codify-pi-subagents" \
+        "${kit_home}/harness/pi/extensions/pi-subagents"; do
+        if [ -f "${candidate}/config.json" ] \
+            && [ -f "${candidate}/node_modules/pi-subagents/index.ts" ]; then
+            (cd "${candidate}" && pwd -P)
+            return 0
+        fi
+    done
+    return 0
+}
+
+# Materialize the Codify capability ceiling for the Kit-fixed pi-subagents.
+#
+# The plugin reads its policy from ~/.pi/agent/extensions/subagent/config.json
+# and its agent inventory from ~/.pi/agent/agents, while Pi-level switches live
+# in ~/.pi/agent/settings.json. Only the four approved agents exist because the
+# bundle ships exactly those definitions and `disableBuiltins` hides the
+# plugin's own set (open-harness-v2-subagent-adaptation.md §6.4).
+pi_adapter_materialize_subagents() {
+    local payload_dir extension_dir
+    payload_dir="$(pi_adapter_subagent_payload_dir)"
+    if [ -z "${payload_dir}" ]; then
+        export CODIFY_PI_SUBAGENTS=0
+        return 0
+    fi
+    extension_dir="${payload_dir}/node_modules/pi-subagents"
+    export CODIFY_PI_SUBAGENT_EXTENSION="${extension_dir}"
+    export CODIFY_PI_SUBAGENTS=1
+
+    export CODIFY_PI_CLI_HOME="${CODIFY_PI_CLI_HOME:-/home/codify}"
+    local agent_dir="${CODIFY_PI_CLI_HOME}/.pi/agent"
+    local ceiling_dir="${agent_dir}/extensions/subagent"
+    mkdir -p "${ceiling_dir}" "${agent_dir}/agents"
+
+    cp "${payload_dir}/config.json" "${ceiling_dir}/config.json"
+    cp "${payload_dir}/agents/"*.md "${agent_dir}/agents/"
+
+    # Merge only the subagents block so any other Pi setting stays intact.
+    local settings_file="${agent_dir}/settings.json"
+    local fragment="${payload_dir}/settings.json"
+    if [ -f "${settings_file}" ]; then
+        jq -s '.[0] * .[1]' "${settings_file}" "${fragment}" > "${settings_file}.merged" \
+            && mv "${settings_file}.merged" "${settings_file}"
+    else
+        cp "${fragment}" "${settings_file}"
+    fi
+
+    chown -R "${CODIFY_RUN_UID:-1000}:${CODIFY_RUN_GID:-1000}" \
+        "${ceiling_dir}" "${agent_dir}/agents" "${settings_file}" 2>/dev/null || true
+    chmod 600 "${settings_file}" 2>/dev/null || true
+    printf 'Pi subagents enabled: %s (ceiling applied)\n' "${extension_dir}"
+}
+
 pi_adapter_prepare_config() {
     # Persist the Pi session on the issue-shared volume so a later continue task
     # can resume the same conversation across containers. Fall back to the
@@ -200,6 +271,7 @@ pi_adapter_prepare_config() {
         chown "${CODIFY_RUN_UID:-1000}:${CODIFY_RUN_GID:-1000}" "${models_file}" 2>/dev/null || true
         chmod 600 "${models_file}" 2>/dev/null || true
     fi
+    pi_adapter_materialize_subagents
     return 0
 }
 

@@ -214,15 +214,34 @@ fi
 # ── Build claude args ─────────────────────────────────────────────────────────
 CLAUDE_ARGS=(
   -p
-  --bare
   --output-format stream-json
   --verbose
   --include-partial-messages
 )
 
+# Isolation is expressed explicitly instead of with `--bare`. `--bare` is
+# minimal mode (no hooks, LSP, plugin sync, auto-memory, CLAUDE.md
+# auto-discovery) *and* sets CLAUDE_CODE_SIMPLE=1, which removes the `Agent`
+# delegation tool from the session — irreconcilable with §6.1. The three flags
+# below keep the same boundary directly: no user/project/local settings (so
+# repo hooks and permissions cannot load), no MCP configuration beyond an
+# explicit --mcp-config we never pass, and no skills. Probe evidence, including
+# the planted-hook control, is in docs/harness-probes/v2/subagents/README.md.
+# NOTE: `--bare` additionally skipped keychain reads; this runner authenticates
+# with ANTHROPIC_API_KEY against a task-local HOME, so there is no keychain.
+CLAUDE_ARGS+=(
+  --setting-sources ""
+  --strict-mcp-config
+  --disable-slash-commands
+)
+
 if [[ "$SANDBOX_MODE" == "1" ]]; then
   CLAUDE_ARGS+=(--dangerously-skip-permissions)
 else
+  # A Profile may pin its own ALLOWED_TOOLS; delegation must survive that.
+  if [[ ",${ALLOWED_TOOLS}," != *",Agent,"* ]]; then
+    ALLOWED_TOOLS="${ALLOWED_TOOLS},Agent"
+  fi
   CLAUDE_ARGS+=(--allowedTools "$ALLOWED_TOOLS")
 fi
 
