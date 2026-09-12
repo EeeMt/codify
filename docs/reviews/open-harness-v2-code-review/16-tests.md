@@ -30,7 +30,7 @@
 - **位置**：`backend/tests/mock_integration/docker-compose.mock-test.yml:69`（与 `:113`）
 - **证据**：compose 给 `backend`/`scheduler` 注入 `HARNESS_EXECUTION_MODE: dual_canary`；`backend/app/config.py:220-227` 的字段校验器只接受 `v2_only`（`raise ValueError("harness_execution_mode must be v2_only")`），`backend/app/core/harness_execution_policy.py:15` `HARNESS_EXECUTION_MODES = frozenset({"v2_only"})`，`backend/app/main.py:58` 与 `backend/app/scheduler_service.py:34` 启动时再次 `require_explicit_harness_execution_mode`。`Makefile:249-253` 仅使用该 compose 文件、`scripts/run-mock-stack.sh` 不覆盖该变量；对照 `deploy/docker-compose.yml:41,95`、`deploy/docker-compose.e2e.yml:47`、`deploy/.env.test:37` 全为 `v2_only`。实跑证明：`HARNESS_EXECUTION_MODE=dual_canary .venv/bin/python -c "from app.config import Settings; Settings()"` → `ValidationError: Value error, harness_execution_mode must be v2_only`。
 - **影响**：`make test-mock-integration` / `test-mock-integration-parallel` 的 backend 容器在加载配置时即退出、healthcheck 永不通过，`make test-all:508`（含 mock 集成）不可用；这是本次 V2 唯一的端到端 HTTP 验收层（`deploy/entrypoint.worker.sh` + 真 Worker 容器，约 246 个用例）被整体关掉。
-- **最小动作**：两处 `HARNESS_EXECUTION_MODE: v2_only`（或删掉让 `deploy/.env.test:37` 生效）
+- **最小动作**：删掉两处 `HARNESS_EXECUTION_MODE: dual_canary`（默认即 `v2_only`，无需显式配置）
 - **验证**：已实跑 settings 校验（命令与输出见上）；未启动 docker 栈验证容器退出码。
 
 ### TST-04 `protocol_error` 的"缺 init"（缺 `run.started`）分支无测试

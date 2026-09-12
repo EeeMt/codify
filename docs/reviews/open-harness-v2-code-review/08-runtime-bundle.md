@@ -37,7 +37,7 @@ Runtime Bundle 主体质量良好：digest 递归自受控文件清单、per-ada
 - **验证**：已运行无副作用内联复现（`cd backend && .venv/bin/python -c "..."`），输出：`eligible_v2 (verify gate): ('claude',)`、`profile_requires_content_inventory: False`、`scope A (legacy): loc`、`scope B (strict): d6e5b1284fec08d5...`。修复后建议补一条不打桩的门禁测试：向作用域 B 写入 `unavailable` 后 `create_task` 必须返回 409。本次**未运行**需要 DB/Docker 的端到端验证。
 
 ### RTB-02 `pi/v1` options 被校验并冻结，但 worker 侧无任何消费者
-- **判定**：FIX_IF_CHEAP —— Pi 非默认 harness，故不升为 FIX_NOW
+- **判定**：FIX_IF_CHEAP —— 与 PI-03 同根因，摘掉白名单一行即可
 - **位置**：`backend/app/core/harness_options.py:39`（提交 `cbad9e56`）
 - **证据**：`harness_options.py:39-43` 把 `thinking_level`/`steering_mode`/`follow_up_mode` 列为 `pi/v1` 的 Task override 白名单，`:72-95` 用 Pydantic 校验并给默认值；`core/worker_profiles.py:796-810`（`_freeze_harness_options`）与 `:959-960` 把结果冻结进 `harness_config_snapshot["options"]`，`core/worker_task_lifecycle.py:668-676` 按所选 Harness 写入 `CODIFY_HARNESS_OPTIONS_JSON`。但 worker 侧消费者只有两个：`deploy/worker-entrypoint/harness/adapters/codex.sh:123-145`（`reasoning_effort`）、`opencode.sh:143-172`（`agent`/`command`/`model_variant`）；全仓库 `CODIFY_HARNESS_OPTIONS_JSON` 命中仅这两处，`pi.sh`、`pi_bridge.py`、`pi_owner.py`、`harness/runners/pi-run.sh` 均不读取该变量，`pi.sh:184-200` 写出的 `models.json` 只有 provider/model/apiKey，无 thinking 字段。catalog 仍对外声明 `pi/v1` 与 steering/follow_up 能力（`core/harness_registry.py:463-490`、`deploy/worker-entrypoint/harness/manifest.json:97`）。
 - **影响**：`POST /api/tasks` 携带 `harness_options: {"pi": {"thinking_level": "high"}}`（或 Profile 默认值同理）会被接受、写入冻结快照并计入 `effective_configuration_digest`，但 Pi 仍按 CLI/模型默认思考级别执行：调用方看到的冻结执行契约与实际执行不一致，且没有任何日志/告警提示该选项未生效。与 `tasks/unit/test_harness_options.py` 的 16 条通过测试无关——那些测试只覆盖校验与合并，不覆盖消费。

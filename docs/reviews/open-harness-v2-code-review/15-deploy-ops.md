@@ -31,11 +31,11 @@
 | 判定 | 数量 |
 |---|---|
 | FIX_NOW | 5 |
-| FIX_IF_CHEAP | 9 |
+| FIX_IF_CHEAP | 8 |
 | DEFER | 1 |
-| ACCEPT/CLOSE | 2 |
+| ACCEPT/CLOSE | 3 |
 
-编排层主方向正确：`AUTO_MIGRATE` 收敛为 Scheduler 单一 migration owner（backend 固定 false），`HARNESS_EXECUTION_MODE` 必填且只接受 `v2_only`，Kit/镜像 preflight 与离线包校验链比 V1 更严。本轮 **FIX_NOW 5 项**（OPS-01、OPS-03、OPS-04、OPS-05、OPS-08），均为「照文档或默认路径执行即失败」。17 项按「3 人内网、人工发布、可停机、无 CI」画像处置：9 项 FIX_IF_CHEAP 顺手修，OPS-INFO-01/04 书面接受并关闭，OPS-INFO-06 列 DEFER 留待长期运行或外部工具需要时再管。
+编排层主方向正确：`AUTO_MIGRATE` 收敛为 Scheduler 单一 migration owner（backend 固定 false），`HARNESS_EXECUTION_MODE` 只接受 `v2_only`（本画像下应改为**默认值**、不再要求显式配置，也不做 canary），Kit/镜像 preflight 与离线包校验链比 V1 更严。本轮 **FIX_NOW 5 项**（OPS-01、OPS-03、OPS-04、OPS-05、OPS-08），均为「照文档或默认路径执行即失败」。17 项按「3 人内网、人工发布、可停机、无 CI」画像处置：8 项 FIX_IF_CHEAP 顺手修；OPS-09（canary/双轨回滚 runbook）、OPS-INFO-01/04 书面接受并关闭，OPS-INFO-06 列 DEFER 留待长期运行或外部工具需要时再管。
 
 **本专题触发条件**：
 - 无人值守发布或合规审计（OPS-INFO-01）
@@ -51,8 +51,8 @@
   - 实测：`cd deploy/offline-bundle && docker compose --env-file config/.env.offline.example -f docker-compose.yml config` → rc=15 `required variable HARNESS_EXECUTION_MODE is missing a value`；补上该变量后 → rc=15 `required variable MIGRATION_TARGET is missing a value`。
   - `config/.env.offline.example` 与 `docs/CONFIGURATION.md` 全文均无这两个键（grep 0 命中）；而 `deploy/offline-bundle/README.md:110` 指示「Run `./scripts/start.sh`」，`scripts/start.sh:22` 正是 `--env-file config/.env.offline -f docker-compose.yml up -d`。
   - 对照：`deploy/docker-compose.yml:153` 对同一变量使用 `${MIGRATION_TARGET:-}` 并注释「Blank is harmless during ordinary `docker compose config`」——即作者知道 `:?` 会破坏普通 compose 调用。
-- **影响**：按 README/CONFIGURATION 的离线部署步骤在目标主机执行 `./scripts/start.sh`，会在插值阶段直接失败，整栈（含不启用 `maintenance` profile 的默认路径）都起不来；这是离线交付的主路径。
-- **最小动作**：`config/.env.offline.example` 加 `HARNESS_EXECUTION_MODE=v2_only`；offline compose 的 `${MIGRATION_TARGET:?...}` → `${MIGRATION_TARGET:-}`（与 OPS-07 同一处改动）
+- **影响**：按 README/CONFIGURATION 的离线部署步骤在目标主机执行 `./scripts/start.sh`，会在插值阶段直接失败，整栈（含不启用 `maintenance` profile 的默认路径）都起不来；这是离线交付的主路径。要求「必须显式指定执行模式」本身与本画像不符（上线默认即 `v2_only`、无 canary）。
+- **最小动作**：把 `v2_only` 变成默认——`backend/app/config.py` 的 `harness_execution_mode` 默认 `v2_only`；compose 删除 `${HARNESS_EXECUTION_MODE:?…}` 必填插值（或改 `:-v2_only`）且模板不再需要该键；同时把 `${MIGRATION_TARGET:?...}` → `${MIGRATION_TARGET:-}`（与 OPS-07 同一处改动）
 - **验证**：已用 `docker compose config` 复现两次 rc=15；修复后同一命令应 rc=0。
 
 ### OPS-03 mock 集成 compose 仍写 `dual_canary`，backend/scheduler 启动即崩
@@ -67,7 +67,7 @@
 - **影响**：`make test-mock-integration`、`make test-mock-integration-parallel`（`Makefile:276/:304`）以及
   默认走 parallel 的 `make test-all`（`Makefile:497-508`）中，backend 与 scheduler 容器在加载 Settings 时
   就退出，healthcheck 永不通过，`up -d --wait` 超时，mock 集成套件整体不可运行。
-- **最小动作**：两行 `dual_canary` → `v2_only`
+- **最小动作**：删掉这两处 `HARNESS_EXECUTION_MODE: dual_canary`（默认即 `v2_only`，无需显式配置）
 - **验证**：已用 venv 实测 Settings 拒绝 `dual_canary`；未构建/启动容器（禁止构建）。
 
 ### OPS-04 E2E compose 的 migration 目标落后 4 个 revision，E2E 数据库 schema 与代码不符
@@ -114,7 +114,7 @@
 - **影响**：运维照 DEPLOYMENT.md §4.3 / DEVELOPMENT.md 执行，Backend 与 Scheduler 会在启动校验处
   fail-closed 退出（错误信息为 `HARNESS_EXECUTION_MODE must be one of ['v2_only']`），被误判为发布故障；
   `docker compose up` 之后的 health 门禁与 NGINX 也不会开放。
-- **最小动作**：6 处 `dual_canary` → `v2_only`，并注明该值随 hard cut 删除
+- **最小动作**：6 处改为「默认 `v2_only`、无需显式配置」，并删除 canary/双轨叙述
 - **验证**：文档按行号核对 + 代码侧已实测拒绝；未实际部署。
 
 ### OPS-02 真实密钥曾被提交入库，替换占位符后仍留在 git 历史中（未轮换）
@@ -149,7 +149,7 @@
 - **验证**：已用 `docker compose config` 复现渲染结果；未启动容器验证 unhealthy 表现。
 
 ### OPS-07 离线包 maintenance `migrate` 绕过 `run-migration-owner` 的 fail-closed 守卫
-- **判定**：FIX_IF_CHEAP —— 只在手动 `--profile maintenance` 时生效，非主路径
+- **判定**：FIX_IF_CHEAP —— 守卫非必须（可停机、可手工迁移），与 OPS-01 同一处编辑顺手对齐
 - **位置**：`deploy/offline-bundle/docker-compose.yml:128`
 - **证据**：离线包新增的 `migrate` 服务直接执行 `python3 -m alembic upgrade ${MIGRATION_TARGET:?...}`
   （`:123-128`），只校验「非空」；而开发 compose 走守卫脚本
@@ -163,7 +163,7 @@
 - **验证**：静态对照两侧 compose 与脚本；未在离线环境执行 maintenance 流程。
 
 ### OPS-09 多 Harness 上线 runbook 仍以 dual-canary/legacy V1 overlay 为前提，回滚步骤不可执行
-- **判定**：FIX_IF_CHEAP —— roll-forward-only 已是既定事实，只需防止照着走到死胡同
+- **判定**：ACCEPT/CLOSE —— canary 与 V1 双轨回滚本身是过度设计（回滚=重新部署上一版镜像/Kit）
 - **位置**：`docs/runbooks/multi-harness-rollout.md:34`（另见 `:11`、`:132`、`:211`、`:280`、`:286`、§8 `:259-268`）
 - **证据**：
   - `:11` / `:286`（本次改动新增句）「基础 Compose 保留 legacy V1 execution path；只有显式 V2 release overlay …」；
@@ -175,7 +175,7 @@
     `backend/app/core/harness_execution_policy.py:217-225` 与 `backend/app/api/task_action_routes.py:91-94`。
 - **影响**：运维按此 runbook 推进或回滚会指向不存在的路径（无 overlay、无 `dual_canary`、V1 smoke 无法创建），
   §8/§9 要求的「回滚演练」在实现上不可能完成；与 hard cut 事实上的 roll-forward-only 声明矛盾。
-- **最小动作**：文件头加一行“dual_canary/V1 overlay 段落作废；回滚=回到上一个 V2 release”，删掉 §8 第 7 步 V1 smoke
+- **动作**：不改代码（其 canary/回滚段落随 OPS-08 的文档清理一并删除）
 - **验证**：文档行号 + 代码/证据文档对照；未在任何环境演练回滚。
 
 ### OPS-10 生产密钥仍被引导写入仓库内被追踪的 `deploy/.env.test`（本次仅加了「不要写」的注释）

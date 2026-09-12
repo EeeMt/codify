@@ -18,10 +18,10 @@
 |---|---|
 | FIX_NOW | 0 |
 | FIX_IF_CHEAP | 1 |
-| DEFER | 3 |
-| ACCEPT/CLOSE | 2 |
+| DEFER | 2 |
+| ACCEPT/CLOSE | 3 |
 
-V2 迁移层结构正确、契约自洽：6 个新迁移构成单头线性链（HEAD 仅 `079_task_execution_timeout`），真实 PostgreSQL 上 `alembic upgrade head` 一次通过且重复执行幂等，CHECK/唯一约束/索引逐条落位，破坏性重命名与 roll-forward-only 降级拒绝同计划/架构文档一致。本轮 **FIX_NOW 为 0**；唯一 **FIX_IF_CHEAP** 是 MIG-01（ORM 声明 `server_default=0` 而 076/077 已删该默认值）。6 项按「硬切可停机、数据可重跑、内网 3 人」画像处置：3 项 DEFER、2 项书面接受并关闭（079 不回填历史 RUNNING Task，078 的缺口属文档而非缺陷）。
+V2 迁移层结构正确、契约自洽：6 个新迁移构成单头线性链（HEAD 仅 `079_task_execution_timeout`），真实 PostgreSQL 上 `alembic upgrade head` 一次通过且重复执行幂等，CHECK/唯一约束/索引逐条落位，破坏性重命名与 roll-forward-only 降级拒绝同计划/架构文档一致。本轮 **FIX_NOW 为 0**；唯一 **FIX_IF_CHEAP** 是 MIG-01（ORM 声明 `server_default=0` 而 076/077 已删该默认值）。6 项按「可停机、可硬切、数据可重跑、内网 3 人」画像处置：2 项 DEFER、3 项书面接受并关闭（079 不回填历史 RUNNING Task；078 的缺口属文档而非缺陷；「指定 revision + 唯一迁移 owner」的硬切门禁本身属过度设计）。
 
 **本专题触发条件**：
 - 出现绕过 ORM 写入 `worker_profiles` 的数据脚本（MIG-02 的 `runtime_mode` 默认值倒挂）
@@ -49,11 +49,11 @@ V2 迁移层结构正确、契约自洽：6 个新迁移构成单头线性链（
 - **验证**：本次已在真实 PG 复现两条插入路径的差异（`/tmp/parity5.py`）。修复后断言 `column_default = 'mounted_kit'` 且两条插入路径结果一致。
 
 ### MIG-INFO-03 Scheduler 启动即 `alembic upgrade head`，硬切 runbook 的“指定 revision + 唯一迁移 owner”门禁在正常启动路径上不生效
-- **判定**：DEFER —— 团队有意收敛（部署编排归属 T15），风险只在下一次破坏性迁移到货时兑现
+- **判定**：ACCEPT/CLOSE —— 「指定 revision + 唯一迁移 owner」门禁属过度设计（可停机、可手工重跑）
 - **位置**：`deploy/docker-compose.yml:90-93`（Scheduler `AUTO_MIGRATE=true`，提交 `5bd12616`）
 - **证据**：Scheduler 容器以 `command: ["python3","-m","app.scheduler_service"]` 启动，`backend/app/scheduler_service.py:37` 调 `run_migrations()`，`backend/app/migrations.py:37-44` 执行 `alembic upgrade head`；同一 patch 把 Backend 的 `AUTO_MIGRATE` 从 `true` 改为 `false`（同一文件 diff），因此不存在两个进程竞争迁移。计划要求的是一次性、由唯一 owner 指定**具体 revision** 执行并在维护窗口内完成（`docs/superpowers/plans/2026-08-21-open-harness-v2-implementation-plan.md:646-658`），`deploy/scripts/run-migration-owner.sh:7-13,68-80` 也强制目标不得是 `head` 且不得是当前 revision 的祖先；但正常启动路径走的是 `head`。开发环境实际是“先用迁移 owner 完成 077→078，再把拓扑收敛为 Scheduler 自动迁移”（`docs/superpowers/evidence/2026-09-09-open-harness-v2-r4.6-dev-hard-cut.md:52-55`），属有意收敛。
 - **影响**：任何一次携带新镜像的 Scheduler 重启都会自动应用等待中的迁移，包括 roll-forward-only、含 DELETE 的 078 与 079 的配置搬运，而未经 runbook 的“备份 + 确认命中行数 + 排空 Task”前置步骤。
-- **最小动作**：发布 checklist 加一行“携带新迁移发布前，先用 maintenance profile 按具体 revision 迁移”；不改 compose
+- **动作**：不改代码（发布时按 §8 的两条 SQL 核实并备份即可）
 - **验证**：静态阅读 compose/entrypoint/`migrations.py` 与 runbook；本次未执行 docker compose。
 
 ### MIG-INFO-04 `_validators.py` 与 `config_runtime.py` 各有一份 `_validate_config_value`，单测只覆盖非生产副本
