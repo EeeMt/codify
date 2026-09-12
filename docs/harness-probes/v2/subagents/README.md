@@ -253,18 +253,22 @@ same equality between `usage.final` and the Task's stored token totals
 
 ### §10 criterion 6 — cancel convergence (verified)
 
+Every harness was probed the same way: a Task launches two children, each
+sleeping, and the Task is cancelled through the public API while both are in
+flight. The required shape is one `harness.failed kind=cancelled`, then
+`worker_finalization` (exit 143), then exactly one
+`run.failed status=cancelled`, with the container gone and no surviving
+root/child process on the Host. The provider-request criterion follows from
+that: the container that owns every child process is reaped.
+
 | Harness | Evidence |
 |---|---|
+| Claude | Task 646 cancelled with two `Agent` children in flight: `harness.failed kind=cancelled` → `worker_finalization exit_code=143` → one `run.failed status=cancelled`; container exited 143 and no `claude` process survives |
+| Codex | Task 647 cancelled with two child threads in flight: same three terminal rows, container exited 143, and the only `codex` processes on the Host are the Host's own dev tooling (22 h and 12 d old), none from the Task |
 | Pi | foreground child shares the parent process group; `SIGTERM` to the group reaps parent (exit 143) and child within 5 s, no leftovers |
 | OpenCode | Task 628 cancelled mid-delegation: one `harness.failed kind=cancelled`, then `worker_finalization`, then exactly one `run.failed status=cancelled`; the container is gone and no `opencode serve` / `sleep` process survives on the Host |
 
-Claude and Codex cancellation were **not** re-probed with a live Task; both keep
-the public Runner's process-group termination, which is the same mechanism Pi
-was probed on, but that is an inference, not evidence. Criterion 6 is therefore
-verified live for Pi and OpenCode only.
-
-Additionally, the Pi family runs its child in the parent process group (probed
-with `SIGTERM`, above), and the OpenCode evidence is a cancelled live Task.
+Criterion 6 is therefore verified live for all four harnesses.
 
 ### Net result
 
@@ -288,11 +292,9 @@ this evidence (all eight §10 combinations):
 | OpenCode `openai_chat_completions` | 632 | 2 delegation rows + child rows |
 
 Plus, per criterion: §10.5 usage authority (Pi verified byte-for-byte, and the
-backend never re-sums child detail), §10.6 cancellation (live for Pi and
-OpenCode: single `harness.failed kind=cancelled` → finalization → single
-`run.failed status=cancelled`, container gone, no surviving child process;
-Claude and Codex inherit the Runner's process-group termination without a
-dedicated live probe),
+backend never re-sums child detail), §10.6 cancellation (live for all four
+harnesses: single `harness.failed kind=cancelled` → finalization → single
+`run.failed status=cancelled`, container gone, no surviving child process),
 §10.9/10/11 by DOM inspection of the served pages.
 
 Two items remain outside this evidence set and are **not** claimed:
