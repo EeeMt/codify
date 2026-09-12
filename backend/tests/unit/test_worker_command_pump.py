@@ -1821,3 +1821,208 @@ async def test_projector_keeps_delegation_status_and_usage_on_one_row(maker):
     assert row["subagent"]["status"] == "completed"
     assert row["subagent"]["usage"] == {"input_tokens": 1200, "output_tokens": 300}
     assert row["error"] is False
+
+
+async def test_projector_stores_no_output_payload_when_completion_has_none(maker):
+    """A tool that produced no output must not gain an empty output panel.
+
+    Adapters omit the `output` field rather than publishing an empty string, so
+    the row must not point at a payload that can only ever render empty (the
+    shape the served panel showed as "(空)").
+    """
+    task_id, attempt_id, _ = await _seed_task_with_commands(maker, count=0)
+    async with maker() as db:
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=2,
+                event_type="tool.started",
+                payload={"tool_id": "call-quiet", "name": "Bash", "input": {"command": "true"}},
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=3,
+                event_type="tool.completed",
+                payload={"tool_id": "call-quiet", "name": "Bash", "error": False},
+            ),
+        )
+        await db.commit()
+        rows = await _task_log_metadata(db, task_id, "tool_call")
+
+    assert len(rows) == 1
+    assert "output_payload_id" not in rows[0]
+    assert "output_char_count" not in rows[0]
+
+
+async def test_projector_settles_open_delegations_when_the_attempt_fails(maker):
+    """A cancelled attempt ends every delegation it left open (§10.10).
+
+    Cancel kills the harness process group, so the adapter cannot flush a
+    settlement for a child it had running (Task 653: two rows stayed without a
+    status). The attempt terminal is authoritative.
+    """
+    task_id, attempt_id, _ = await _seed_task_with_commands(maker, count=0)
+    async with maker() as db:
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=2,
+                occurred_at=f"2026-09-11T00:46:02Z",
+                event_type="tool.started",
+                payload={
+                    "tool_id": "call_00_wf:alpha",
+                    "name": "Subagent",
+                    "input": {"role": "worker"},
+                    "subagent": {"id": "call_00_wf:alpha", "parent_id": "root", "role": "worker"},
+                },
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=3,
+                occurred_at=f"2026-09-11T00:46:03Z",
+                event_type="harness.failed",
+                payload={"failure": {"kind": "cancelled", "message": "Cancelled by user"}},
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=4,
+                occurred_at=f"2026-09-11T00:46:04Z",
+                event_type="worker.finalization",
+                payload={"exit_code": 143},
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=5,
+                occurred_at=f"2026-09-11T00:46:05Z",
+                event_type="run.failed",
+                payload={
+                    "status": "cancelled",
+                    "success": False,
+                    "failure": {"kind": "cancelled", "message": "Cancelled by user"},
+                },
+            ),
+        )
+        await db.commit()
+        rows = await _task_log_metadata(db, task_id, "tool_call")
+
+    assert len(rows) == 1
+    assert rows[0]["subagent"]["status"] == "cancelled"
+
+
+async def test_projector_leaves_settled_delegations_and_child_rows_alone(maker):
+    """Settling at the terminal must not rewrite what already ended."""
+    task_id, attempt_id, _ = await _seed_task_with_commands(maker, count=0)
+    finished = _child("child-a", "worker")
+    async with maker() as db:
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=2,
+                occurred_at=f"2026-09-11T00:46:02Z",
+                event_type="tool.started",
+                payload={
+                    "tool_id": "call_a",
+                    "name": "Subagent",
+                    "input": {"role": "worker"},
+                    "subagent": finished,
+                },
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=3,
+                occurred_at=f"2026-09-11T00:46:03Z",
+                event_type="tool.completed",
+                payload={
+                    "tool_id": "call_a",
+                    "name": "Subagent",
+                    "output": "done",
+                    "error": False,
+                    "subagent": {**finished, "status": "completed"},
+                },
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=4,
+                occurred_at=f"2026-09-11T00:46:04Z",
+                event_type="harness.failed",
+                payload={"failure": {"kind": "cancelled", "message": "Cancelled by user"}},
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=5,
+                occurred_at=f"2026-09-11T00:46:05Z",
+                event_type="worker.finalization",
+                payload={"exit_code": 143},
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=6,
+                occurred_at=f"2026-09-11T00:46:06Z",
+                event_type="run.failed",
+                payload={
+                    "status": "cancelled",
+                    "success": False,
+                    "failure": {"kind": "cancelled", "message": "Cancelled by user"},
+                },
+            ),
+        )
+        await db.commit()
+        rows = await _task_log_metadata(db, task_id, "tool_call")
+
+    assert len(rows) == 1
+    assert rows[0]["subagent"]["status"] == "completed"

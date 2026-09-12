@@ -196,7 +196,8 @@ without `subagent`/`agent` metadata:
 ### Pi `0.84.2` + `pi-subagents 0.67.0` — resolved: three background routes closed
 
 The plugin offered three ways to leave the foreground path, each of which loses
-the child inventory; all three are closed by the vendor patch. The routes, the
+the child inventory; all three are closed by the vendor patch, together with the
+repository-controlled agent discovery described below. The routes, the
 patch and the final live evidence are in the
 [ceiling enforcement](#ceiling-enforcement-on-the-pinned-plugin) section below
 and in
@@ -243,13 +244,40 @@ The served page shows `Subagent · delegate #1/#2` (Completed, `2.1k`/`2.0k`
 tokens) with indented child rows carrying the matching badge, and
 `scrollWidth == clientWidth == 1512`.
 
-### §10 criterion 5 — usage authority (verified)
+### §10 criterion 5 — usage authority (verified, children included)
 
-Task 627's canonical `usage.final` is byte-identical to the native terminal
-usage in the same archive (input 3241, cached 8320, output 55); the two
-children's detail usage is *not* added on top. Every acceptance task shows the
-same equality between `usage.final` and the Task's stored token totals
-(621: 171/85, 622: 10812/36, 623: 23501/281, 627: 3241/55).
+§5.6 requires the attempt total to include every child when the native root
+total does not, and the first acceptance pass got that wrong: the root's own
+number was published while the children were kept as row detail only. The live
+numbers prove the root total never contained them — Task 627's root reported
+3241 input against 3836 for its two children, Task 623's root 23501 against
+12574 per child, Task 621's 171 against 688 + 698.
+
+All four adapters now add each child's leaf usage into the single `usage.final`
+(per key monotonic, so a re-reported cumulative snapshot cannot double count),
+the per-delegation detail stays on the row, and the backend still never sums it.
+Task 650 shows the shape: `usage.final` output 548 = root 95 + child 235 + 218,
+with both children's rows showing 235 / 218 tokens.
+
+A child whose own result carries no text is a separate matter: the plugin
+reports `outputState: "absent"` and `finalOutput: ""` (Task 648, child beta),
+so the timeline has no message row and no output to expand. Nothing is
+fabricated, and the plugin's artifact/session paths are deliberately not read
+(§4 non-goal: no side-channel event source).
+
+### §10 criterion 10 — delegation rows end in place (verified through the UI)
+
+Cancelling a Task kills the harness process group, so an adapter can be dead
+before it can close a running delegation (Task 653 cancelled with two open
+rows: both stayed without a status). The projector now settles every delegation
+row that still has no `subagent.status` when the attempt reaches
+`run.failed` — the attempt terminal is authoritative — and the adapters settle
+their own open rows on the paths they do reach. Cancelling Task 654 from the
+served UI shows both rows turning `Cancelled` in place.
+
+A delegation row and its child rows also publish no `output` field when the
+plugin reported no text, and the projector stores no output payload for it, so
+the panel no longer offers an expander that can only render empty.
 
 ### §10 criterion 6 — cancel convergence (verified)
 
@@ -344,13 +372,39 @@ only surfaced later through a `status` inventory with empty outputs. After the
 fix, the same prompt runs in the foreground and both children report their
 native usage and final output.
 
-Live evidence on the final artifacts (Kit `b5427d36336f`, Runtime Bundle 258):
+Live evidence on the final artifacts (Kit `a40d66420c10`, Runtime Bundle 262/263):
 
 | Task | Prompt | Observed |
 |---|---|---|
 | 644 | `workflowScript`, no `async` | 2 delegation rows, per-child usage, outputs carry `marker-alpha` / `marker-beta`, no childless row |
 | 645 | `async: true` | One bare `Subagent` row with `error: true` carrying the refusal text, then the model's foreground retry |
 | 643 (pre-fix) | `workflowScript`, no `async` | Detached: no child rows, only a bare "async run is detached" row |
+
+### The repository cannot inject agents (verified)
+
+The ceiling alone could not express one restriction the spec requires: project
+agent definitions, project settings and package-provided subagents are read from
+the cloned workspace, so a repository shipping `.pi/agents/*.md` could shadow a
+bundled agent, re-enable the plugin's own builtins through `.pi/settings.json`
+(`disableBuiltins: false`, `agentScanDirs`, provider/model/thinking overrides,
+`defaultExtensions`), or add package agents. The vendor patch therefore gates
+the four discovery sources behind `CODIFY_PI_SUBAGENT_ISOLATED=1`, which the Pi
+adapter exports whenever the ceiling is applied, and `install.sh` now applies
+the patch so a hand-staged payload cannot ship unpatched.
+
+Probe on the live Kit: with `.pi/agents/opencode-probe.md` and
+`.pi/settings.json` (`disableBuiltins: false`, `agentScanDirs: [".pi/agents"]`)
+planted in the task workspace, the plugin's own `action: "list"` answered
+
+```text
+User agents
+- delegate (user) ...
+- reviewer (user) ...
+- scout (user) ...
+- worker (user) ...
+```
+
+i.e. exactly the four Codify agents and nothing from the repository.
 
 A refused or management call is projected as exactly one bare `Subagent` tool
 row: it keeps the native message and `error` flag, and never fabricates a

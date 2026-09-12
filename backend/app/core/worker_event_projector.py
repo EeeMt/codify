@@ -374,6 +374,32 @@ class WorkerEventProjector:
         if tool_id and log.id:
             self._pending_tool_log_by_id[self._tool_row_key(payload, tool_id)] = log.id
 
+    async def _settle_open_delegations(self, db: AsyncSession, *, task_id: int) -> None:
+        """Mark delegation rows the attempt ended without settling.
+
+        Only rows that carry `subagent` but no `subagent.status` are touched: a
+        childless delegation row has no subagent, and a child's own message or
+        tool row carries `agent` instead, so neither is affected. The status is
+        `cancelled` because the child was interrupted, never completed.
+        """
+        rows = (
+            await db.execute(
+                select(TaskLog)
+                .where(TaskLog.task_id == task_id, TaskLog.log_type == "tool_call")
+                .order_by(TaskLog.id)
+            )
+        ).scalars()
+        for row in rows:
+            try:
+                metadata = json.loads(row.log_metadata or "{}")
+            except json.JSONDecodeError:
+                continue
+            subagent = metadata.get("subagent")
+            if not isinstance(subagent, dict) or subagent.get("status"):
+                continue
+            metadata["subagent"] = {**subagent, "status": "cancelled"}
+            row.log_metadata = _dumps(metadata)
+
     async def _find_tool_log(
         self,
         db: AsyncSession,
@@ -459,22 +485,29 @@ class WorkerEventProjector:
                 )
             )
             return
-        output = self._sanitize_sensitive_data(_text(payload.get("output")))
-        output_payload = await create_payload(
-            db,
-            task_id=task_id,
-            payload_kind="tool_output",
-            text=output,
-        )
+        # A completion without an `output` field means the tool produced none
+        # (an adapter omits the field rather than publishing an empty one). No
+        # payload is stored and no output pointer is recorded, so the served row
+        # does not offer an expander that can only ever be empty.
+        raw_output = payload.get("output")
+        has_output = isinstance(raw_output, str) and raw_output != ""
         metadata = json.loads(pending.log_metadata or "{}")
-        metadata.update(
-            {
-                "output_payload_id": output_payload.id,
-                "output_truncated": len(output) > 500,
-                "output_char_count": len(output),
-                "error": bool(payload.get("error", False)),
-            }
-        )
+        metadata["error"] = bool(payload.get("error", False))
+        if has_output:
+            output = self._sanitize_sensitive_data(_text(raw_output))
+            output_payload = await create_payload(
+                db,
+                task_id=task_id,
+                payload_kind="tool_output",
+                text=output,
+            )
+            metadata.update(
+                {
+                    "output_payload_id": output_payload.id,
+                    "output_truncated": len(output) > 500,
+                    "output_char_count": len(output),
+                }
+            )
         # The delegation row ends in place with the child's final status and
         # optional detail usage (plan §7.1.3). ``usage.final`` stays the only
         # authoritative attempt total; this is display-only.
@@ -585,6 +618,12 @@ class WorkerEventProjector:
                 attempt=ingest.attempt,
                 reason="harness reached terminal event",
             )
+            # A cancelled or failed attempt kills the harness process, so an
+            # adapter may never get to close the delegations it left open. The
+            # attempt terminal is authoritative, and §10.10 requires every
+            # delegation row to end in place rather than keep a spinner.
+            if event_type == "run.failed":
+                await self._settle_open_delegations(db, task_id=task_id)
 
         if event_type == "model.resolved":
             db.add(

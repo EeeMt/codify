@@ -79,3 +79,14 @@ not for terminal safety.
    end; `openai_responses` and `openai_chat_completions` still need a real Task.
 3. **Usage authority.** `usage.final` must be shown to match the provider total
    with children present (§5.6); the child detail is currently display-only.
+
+## Isolation from the workspace
+
+The repository is untrusted, and the plugin's discovery reads it: project agent
+directories (`<root>/.pi/agents`, `<root>/.agents`), project settings (provider,
+model, thinking, `disableBuiltins`, `agentScanDirs`, `defaultExtensions`) and
+package-provided subagents all come from the clone. The vendor patch gates those
+four sources behind `CODIFY_PI_SUBAGENT_ISOLATED=1`, which the Pi adapter exports
+with the ceiling, so only the four definitions installed into the task-local Pi
+home can exist. `install.sh` applies the patch, and the Kit build applies it in
+`deploy/worker-kit/default.nix`; both fail loudly if the patch is missing.
