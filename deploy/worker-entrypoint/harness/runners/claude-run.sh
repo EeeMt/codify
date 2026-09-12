@@ -118,7 +118,12 @@ if [[ -z "$PROMPT" ]]; then
 fi
 
 SANDBOX_MODE="${SANDBOX_MODE:-0}"
-ALLOWED_TOOLS="${ALLOWED_TOOLS:-Bash,Read,Edit,Write}"
+# ``Agent`` is Claude Code's delegation tool. It stays in the allow-list so a
+# subagent-capable Runtime Bundle can actually delegate
+# (open-harness-v2-subagent-adaptation.md §6.1); the model still decides whether
+# to use it, and the adapter attributes every child record via
+# ``parent_tool_use_id``.
+ALLOWED_TOOLS="${ALLOWED_TOOLS:-Bash,Read,Edit,Write,Agent}"
 APPEND_SYSTEM="${APPEND_SYSTEM_PROMPT:-}"
 APPEND_SYSTEM_FILE="${APPEND_SYSTEM_PROMPT_FILE:-}"
 CONTINUE_SESSION="${CONTINUE_SESSION:-0}"

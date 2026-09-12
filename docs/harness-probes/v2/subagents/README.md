@@ -17,7 +17,62 @@ validates the tree (`findings=0`).
 | Codex | `0.146.0` | `rpc_stdio` (`codex app-server --stdio`) | JSON-RPC notifications on the root subscription | [codex/collab-items.jsonl](codex/collab-items.jsonl) |
 | OpenCode | `1.18.19` | `server_http` (`GET /event` SSE) | Server-global SSE during one `task` delegation | [opencode/child-session.jsonl](opencode/child-session.jsonl) |
 
-## Claude `2.1.153`
+## Live acceptance on the development Host (2026-09-12)
+
+Kit `0.6.17-linux-amd64-8140c93eb09a` (built from this branch, all four harness
+CLIs, `subagents: false` in every manifest entry), Profile
+`v2-canary-four-harness` re-verified against it, Tasks created through the real
+API. Three results, all reproducible:
+
+### Claude `2.1.153` — blocked by the runner's `--bare`
+
+The frozen runner always passes `--bare`. On `2.1.153`, `--bare` removes the
+delegation tool entirely, so a Codify Claude Task can never call `Agent`
+(Task 616: the model answered *"There is no `Agent` tool in my available
+toolset — I only have `Bash`, `Edit`, and `Read`"*).
+
+Isolated on the Kit's own binary, same prompt, three flag combinations:
+
+| Invocation | tools the model actually got |
+|---|---|
+| `--bare --allowedTools "Bash,Read,Edit,Write,Agent"` | `Bash` |
+| `--allowedTools "Bash,Read,Edit,Write,Agent"` (no `--bare`) | **`Agent`, `Bash`** |
+| `--bare --dangerously-skip-permissions` | `Bash` |
+
+`Agent` was added to the runner's default allow-list, but that alone cannot
+enable delegation: **dropping `--bare` is required**, and `--bare` is what keeps
+user/project config, hooks and auto-discovery out of the worker. That
+substitution (explicit `--setting-sources`/`--strict-mcp-config` and friends)
+has not been designed or verified, so Claude `subagents` stays `false`.
+
+### OpenCode `1.18.19` — ran, delegation row not projected (unresolved)
+
+Task 617 (`harness=opencode`) completed on the new Kit. The root called the
+native `task` tool twice and both children returned `marker-alpha` /
+`marker-beta`; the canonical stream, however, projected them as plain
+`tool.started`/`tool.completed` rows named `Task` with **no** `subagent` detail,
+and no child-attributed events.
+
+Replaying that Task's own sanitized raw archive
+(`harness-events/opencode.jsonl`) through the **byte-identical** translator
+(`sha256 2b1116c0…`) produces the expected `Subagent` rows with
+`subagent.id` = the child session id, both with and without the
+`codify.root_session` control record. The live/offline difference is therefore
+not in the committed code and is still unexplained; it needs one more
+instrumented run (the child `session.created` records are also absent from the
+live archive, which the offline replay does not reproduce).
+
+### Pi `0.84.2` + `pi-subagents 0.67.0` — blocked by detached workflow runs
+
+See [../../../../deploy/worker-cli/pi-subagents/README.md](../../../../deploy/worker-cli/pi-subagents/README.md).
+
+### Net result
+
+No harness may declare `subagents: true` yet: every manifest entry stays
+`false`, which is the contract's fail-closed default. Phases 1–2 (vocabulary,
+validation, projection, frontend, and the three adapters) are verified by
+fixtures and unit tests; Phase 4 real-Task acceptance is **not** passed.
+
 
 - Delegation is the **`Agent`** tool (`tool_use.name == "Agent"`); its tool_use
   id is also the child's `parent_tool_use_id`, so one native id identifies both
