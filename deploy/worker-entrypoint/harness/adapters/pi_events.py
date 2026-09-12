@@ -962,19 +962,28 @@ def _merged_children(details: dict) -> list[dict]:
     container = details.get("workflowChildren")
     inventory = container.get("children") if isinstance(container, dict) else None
     results = details.get("results") if isinstance(details.get("results"), list) else []
-    by_index: dict[int, dict] = {}
-    for result in results:
-        if isinstance(result, dict) and isinstance(result.get("index"), int):
-            by_index[result["index"]] = result
+    result_entries = [entry for entry in results if isinstance(entry, dict)]
     merged: list[dict] = []
-    if isinstance(inventory, list):
-        for position, child in enumerate(inventory):
-            if not isinstance(child, dict):
-                continue
-            merged.append({"child": child, "result": by_index.get(position, {})})
+    if isinstance(inventory, list) and inventory:
+        # Positional pairing: the plugin's per-child ``index`` is NOT unique
+        # (a two-child fan-out reports index 0 twice), so it can never be a
+        # join key. ``children`` and ``results`` are both ordered by the
+        # workflow's own fan-out order.
+        if len(inventory) == len(result_entries):
+            for child, result in zip(inventory, result_entries):
+                if isinstance(child, dict):
+                    merged.append({"child": child, "result": result})
+        else:
+            by_index: dict[int, dict] = {}
+            for result in result_entries:
+                if isinstance(result.get("index"), int):
+                    by_index.setdefault(result["index"], result)
+            for position, child in enumerate(inventory):
+                if isinstance(child, dict):
+                    merged.append({"child": child, "result": by_index.get(position, {})})
     if merged:
         return merged
-    return [{"child": {}, "result": result} for result in results if isinstance(result, dict)]
+    return [{"child": {}, "result": result} for result in result_entries]
 
 
 def _delegation_identity(tool_call_id: str, child: dict, result: dict) -> tuple[str, str]:
@@ -1048,12 +1057,16 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
         _STATE["delegations"].setdefault(tool_call_id, {})
         return
     delegation = _STATE["delegations"].setdefault(tool_call_id, {})
+    # The final record is the last chance to settle a child: a terminal state
+    # that only ever appeared with a partial inventory must still produce one
+    # row, even though a complete one is preferable while the run is live.
+    is_final = record_type == "tool_execution_end"
     for entry in _merged_children(details):
         child = entry["child"]
         result = entry["result"]
         tool_id, agent_id = _delegation_identity(tool_call_id, child, result)
-        role = child.get("agent") or result.get("agent")
-        role = role.strip() if isinstance(role, str) and role.strip() else "agent"
+        native_role = child.get("agent") or result.get("agent")
+        role = native_role.strip() if isinstance(native_role, str) and native_role.strip() else "agent"
         child_state = entry["child"].get("state")
         state = str(child_state or "").lower()
         status = _DELEGATION_TERMINAL_STATES.get(state)
@@ -1066,6 +1079,12 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
             summary = result.get("progressSummary")
             task = summary.get("sessionName") if isinstance(summary, dict) else None
         if not child_state_flags["started"]:
+            # The plugin streams partial inventories: the first update for a
+            # child can still lack its role and native run id. Wait for a usable
+            # identity instead of freezing a placeholder row, but never drop a
+            # child — a terminal state emits with whatever is available.
+            if not native_role and not is_final:
+                continue
             input_payload: dict = {"role": role}
             if isinstance(task, str) and task.strip():
                 input_payload["task"] = clean_message(sanitize(task))
@@ -1082,12 +1101,20 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
             child_state_flags["started"] = True
         if status is None or child_state_flags["completed"]:
             continue
+        output = result.get("finalOutput")
+        complete = native_role is not None and (
+            isinstance(output, str) and output.strip()
+        )
+        if not complete and not is_final:
+            # Usage, tool trace and final answer arrive with the terminal
+            # result; settling on an earlier partial snapshot would publish an
+            # empty delegation output.
+            continue
         child_state_flags["completed"] = True
         subagent = {"id": agent_id, "parent_id": "root", "role": role, "status": status}
         usage = _child_usage(result)
         if usage:
             subagent["usage"] = usage
-        output = result.get("finalOutput")
         _emit(
             "tool.completed",
             {

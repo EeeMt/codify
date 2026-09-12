@@ -1933,7 +1933,9 @@ def _subagent_details() -> dict:
                 "toolCalls": [{"text": "$ echo marker-alpha"}],
             },
             {
-                "index": 1,
+                # The plugin repeats index 0 for a two-child fan-out, so the
+                # pairing must be positional, never by `index`.
+                "index": 0,
                 "agent": "reviewer",
                 "exitCode": 1,
                 "outputState": "present",
@@ -1957,6 +1959,21 @@ def test_pi_subagent_tool_fans_out_to_one_delegation_row_per_child(tmp_path):
                 "toolCallId": "call_00_wf",
                 "toolName": "subagent",
                 "args": {"workflowScript": "runs.all([...])"},
+            },
+            # A partial inventory arrives first: the child identity is not yet
+            # known, so no row may be published from it.
+            {
+                "type": "tool_execution_update",
+                "toolCallId": "call_00_wf",
+                "toolName": "subagent",
+                "partialResult": {
+                    "content": [],
+                    "details": {
+                        "mode": "workflow",
+                        "workflowChildren": {"children": [{"childId": "alpha", "state": "running"}]},
+                        "results": [],
+                    },
+                },
             },
             {
                 "type": "tool_execution_update",
@@ -1992,8 +2009,10 @@ def test_pi_subagent_tool_fans_out_to_one_delegation_row_per_child(tmp_path):
     assert all(child_id.startswith("<UUID:") for child_id in child_ids)
     assert [payload["subagent"]["role"] for payload in started] == ["delegate", "reviewer"]
     assert all(payload["subagent"]["parent_id"] == "root" for payload in started)
-    # Row ids stay unique per child even though one parent call fanned out.
+    # Row ids stay unique per child even though one parent call fanned out, and
+    # exactly one pair is emitted per child despite the repeated updates.
     assert [payload["tool_id"] for payload in started] == ["call_00_wf:alpha", "call_00_wf:beta"]
+    assert len([e for e in events if e["type"] == "tool.started" and "subagent" in e["payload"]]) == 2
 
     completed = [
         event["payload"]

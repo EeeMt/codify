@@ -196,15 +196,57 @@ two children interleaved in real arrival order, and
 Codex reports no child role, so `role` stays the neutral `agent`; the child
 identity is the sanitizer's stable pseudonym for the native child thread id.
 
+### Pi `0.84.2` + `pi-subagents 0.67.0` — PASSED on the development Host
+
+Task 627 (`harness=pi`, provider `anthropic_messages`) completed in ~75 s. The
+Kit-fixed extension is loaded through `--no-extensions -e <payload>` with the
+Codify ceiling applied; `vendor/force-foreground.patch` pins depth-0 launches to
+the foreground path so the tool result carries the child inventory. Projected
+`TaskLog` state:
+
+| Row | `name` | `agent` | `subagent` |
+|---|---|---|---|
+| delegation 1 | `Subagent` | – | `{id: <UUID:2d12cfab>, parent_id: root, role: delegate, status: completed, usage{input 1934, output 138, cached 1664}}` |
+| delegation 2 | `Subagent` | – | `{id: <UUID:ee6104d0>, parent_id: root, role: delegate, status: completed, usage{input 1902, output 96, cached 1664}}` |
+| child 1 message | `AI` | `{id: <UUID:2d12cfab>, parent_id: root, role: delegate}` | – |
+| child 1 tool | `Bash` | same child id | – |
+| child 2 message / tool | `AI` / `Bash` | `{id: <UUID:ee6104d0>, …}` | – |
+
+The served page shows `Subagent · delegate #1/#2` (Completed, `2.1k`/`2.0k`
+tokens) with indented child rows carrying the matching badge, and
+`scrollWidth == clientWidth == 1512`.
+
+### §10 criterion 5 — usage authority (verified)
+
+Task 627's canonical `usage.final` is byte-identical to the native terminal
+usage in the same archive (input 3241, cached 8320, output 55); the two
+children's detail usage is *not* added on top. Every acceptance task shows the
+same equality between `usage.final` and the Task's stored token totals
+(621: 171/85, 622: 10812/36, 623: 23501/281, 627: 3241/55).
+
+### §10 criterion 6 — cancel convergence (verified)
+
+| Harness | Evidence |
+|---|---|
+| Pi | foreground child shares the parent process group; `SIGTERM` to the group reaps parent (exit 143) and child within 5 s, no leftovers |
+| OpenCode | Task 628 cancelled mid-delegation: one `harness.failed kind=cancelled`, then `worker_finalization`, then exactly one `run.failed status=cancelled`; the container is gone and no `opencode serve` / `sleep` process survives on the Host |
+
+Claude and Codex cancellation were not re-probed in this pass; both keep the
+public Runner's process-group termination.
+
 ### Net result
 
-Codex (`openai_responses`) and OpenCode (`anthropic_messages`) pass the
-subagent acceptance end to end on the development Host: Kits, canonical events,
-`TaskLog` metadata, and the served browser. Claude is blocked by `--bare` and Pi
-by detached workflow runs.
+All four harnesses pass the core of the §10 matrix end to end on the development
+Host — Kits, canonical events, `TaskLog` metadata and the served browser — one
+model protocol each (Claude `anthropic_messages`, Codex `openai_responses`,
+OpenCode `anthropic_messages`, Pi `anthropic_messages`).
 
-**No manifest entry declares `subagents: true` yet.** Flipping one requires its
-own blocker resolved plus the rest of the §10 matrix for that harness — the
-cancel-convergence check, `usage.final` vs native totals, and the remaining
-model-protocol combinations (Pi's three, OpenCode's other two) — which this
-session did not run.
+**No manifest entry declares `subagents: true` yet.** What is still missing per
+harness, in §10 terms:
+
+| Harness | Still unproven |
+|---|---|
+| Pi | `openai_responses` and `openai_chat_completions` real Tasks |
+| OpenCode | `openai_responses` and `openai_chat_completions` real Tasks |
+| Claude | live cancellation, and the §9 note that `--bare` was replaced |
+| Codex | live cancellation and nested-delegation refusal on a real Task |
