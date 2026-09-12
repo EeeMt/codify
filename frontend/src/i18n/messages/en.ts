@@ -435,6 +435,7 @@ const en = {
     issue: 'Issue',
     status: 'Status',
     priority: 'Priority',
+    harness: 'Harness',
     branch: 'Branch',
     initiator: 'Initiator',
     mergeRequest: 'MR',

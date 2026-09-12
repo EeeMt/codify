@@ -4,6 +4,7 @@ import { h, ref, nextTick } from 'vue'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import TaskList from './TaskList.vue'
 import { createMockTask, createMockProject } from '../test/mocks/api'
+import type { Task } from '../api'
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -835,6 +836,16 @@ describe('TaskList', () => {
       return columns.find((c: any) => c.key === key)
     }
 
+    type DesktopColumnMeta = {
+      key: string
+      title?: string
+      render?: (row: Task, index: number) => unknown
+    }
+    type TaskListTestVm = {
+      allDesktopColumns: DesktopColumnMeta[]
+      filterConfig: { columns: Array<{ key: string; defaultVisible: boolean }> }
+    }
+
     it('renders status column with correct tag type for running', async () => {
       await mountComponent()
       const cols = (wrapper.vm as any).allDesktopColumns
@@ -948,6 +959,30 @@ describe('TaskList', () => {
       const cols = (wrapper.vm as any).allDesktopColumns
       const col = getColumn(cols, 'priority')
       expect(col.render(fullTask, 0)).toBe('P0')
+    })
+
+    it('renders harness column with localized label', async () => {
+      await mountComponent()
+      // `wrapper.vm` is ComponentPublicInstance-typed; the setup bindings need an unchecked cast.
+      const vm = wrapper.vm as unknown as TaskListTestVm
+      const col = vm.allDesktopColumns.find((c) => c.key === 'harness_key')
+      expect(col?.title).toBe('dashboard.harness')
+      expect(col?.render?.(createMockTask({ harness_key: 'codex' }), 0)).toBe('taskView.harnessCodex')
+      expect(col?.render?.(createMockTask({ harness_key: 'claude' }), 0)).toBe('taskView.harnessClaude')
+    })
+
+    it('renders harness column with dash when harness key is missing', async () => {
+      await mountComponent()
+      const vm = wrapper.vm as unknown as TaskListTestVm
+      const col = vm.allDesktopColumns.find((c) => c.key === 'harness_key')
+      expect(col?.render?.(minimalTask, 0)).toBe('-')
+    })
+
+    it('shows the harness column by default', async () => {
+      await mountComponent()
+      const vm = wrapper.vm as unknown as TaskListTestVm
+      const column = vm.filterConfig.columns.find((c) => c.key === 'harness_key')
+      expect(column?.defaultVisible).toBe(true)
     })
 
     it('renders branch column with branch name', async () => {

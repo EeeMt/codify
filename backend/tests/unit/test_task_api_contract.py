@@ -344,6 +344,7 @@ def test_task_response_preserves_required_frontend_fields() -> None:
         "worker_runtime_mode",
         "worker_kit_version",
         "worker_snapshot_created_at",
+        "harness_key",
         "created_at",
         "updated_at",
         "run_instruction_template",

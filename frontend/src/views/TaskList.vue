@@ -304,6 +304,7 @@ const filterConfig: FilterSortConfig = {
     { key: 'issue', label: 'dashboard.issue', defaultVisible: false },
     { key: 'status', label: 'dashboard.status', defaultVisible: true },
     { key: 'priority', label: 'dashboard.priority', defaultVisible: true },
+    { key: 'harness_key', label: 'dashboard.harness', defaultVisible: true },
     { key: 'branch_name', label: 'dashboard.branch', defaultVisible: false },
     { key: 'merge_request_url', label: 'dashboard.mergeRequest', defaultVisible: false },
     { key: 'changes', label: 'common.changes', defaultVisible: true },
@@ -451,6 +452,15 @@ function getInitiatorLabel(task: Task): string {
   return task.initiator_username?.trim() || '-'
 }
 
+function formatHarnessLabel(harnessKey?: string | null): string {
+  if (!harnessKey) return '-'
+  if (harnessKey === 'claude') return t('taskView.harnessClaude')
+  if (harnessKey === 'codex') return t('taskView.harnessCodex')
+  if (harnessKey === 'pi') return t('taskView.harnessPi')
+  if (harnessKey === 'opencode') return t('taskView.harnessOpenCode')
+  return harnessKey
+}
+
 function formatPrompt(value?: string | null): string {
   return value?.trim() || '-'
 }
@@ -571,6 +581,12 @@ const allDesktopColumns = computed<DataTableColumns<Task>>(() => {
       key: 'priority',
       width: 84,
       render: (row) => formatPriority(row.priority)
+    },
+    {
+      title: t('dashboard.harness'),
+      key: 'harness_key',
+      width: 92,
+      render: (row) => formatHarnessLabel(row.harness_key)
     },
     {
       title: t('dashboard.branch'),

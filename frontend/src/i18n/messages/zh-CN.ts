@@ -433,6 +433,7 @@ const zhCN = {
     issue: '议题',
     status: '状态',
     priority: '优先级',
+    harness: 'Harness',
     branch: '分支',
     initiator: '发起人',
     mergeRequest: 'MR',
