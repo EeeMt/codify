@@ -604,9 +604,110 @@ def test_completed_not_needed_rejects_uncollected_commit_lists(tmp_path, monkeyp
         assert task.commit_sha is None
 
 
-def test_failed_run_preserves_uncollected_commit_lists(tmp_path, monkeypatch):
+_ARCHIVED_PROVIDER_ERROR = "APIError: HTTP 429; upstream provider rate-limited the request"
+
+
+def test_failed_run_keeps_canonical_failure_message_over_archived_provider_error(
+    tmp_path, monkeypatch
+):
+    """DEL-01 (write path): the canonical terminal reason is not replaced.
+
+    The archived provider retry error must never overwrite the reason the
+    canonical terminal carries; the task row is what alerts and the API read.
+    """
     from app.models import Task, TaskStatus
 
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    monkeypatch.setattr(
+        worker_results,
+        "read_archived_harness_failure_detail",
+        lambda *args, **kwargs: _ARCHIVED_PROVIDER_ERROR,
+    )
+    task = Task(id=99, project_id=100, issue_id=1, user_prompt="p", status=TaskStatus.PENDING)
+    run_meta = {
+        "type": "run.failed",
+        "status": "failed",
+        "success": False,
+        "failure": {"kind": "engine_error", "message": "remote diverged from issue branch"},
+    }
+    _parse(task, {"exit_code": 1}, run_meta=run_meta, exit_code=1)
+
+    assert task.status == TaskStatus.FAILED
+    assert task.error_message == "remote diverged from issue branch"
+
+
+def test_cancelled_run_keeps_canonical_reason_over_archived_provider_error(
+    tmp_path, monkeypatch
+):
+    """DEL-01 (write path): a cancelled terminal keeps its cancelled reason."""
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    monkeypatch.setattr(
+        worker_results,
+        "read_archived_harness_failure_detail",
+        lambda *args, **kwargs: _ARCHIVED_PROVIDER_ERROR,
+    )
+    task = Task(id=99, project_id=100, issue_id=1, user_prompt="p", status=TaskStatus.PENDING)
+    run_meta = {
+        "type": "run.failed",
+        "status": "cancelled",
+        "success": False,
+        "failure": {"kind": "cancelled", "message": "Cancelled by user"},
+    }
+    _parse(task, {"exit_code": 1}, run_meta=run_meta, exit_code=1)
+
+    assert task.status == TaskStatus.CANCELLED
+    assert task.error_message == "Cancelled by user"
+
+
+def test_failed_run_fills_empty_canonical_reason_from_archive(tmp_path, monkeypatch):
+    """DEL-01 (write path): an empty canonical reason falls back to the archive."""
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    monkeypatch.setattr(
+        worker_results,
+        "read_archived_harness_failure_detail",
+        lambda *args, **kwargs: _ARCHIVED_PROVIDER_ERROR,
+    )
+    task = Task(id=99, project_id=100, issue_id=1, user_prompt="p", status=TaskStatus.PENDING)
+    # Legacy terminal with no failure payload at all: nothing canonical to keep.
+    run_meta = {"type": "run.failed", "status": "failed", "success": False}
+    _parse(task, {"exit_code": 1}, run_meta=run_meta, exit_code=1)
+
+    assert task.status == TaskStatus.FAILED
+    assert task.error_message == _ARCHIVED_PROVIDER_ERROR
+
+
+def test_failed_run_replaces_legacy_raw_payload_with_archive_detail(tmp_path, monkeypatch):
+    """DEL-01 (write path): a raw provider body is not kept as the reason."""
+    from app.models import Task, TaskStatus
+
+    monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
+    monkeypatch.setattr(
+        worker_results,
+        "read_archived_harness_failure_detail",
+        lambda *args, **kwargs: _ARCHIVED_PROVIDER_ERROR,
+    )
+    task = Task(id=99, project_id=100, issue_id=1, user_prompt="p", status=TaskStatus.PENDING)
+    run_meta = {
+        "type": "run.failed",
+        "status": "failed",
+        "success": False,
+        "failure": {
+            "kind": "engine_error",
+            "message": "HTTP 404: <!DOCTYPE html><script>raw payload</script>",
+        },
+    }
+    _parse(task, {"exit_code": 1}, run_meta=run_meta, exit_code=1)
+
+    assert task.status == TaskStatus.FAILED
+    assert task.error_message == _ARCHIVED_PROVIDER_ERROR
+
+
+def test_failed_run_preserves_uncollected_commit_lists(tmp_path, monkeypatch):
+    from app.models import Task, TaskStatus
     monkeypatch.setattr(worker_results, "_ARCHIVE_STORE", str(tmp_path))
     task = Task(id=99, project_id=100, issue_id=1, user_prompt="p", status=TaskStatus.PENDING)
     finalization = _gd_finalization(head_sha=_sha("h"))

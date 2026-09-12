@@ -42,21 +42,6 @@ def validate_harness_execution_mode(mode: str) -> str:
     return mode
 
 
-def require_explicit_harness_execution_mode(settings) -> str:
-    """Fail startup when deployment omitted ``HARNESS_EXECUTION_MODE``.
-
-    ``Settings`` retains a development-friendly typed default so pure imports
-    and tooling remain usable, but long-running Backend/Scheduler processes must
-    prove that their mode came from explicit configuration.
-    """
-    if "harness_execution_mode" not in getattr(settings, "model_fields_set", set()):
-        raise ExecutionPolicyError(
-            "HARNESS_EXECUTION_MODE must be explicitly configured for Backend and Scheduler",
-            code="missing_harness_execution_mode",
-        )
-    return validate_harness_execution_mode(settings.harness_execution_mode)
-
-
 def is_v2_only(mode: str) -> bool:
     """Return whether the only supported execution mode is selected."""
     return mode == "v2_only"

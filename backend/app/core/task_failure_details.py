@@ -18,6 +18,10 @@ _MAX_EVENT_MEMBER_BYTES = 2 * 1024 * 1024
 _MAX_FRAGMENT_LENGTH = 500
 _MAX_FAILURE_DETAIL_LENGTH = 1000
 _HTML_ERROR_MARKERS = ("<!doctype html", "<html", "<script", "__next_f")
+# Legacy Pi attempts could persist the whole upstream error body as the reason
+# (sometimes prefixed with the status line), so match markers, not only prefixes.
+_RAW_PAYLOAD_MARKERS = _HTML_ERROR_MARKERS + ("<body", "<head", "<?xml")
+_RAW_PAYLOAD_PREFIXES = ("{",)
 _HTTP_STATUS_RE = re.compile(r"^\s*(?:HTTP(?:Error)?\s*[:/]?\s*)?([1-5]\d{2})\b", re.IGNORECASE)
 
 
@@ -216,6 +220,29 @@ def _build_failure_detail(
 
     detail = ": ".join(parts[:1] + ["; ".join(parts[1:])]) if parts else ""
     return detail[:_MAX_FAILURE_DETAIL_LENGTH] or None
+
+
+def should_use_archived_failure_detail(canonical_message: str | None) -> bool:
+    """Return whether the archived projection should supply the failure text.
+
+    The archive is a fallback, not an override: it fills a missing canonical
+    reason, and it also still replaces the legacy shape in which a raw upstream
+    payload (HTML/JSON error body) was persisted verbatim as the reason.
+    Structured canonical reasons (cancelled / timeout / delivery failure) win.
+    """
+    message = (canonical_message or "").strip()
+    if not message:
+        return True
+    if len(message) > _MAX_FAILURE_DETAIL_LENGTH:
+        return True
+    # Strip a leading status clause ("HTTP 404: …") so a raw body that follows
+    # it is still recognised.
+    status = _HTTP_STATUS_RE.match(message)
+    body = message[status.end() :].lstrip(" :-\t") if status else message
+    lowered = body.lower()
+    return lowered.startswith(_RAW_PAYLOAD_PREFIXES) or any(
+        marker in lowered for marker in _RAW_PAYLOAD_MARKERS
+    )
 
 
 def read_archived_harness_failure_detail(

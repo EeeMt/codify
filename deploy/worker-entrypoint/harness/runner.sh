@@ -192,8 +192,10 @@ codify_harness_run() {
 }
 
 codify_harness_run_text() {
-    if ! codify_harness_capability_enabled "run_text" \
-        || ! declare -F adapter_run_text >/dev/null 2>&1; then
+    # The frozen V2 manifest no longer advertises run_text/codegraph, so judge
+    # the optional capability by the Adapter actually exporting it (codex
+    # exports a stub that returns non-zero and falls back, as before).
+    if ! declare -F adapter_run_text >/dev/null 2>&1; then
         echo "Harness Adapter does not support run_text" >&2
         return 1
     fi

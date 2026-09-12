@@ -656,7 +656,10 @@ async def get_task(
     result_data["git_delivery"] = git_delivery if isinstance(git_delivery, dict) else None
     archived_failure_detail = None
     if task.status in (TaskStatus.FAILED, TaskStatus.CANCELLED):
-        from app.core.task_failure_details import read_archived_harness_failure_detail
+        from app.core.task_failure_details import (
+            read_archived_harness_failure_detail,
+            should_use_archived_failure_detail,
+        )
         from app.core.worker import sanitize_sensitive_data
 
         archived_failure_detail = await asyncio.to_thread(
@@ -664,7 +667,12 @@ async def get_task(
             task.id,
             sanitize_sensitive_data,
         )
-        if archived_failure_detail:
+        if archived_failure_detail and should_use_archived_failure_detail(
+            result_data.get("error_message")
+        ):
+            # The canonical reason for cancelled / timeout / delivery failures
+            # must not be replaced by an unrelated provider retry error; only a
+            # missing or legacy raw-payload message falls back to the archive.
             result_data["error_message"] = archived_failure_detail
     queue_contexts = await compute_task_queue_contexts(db, [task])
     apply_queue_context(result_data, task.id, queue_contexts, current_user=_current_user)
@@ -707,14 +715,11 @@ async def get_task(
         result_data["attempt_harness_key"] = attempt_row.harness_key
 
     failure_summary = await load_task_failure_summary(db, task.id)
-    if (
-        archived_failure_detail
-        and failure_summary.get("failure_kind") != "protocol_error"
+    if archived_failure_detail and should_use_archived_failure_detail(
+        failure_summary.get("failure_message")
     ):
-        # Older Pi records could persist the raw provider response as the
-        # canonical failure message. Prefer the same bounded archive
-        # projection used for error_message so the summary cannot re-expose
-        # an immutable HTML/error payload.
+        # Same rule as error_message: the archive only supplies a missing or
+        # legacy raw-payload message, never replaces a structured reason.
         failure_summary["failure_message"] = archived_failure_detail
     result_data.update(failure_summary)
     t4 = time.time()

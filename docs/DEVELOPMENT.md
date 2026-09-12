@@ -129,7 +129,7 @@ HARNESS_EXECUTION_MODE=v2_only docker compose --env-file .env.test up -d backend
 ### 4.5 本地启动后端
 
 ```bash
-HARNESS_EXECUTION_MODE=dual_canary uvicorn app.main:app --reload
+uvicorn app.main:app --reload   # HARNESS_EXECUTION_MODE 默认 v2_only，无需设置
 ```
 
 默认后端地址通常是：

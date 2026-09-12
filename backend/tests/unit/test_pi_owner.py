@@ -6,12 +6,18 @@ import asyncio
 import importlib.util
 import json
 import os
+import shlex
 import stat
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+HARNESS_DIR = REPO_ROOT / "deploy/worker-entrypoint/harness"
+TRANSLATOR = HARNESS_DIR / "adapters/pi_events.py"
+EVENT_WRITER = HARNESS_DIR / "events.py"
 
 
 @pytest.fixture(scope="module")
@@ -493,6 +499,44 @@ async def test_owner_marks_protocol_failure_when_pi_exits_before_settled(pi_owne
 
 
 @pytest.mark.asyncio
+async def test_owner_records_failure_on_rejected_initial_prompt(pi_owner, tmp_path):
+    """A refused initial prompt never produces agent_settled.
+
+    Pi answers ``prompt`` with success=false before a turn starts (e.g. an
+    unknown model), so the owner must record the native rejection and stop; it
+    cannot wait for a settled turn that will never arrive (pre-fix: hung until
+    TASK_TIMEOUT).
+    """
+    fake_pi = tmp_path / "fake_pi.py"
+    fake_pi.write_text(
+        "import json,sys\n"
+        "for line in sys.stdin:\n"
+        " r=json.loads(line)\n"
+        " if r['type']=='prompt':\n"
+        "  print(json.dumps({'id':r['id'],'type':'response','command':'prompt',"
+        "'success':False,'error':'Model not found: codify/x'}),flush=True)\n"
+        " else:\n"
+        "  print(json.dumps({'id':r['id'],'type':'response','command':r['type'],"
+        "'success':True}),flush=True)\n",
+        encoding="utf-8",
+    )
+    owner = pi_owner.PiOwner(
+        [sys.executable, str(fake_pi)],
+        tmp_path,
+        tmp_path / "pi-control.sock",
+        prompt="do the thing",
+    )
+    await owner.start()
+    await asyncio.wait_for(owner.failed.wait(), timeout=5)
+    assert owner.failure is not None
+    assert "Pi rejected the initial prompt" in str(owner.failure)
+    assert "Model not found" in str(owner.failure)
+    assert not owner.settled.is_set()
+    owner.process.terminate()
+    await owner.process.wait()
+
+
+@pytest.mark.asyncio
 async def test_owner_fails_and_reaps_when_translator_exits_early(pi_owner, tmp_path):
     translator = tmp_path / "translator-exit.py"
     translator.write_text("raise SystemExit(0)\n", encoding="utf-8")
@@ -508,3 +552,102 @@ async def test_owner_fails_and_reaps_when_translator_exits_early(pi_owner, tmp_p
     owner.process.terminate()
     await owner.process.wait()
     assert owner.translator is not None and owner.translator.returncode == 0
+
+
+def _v2_owner_env(runtime_dir: Path) -> dict[str, str]:
+    return {
+        **os.environ,
+        "CODIFY_RUNTIME_CONTRACT_VERSION": "codify.worker.harness/v2",
+        "CODIFY_EVENT_SCHEMA": "codify.worker.event/v2",
+        "CODIFY_HARNESS_CONTROL_TRANSPORT_KIND": "rpc_stdio",
+        "CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL": "pi-rpc",
+        "CODIFY_HARNESS_MODEL_PROTOCOLS": "anthropic_messages",
+        "CODIFY_RUNTIME_DIR": str(runtime_dir),
+        "CODIFY_ATTEMPT_ID": "task-pi-attempt-1",
+        "TASK_ID": "9",
+        "CODIFY_HARNESS_KEY": "pi",
+        "CODIFY_ADAPTER_VERSION": "2.0.0",
+        "CODIFY_CLI_VERSION": "0.84.2",
+        "CODIFY_CANONICAL_EVENT_WRITER": str(EVENT_WRITER),
+        "CODIFY_HARNESS_RESULT_FILE": str(runtime_dir / "harness-result.json"),
+    }
+
+
+def test_owner_drains_translator_so_rejected_prompt_still_writes_terminal(tmp_path):
+    """A pre-drain failure must still produce the canonical terminal + result.
+
+    Driving the real ``pi_owner.py`` CLI with the real ``pi_events.py`` translator
+    and a stub Pi that rejects the initial prompt: the owner refuses to wait for a
+    turn that will never start, so the only chance to emit the terminal is the
+    owner's own drain. The translator's stdin must be closed (not SIGTERM'd) so it
+    reaches EOF, writes exactly one ``harness.failed`` (configuration_error) and
+    the result file the worker archives.
+    """
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    prompt = tmp_path / "prompt.txt"
+    prompt.write_text("do the thing\n", encoding="utf-8")
+    fake_pi = tmp_path / "fake_pi.py"
+    fake_pi.write_text(
+        "import json,sys\n"
+        "for line in sys.stdin:\n"
+        " r=json.loads(line)\n"
+        " if r['type']=='prompt':\n"
+        "  print(json.dumps({'id':r['id'],'type':'response','command':'prompt',"
+        "'success':False,'error':'Model not found: codify/x'}),flush=True)\n"
+        " else:\n"
+        "  print(json.dumps({'id':r['id'],'type':'response','command':r['type'],"
+        "'success':True}),flush=True)\n",
+        encoding="utf-8",
+    )
+    env = _v2_owner_env(runtime_dir)
+    # runner.sh emits run.started before the adapter runner starts.
+    subprocess.run(
+        [
+            sys.executable,
+            str(EVENT_WRITER),
+            "run.started",
+            "--payload",
+            json.dumps({"runtime_bundle_digest": "d" * 64}),
+        ],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(HARNESS_DIR / "adapters/pi_owner.py"),
+            "--socket",
+            str(tmp_path / "pi.sock"),
+            "--runtime-dir",
+            str(runtime_dir),
+            "--command",
+            shlex.join([sys.executable, str(fake_pi)]),
+            "--prompt-file",
+            str(prompt),
+            "--translator",
+            str(TRANSLATOR),
+            "--no-socket",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode != 0, proc.stdout + proc.stderr
+    assert "Pi rejected the initial prompt" in proc.stderr, proc.stderr
+    events = [
+        json.loads(line)
+        for line in (runtime_dir / "event.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    terminals = [e for e in events if e["type"] in {"harness.completed", "harness.failed"}]
+    assert [e["type"] for e in terminals] == ["harness.failed"], events
+    failure = terminals[0]["payload"]["failure"]
+    assert failure["kind"] == "configuration_error"
+    assert "Model not found" in failure["message"]
+    result = json.loads((runtime_dir / "harness-result.json").read_text(encoding="utf-8"))
+    assert result["status"] == "failed"
+    assert result["success"] is False
+    assert result["failure"]["kind"] == "configuration_error"

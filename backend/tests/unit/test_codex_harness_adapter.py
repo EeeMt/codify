@@ -55,7 +55,8 @@ def _environment(runtime_dir: Path) -> dict[str, str]:
 
 def _emit(runtime_dir: Path, event_type: str, payload: dict | None = None) -> None:
     subprocess.run(
-        ["python3", str(EVENT_WRITER), event_type, "--payload", json.dumps(payload or {})],
+        ["python3", str(EVENT_WRITER), event_type, "--payload-stdin"],
+        input=json.dumps(payload or {}),
         check=True,
         env=_environment(runtime_dir),
         capture_output=True,
@@ -515,7 +516,8 @@ def _v2_environment(runtime_dir: Path) -> dict[str, str]:
 
 def _emit_v2(runtime_dir: Path, event_type: str, payload: dict | None = None) -> None:
     subprocess.run(
-        ["python3", str(EVENT_WRITER), event_type, "--payload", json.dumps(payload or {})],
+        ["python3", str(EVENT_WRITER), event_type, "--payload-stdin"],
+        input=json.dumps(payload or {}),
         check=True,
         env=_v2_environment(runtime_dir),
         capture_output=True,
@@ -852,3 +854,20 @@ def test_codex_turn_failed_interrupts_open_reasoning(tmp_path):
             },
         )
     ]
+
+
+def test_codex_translator_emits_multi_megabyte_message_text(tmp_path):
+    # The adapter's writer call carries its payload on stdin. Before that, a
+    # multi-MB agent message reached the writer as one argv element, so
+    # `subprocess.run` raised OSError(E2BIG) and the translator died mid-stream,
+    # losing every following event of the attempt.
+    _emit(tmp_path, "run.started")
+    text = "z" * 2_000_000
+    _translate(
+        tmp_path,
+        {"type": "item.completed", "item": {"id": "item_big", "type": "agent_message", "text": text}},
+    )
+
+    completed = [event for event in _events(tmp_path) if event["type"] == "message.completed"]
+    assert len(completed) == 1
+    assert completed[0]["payload"]["text"] == text

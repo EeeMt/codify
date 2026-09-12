@@ -53,13 +53,8 @@ def _environment(runtime_dir: Path) -> dict[str, str]:
 
 def _emit(runtime_dir: Path, event_type: str, payload: dict | None = None) -> None:
     subprocess.run(
-        [
-            "python3",
-            str(EVENT_WRITER),
-            event_type,
-            "--payload",
-            json.dumps(payload or {}),
-        ],
+        ["python3", str(EVENT_WRITER), event_type, "--payload-stdin"],
+        input=json.dumps(payload or {}),
         check=True,
         env=_environment(runtime_dir),
         capture_output=True,
@@ -737,7 +732,8 @@ def test_event_writer_rejects_non_terminal_after_worker_finalization(tmp_path):
     _emit(tmp_path, "harness.completed")
     _emit(tmp_path, "worker.finalization", {"exit_code": 0})
     result = subprocess.run(
-        ["python3", str(EVENT_WRITER), "diagnostic", "--payload", '{}'],
+        ["python3", str(EVENT_WRITER), "diagnostic", "--payload-stdin"],
+        input="{}",
         check=False,
         env=_environment(tmp_path),
         capture_output=True,
@@ -751,7 +747,8 @@ def test_event_writer_rejects_duplicate_harness_terminal(tmp_path):
     _emit(tmp_path, "run.started")
     _emit(tmp_path, "harness.completed")
     result = subprocess.run(
-        ["python3", str(EVENT_WRITER), "harness.completed", "--payload", '{}'],
+        ["python3", str(EVENT_WRITER), "harness.completed", "--payload-stdin"],
+        input="{}",
         check=False,
         env=_environment(tmp_path),
         capture_output=True,
@@ -764,7 +761,8 @@ def test_event_writer_rejects_duplicate_harness_terminal(tmp_path):
 def test_event_writer_rejects_delivery_before_harness_terminal(tmp_path):
     _emit(tmp_path, "run.started")
     result = subprocess.run(
-        ["python3", str(EVENT_WRITER), "delivery.started", "--payload", '{"phase":"git"}'],
+        ["python3", str(EVENT_WRITER), "delivery.started", "--payload-stdin"],
+        input='{"phase":"git"}',
         check=False,
         env=_environment(tmp_path),
         capture_output=True,
@@ -1187,7 +1185,8 @@ def _v2_environment(runtime_dir: Path) -> dict[str, str]:
 
 def _emit_v2(runtime_dir: Path, event_type: str, payload: dict | None = None) -> None:
     subprocess.run(
-        ["python3", str(EVENT_WRITER), event_type, "--payload", json.dumps(payload or {})],
+        ["python3", str(EVENT_WRITER), event_type, "--payload-stdin"],
+        input=json.dumps(payload or {}),
         check=True,
         env=_v2_environment(runtime_dir),
         capture_output=True,
@@ -1414,7 +1413,8 @@ def test_claude_v1_translator_ignores_transport_env_exports(tmp_path):
         **CLAUDE_V2_TRANSPORT,  # exported vars present but contract is still V1
     }
     subprocess.run(
-        ["python3", str(EVENT_WRITER), "run.started", "--payload", '{}'],
+        ["python3", str(EVENT_WRITER), "run.started", "--payload-stdin"],
+        input="{}",
         check=True,
         env=env,
         capture_output=True,
@@ -1424,3 +1424,23 @@ def test_claude_v1_translator_ignores_transport_env_exports(tmp_path):
     assert event["schema"] == "codify.worker.event/v1"
     assert "control_transport" not in event["harness"]
     assert "model_protocols" not in event["harness"]
+
+
+def test_claude_translator_emits_multi_megabyte_message_text(tmp_path):
+    # The adapter's writer call carries its payload on stdin. Before that, a
+    # large assistant message (a Write tool input or a long answer) reached the
+    # writer as one argv element, so `subprocess.run` raised OSError(E2BIG),
+    # the translator died, and the attempt's result was never archived.
+    _emit(tmp_path, "run.started")
+    text = "z" * 2_000_000
+    _translate(
+        tmp_path,
+        {
+            "type": "assistant",
+            "message": {"id": "m-big", "content": [{"type": "text", "text": text}]},
+        },
+    )
+
+    completed = [event for event in _events(tmp_path) if event["type"] == "message.completed"]
+    assert len(completed) == 1
+    assert completed[0]["payload"]["text"] == text

@@ -38,7 +38,7 @@ services:
       - -m
       - alembic
       - upgrade
-      - ${MIGRATION_TARGET:-075_pi_command_dispatch_journal}
+      - ${MIGRATION_TARGET:-head}
     env_file:
       - .env.test
     environment:

@@ -370,10 +370,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("event_type")
     parser.add_argument("--payload", default="{}")
+    parser.add_argument("--payload-stdin", action="store_true")
     parser.add_argument("--raw-stream")
     parser.add_argument("--raw-line", type=int)
     args = parser.parse_args()
-    payload = json.loads(args.payload)
+    payload = json.loads(sys.stdin.read() if args.payload_stdin else args.payload)
     if not isinstance(payload, dict):
         raise ValueError("canonical event payload must be an object")
     raw_ref = None

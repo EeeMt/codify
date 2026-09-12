@@ -31,7 +31,7 @@ overlay 提供 V2 release lock 并允许 V2 execution。`v2_only` 才会拒绝 V
 | Kit harness inventory | `pi`、`opencode`、`claude`、`codex` 逐 key：availability 与 absent reason_code；present CLI 的 exact path/version/SHA-256 | 仅对 present key 逐 Harness 重新校验；absent 记录 reason，不伪造证据 |
 | Runtime Bundle/evidence | 每个 Harness 独立 Task snapshot、bundle digest、adapter version+digest、identity/evidence/platform | 以 DB-bound Bundle 与 verification evidence 为准 |
 | 协议 | Runtime contract `codify.worker.harness/v2`、Canonical Event `codify.worker.event/v1`、orchestration `1.0.0` | 不变量 |
-| Profile payload | `HARNESS_EXECUTION_MODE=dual_canary`；`enabled_harnesses=["pi","opencode","claude","codex"]`；V2 identity/evidence 完整 | 以生产 Profile snapshot 为准 |
+| Profile payload | 默认执行模式 `v2_only`（无需显式设置）；`enabled_harnesses=["pi","opencode","claude","codex"]`；V2 identity/evidence 完整 | 以生产 Profile snapshot 为准 |
 | 凭据交付 | 每个 Harness/Provider 的 `credential_ref`、权限边界、轮换记录与风险接受文档 | 逐 Profile/Provider 复核 |
 | 回滚坐标 | 当前稳定 legacy V1 Profile、Kit、runtime image 和 migration compatibility window | 发布前记录并保留 |
 

@@ -20,7 +20,10 @@ codify_emit_event() {
     if [ -z "${payload}" ]; then
         payload="{}"
     fi
-    python3 "${CODIFY_CANONICAL_EVENT_WRITER}" "${event_type}" --payload "${payload}" >/dev/null
+    # Payloads travel over stdin: a single argv element cannot exceed the kernel
+    # MAX_ARG_STRLEN (~128 KiB), which large tool inputs / event payloads hit.
+    printf '%s' "${payload}" \
+        | python3 "${CODIFY_CANONICAL_EVENT_WRITER}" "${event_type}" --payload-stdin >/dev/null
 }
 
 codify_event_type_exists() {

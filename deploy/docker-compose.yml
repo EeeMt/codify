@@ -38,7 +38,7 @@ services:
       - AUTO_MIGRATE=false
       # Plan §4.8: explicit harness execution mode; preflight compares the
       # values reported by the Backend and Scheduler /health endpoints.
-      - HARNESS_EXECUTION_MODE=${HARNESS_EXECUTION_MODE:?set HARNESS_EXECUTION_MODE to v2_only}
+      - HARNESS_EXECUTION_MODE=${HARNESS_EXECUTION_MODE:-v2_only}
       - COOKIE_SECURE=false
       # Custom CA certificate — mount from local file (not baked into image).
       # Place deploy/ca.crt on the Docker host; see .env.test for CUSTOM_CA_BUNDLE.
@@ -92,7 +92,7 @@ services:
       # disabled so two long-running processes never race on Alembic.
       - AUTO_MIGRATE=true
       # Must match the Backend value; the preflight script compares both.
-      - HARNESS_EXECUTION_MODE=${HARNESS_EXECUTION_MODE:?set HARNESS_EXECUTION_MODE to v2_only}
+      - HARNESS_EXECUTION_MODE=${HARNESS_EXECUTION_MODE:-v2_only}
       # Custom CA certificate is mounted from local file (not baked into image).
       # CUSTOM_CA_BUNDLE tells the scheduler and worker entrypoints where to find it.
       - CUSTOM_CA_BUNDLE=/etc/ssl/certs/custom-ca.crt

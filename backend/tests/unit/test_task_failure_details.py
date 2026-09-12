@@ -1,6 +1,8 @@
 import json
 import tarfile
 
+import pytest
+
 from app.core import task_failure_details
 from app.core.worker import sanitize_sensitive_data
 
@@ -138,3 +140,29 @@ def test_projects_legacy_pi_plain_error_with_a_bound(tmp_path, monkeypatch):
     detail = task_failure_details.read_archived_harness_failure_detail(137, lambda text: text)
 
     assert detail == "Pi provider connection failed"
+
+
+@pytest.mark.parametrize(
+    ("canonical", "expected"),
+    [
+        (None, True),
+        ("", True),
+        ("   \n ", True),
+        ("Cancelled by user", False),
+        ("Task execution timed out after 3600s", False),
+        ("git push rejected: remote diverged from the issue branch", False),
+        ("protocol_error: canonical attempt is missing a Task terminal", False),
+        ("engine_error", False),
+        ("<!DOCTYPE html><html><body>upstream error</body></html>", True),
+        ("HTTP 404: <!DOCTYPE html><script>raw payload</script>", True),
+        ("HTTP 404: <html><body>upstream error</body></html>", True),
+        ("\n  <html><body>upstream error</body></html>", True),
+        ("<?xml version='1.0'?><error>upstream</error>", True),
+        ('{"error": {"message": "upstream rate limited"}}', True),
+        ("e" * 1000, False),
+        ("e" * 1001, True),
+    ],
+)
+def test_should_use_archived_failure_detail_only_for_missing_or_raw_payload(canonical, expected):
+    """The archive is a fallback; a structured canonical reason always wins."""
+    assert task_failure_details.should_use_archived_failure_detail(canonical) is expected

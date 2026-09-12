@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import pytest
 
+from app.config import Settings
 from app.core.harness_execution_policy import (
     LEGACY_CONTRACT_NOT_EXECUTABLE,
     MISSING_EXECUTION_ATTEMPT,
@@ -14,7 +19,6 @@ from app.core.harness_execution_policy import (
     require_creatable_bundle_v2,
     require_executable_contract,
     require_executable_contract_v2,
-    require_explicit_harness_execution_mode,
     require_task_executable_contract,
     validate_harness_execution_mode,
 )
@@ -68,25 +72,30 @@ def test_rejects_unknown_mode():
     assert exc.value.code == "invalid_harness_execution_mode"
 
 
-def test_startup_requires_execution_mode_to_be_explicit():
-    implicit = type(
-        "Settings",
-        (),
-        {"harness_execution_mode": "v2_only", "model_fields_set": set()},
-    )()
-    with pytest.raises(ExecutionPolicyError) as exc:
-        require_explicit_harness_execution_mode(implicit)
-    assert exc.value.code == "missing_harness_execution_mode"
+def test_default_execution_mode_is_deployable_without_explicit_configuration():
+    """v2_only is the only legal mode, so the default must be deployable as-is.
 
-    explicit = type(
-        "Settings",
-        (),
-        {
-            "harness_execution_mode": "v2_only",
-            "model_fields_set": {"harness_execution_mode"},
-        },
-    )()
-    assert require_explicit_harness_execution_mode(explicit) == "v2_only"
+    Backend/Scheduler must not require ``HARNESS_EXECUTION_MODE`` to be set:
+    the config default is already the single supported value, and any other
+    value still fails closed in the field validator. Runs in a subprocess so
+    the suite's own env export cannot mask the default path.
+    """
+    env = {key: value for key, value in os.environ.items() if key != "HARNESS_EXECUTION_MODE"}
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from app.config import Settings; "
+            "settings = Settings(); "
+            "assert settings.harness_execution_mode == 'v2_only', settings.harness_execution_mode; "
+            "assert 'harness_execution_mode' not in settings.model_fields_set, settings.model_fields_set",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_is_v2_only_flag():

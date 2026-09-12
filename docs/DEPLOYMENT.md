@@ -17,7 +17,7 @@
 - `backend` 固定 `AUTO_MIGRATE=false`；`scheduler` 是唯一的启动阶段 migration owner，使用
   `AUTO_MIGRATE=true`
 - `nginx` 等待 Backend 与 Scheduler health 后才开放入口；正常上线不单独运行 `migrate` profile
-- `HARNESS_EXECUTION_MODE` 必须显式设置为 `dual_canary` 或 `v2_only`
+- `HARNESS_EXECUTION_MODE` 默认 `v2_only`，无需显式设置；`dual_canary` 已随硬切删除
 - PostgreSQL 数据挂载在 Docker volume `postgres_data`
 
 ## 2. 部署前准备
@@ -61,7 +61,7 @@
 - `TASK_TIMEOUT_PEAK_END`
 - `SCHEDULER_INTERVAL`
 - `DEFAULT_TARGET_BRANCH`
-- `HARNESS_EXECUTION_MODE`（验证阶段使用 `dual_canary`；硬切验收通过后才使用 `v2_only`）
+- `HARNESS_EXECUTION_MODE`（默认 `v2_only`，无需显式设置；`dual_canary` 已删除）
 
 #### 可选认证配置
 
@@ -131,7 +131,7 @@ HARNESS_EXECUTION_MODE=v2_only docker compose --env-file .env.production up -d b
 
 ```bash
 cd deploy
-HARNESS_EXECUTION_MODE=dual_canary docker compose up -d --build backend scheduler nginx
+docker compose up -d --build backend scheduler nginx
 ```
 
 启动后建议检查：

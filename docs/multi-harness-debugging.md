@@ -111,7 +111,7 @@
 2. `harness-events/<harness>.jsonl` 仍保存脱敏后的完整 native JSONL，不能被可读摘要替代；
 3. `console.log` 仍是 `Raw logs` 的唯一来源，继续走现有 `TaskRawLogChunk`、`/raw-log-stream` 和归档回填链路。
 
-执行前提统一为 `HARNESS_EXECUTION_MODE=v2_only`：四个 Harness 都由 Worker Kit 提供冻结 CLI，并由对应的 V2 Runtime Bundle 提供 Adapter、runner、translator 和公共 orchestration。V1/direct-script/`baked_image` 兼容执行不再保留；历史 V1/`baked_image` Task 及其 Snapshot 只作为只读审计数据，不迁移，也不允许 retry 或重新执行。
+执行前提统一为默认执行模式 `v2_only`（无需显式设置该变量）：四个 Harness 都由 Worker Kit 提供冻结 CLI，并由对应的 V2 Runtime Bundle 提供 Adapter、runner、translator 和公共 orchestration。V1/direct-script/`baked_image` 兼容执行不再保留；历史 V1/`baked_image` Task 及其 Snapshot 只作为只读审计数据，不迁移，也不允许 retry 或重新执行。
 
 “全部使用 Worker Kit”在本方案中的下线口径是：
 

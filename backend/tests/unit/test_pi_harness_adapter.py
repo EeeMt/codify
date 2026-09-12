@@ -741,25 +741,53 @@ def test_pi_prepare_config_exports_transport_env_defaults(tmp_path):
     )
 
 
-def test_pi_materializes_skills_to_pi_native_dir_not_claude(tmp_path):
-    skills_dir = tmp_path / "task-skills"
-    (skills_dir / "deploy-app").mkdir(parents=True)
-    (skills_dir / "deploy-app" / "SKILL.md").write_text(
-        "---\nname: deploy-app\ndescription: deploy\n---\nbody\n", encoding="utf-8"
-    )
+_SKILL_SNAPSHOT = "---\nname: deploy-app\ndescription: deploy\n---\nbody\n"
+
+
+def _pi_skills_env(tmp_path: Path, skills_dir: Path | None) -> dict[str, str]:
     env = {
         "CODIFY_RUNTIME_DIR": str(tmp_path),
         "CODIFY_ORCHESTRATION_DIR": str(REPO_ROOT / "deploy"),
         "CODIFY_RUN_UID": "1000",
         "CODIFY_RUN_GID": "1000",
+        # PI_HOME is application-private: Pi never scans it for skills.
         "PI_HOME": str(tmp_path / "pi-home"),
-        "CODIFY_TASK_SKILLS_DIR": str(skills_dir),
+        "CODIFY_PI_CLI_HOME": str(tmp_path / "cli-home"),
     }
-    result = _source_adapter("pi_adapter_materialize_skills", env)
+    if skills_dir is not None:
+        env["CODIFY_TASK_SKILLS_DIR"] = str(skills_dir)
+    return env
+
+
+def test_pi_materializes_task_skills_into_pi_agent_skills_dir(tmp_path):
+    """Pi loads skills from ${CODIFY_PI_CLI_HOME}/.pi/agent/skills, sourced from
+    the sealed per-task snapshot packaged as .claude/skills."""
+    skills_dir = tmp_path / "task-skills"
+    skill = skills_dir / ".claude/skills/deploy-app"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(_SKILL_SNAPSHOT, encoding="utf-8")
+    result = _source_adapter("pi_adapter_materialize_skills", _pi_skills_env(tmp_path, skills_dir))
     assert result.returncode == 0, result.stderr
-    # Materialized under Pi's native skills dir, NOT a .claude intermediate.
-    assert (tmp_path / "pi-home/skills/deploy-app/SKILL.md").exists()
-    assert not (tmp_path / "pi-home/.claude").exists()
+    assert (tmp_path / "cli-home/.pi/agent/skills/deploy-app/SKILL.md").read_text(
+        encoding="utf-8"
+    ) == _SKILL_SNAPSHOT
+    assert not (tmp_path / "pi-home").exists()
+
+
+def test_pi_materialize_skills_fails_closed_without_snapshot(tmp_path):
+    # A declared snapshot without .claude/skills must not silently start a task
+    # with no Skills at all.
+    skills_dir = tmp_path / "task-skills"
+    skills_dir.mkdir()
+    missing = _source_adapter(
+        "pi_adapter_materialize_skills", _pi_skills_env(tmp_path, skills_dir)
+    )
+    assert missing.returncode != 0
+    assert "does not contain skills" in missing.stderr
+
+    # No snapshot declared: nothing to materialize.
+    absent = _source_adapter("pi_adapter_materialize_skills", _pi_skills_env(tmp_path, None))
+    assert absent.returncode == 0, absent.stderr
 
 
 def test_pi_verify_runtime_enforces_pinned_cli_version(tmp_path):
@@ -1592,7 +1620,35 @@ def test_pi_unknown_raw_type_emits_unknown_raw_event():
     assert codes == ["unknown_raw_event"], codes
 
 
+def _v2_control_envelope(event_type: str, payload: dict, seq: int = 1) -> dict:
+    """Wrap a translator payload in the V2 envelope the backend validator reads."""
+    return {
+        "schema": CANONICAL_EVENT_SCHEMA_V2,
+        "event_id": f"pi-test-control-{seq}",
+        "attempt_id": "task-pi-attempt-1",
+        "seq": seq,
+        "occurred_at": f"2026-08-01T00:00:{seq:02d}Z",
+        "type": event_type,
+        "task_id": 9,
+        "harness": {
+            "key": "pi",
+            "adapter_version": "2.0.0",
+            "cli_version": "0.84.2",
+            "control_transport": {"kind": "rpc_stdio", "protocol": "pi-rpc"},
+            "model_protocols": ["anthropic_messages"],
+        },
+        "payload": payload,
+    }
+
+
 def test_pi_rejected_native_ack_maps_control_command_rejected():
+    """A native response with success=false becomes control.command.rejected.
+
+    The owner only ever attaches ``command_id``/``sequence_no``/``payload_digest``/
+    ``_delivered_at`` to ``__command_ack``; Pi's ``error`` is the sole rejection
+    reason on the wire, so the translator must synthesize a rejection_message the
+    backend validator accepts instead of forwarding a null one.
+    """
     import pi_events
 
     _reset_pi_state()
@@ -1603,19 +1659,82 @@ def test_pi_rejected_native_ack_maps_control_command_rejected():
             "type": "response",
             "command": "follow_up",
             "success": False,
+            "error": "follow_up refused: control gate is closing",
             "__command_ack": {
                 "command_id": "cmd-rejected-1",
-                "payload_digest": "d1",
                 "sequence_no": 3,
-                "rejection_code": "delivery_outcome_unknown",
+                "payload_digest": "d1",
+                "_delivered_at": "2026-08-01T00:00:00+00:00",
             },
         },
         13,
     )
-    delivered = [p for t, p, _ in writer.events if t == "control.command.rejected"]
-    assert len(delivered) == 1
-    assert delivered[0]["command_id"] == "cmd-rejected-1"
-    assert delivered[0]["sequence_no"] == 3
+    rejected = [p for t, p, _ in writer.events if t == "control.command.rejected"]
+    assert len(rejected) == 1
+    normalized = validate_event_v2(
+        _v2_control_envelope("control.command.rejected", rejected[0])
+    )
+    payload = normalized["payload"]
+    assert payload["command_id"] == "cmd-rejected-1"
+    assert payload["sequence_no"] == 3
+    assert payload["rejection_code"] == "delivery_outcome_unknown"
+    assert "control gate is closing" in payload["rejection_message"]
+
+    # A native rejection that carries no error text must still publish a
+    # non-empty reason rather than an invalid null.
+    writer.events.clear()
+    pi_events.translate(
+        {
+            "type": "response",
+            "command": "follow_up",
+            "success": False,
+            "__command_ack": {
+                "command_id": "cmd-rejected-2",
+                "sequence_no": 4,
+                "payload_digest": "d2",
+            },
+        },
+        14,
+    )
+    fallback = [p for t, p, _ in writer.events if t == "control.command.rejected"]
+    assert len(fallback) == 1
+    normalized = validate_event_v2(
+        _v2_control_envelope("control.command.rejected", fallback[0])
+    )
+    assert normalized["payload"]["rejection_message"]
+
+
+def test_pi_rejected_initial_prompt_emits_one_configuration_failure_terminal(tmp_path):
+    """A refused initial prompt ends the attempt immediately.
+
+    Pi answers ``prompt`` with success=false before accepting any turn, so no
+    agent_start/agent_settled ever arrives. The translator must record the
+    native rejection as the terminal (configuration_error for an unknown model)
+    instead of falling through to the EOF protocol_error/timeout path.
+    """
+    runtime_dir = tmp_path / "rejected-prompt"
+    runtime_dir.mkdir()
+    _emit(runtime_dir, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate(
+        runtime_dir,
+        [
+            {
+                "type": "response",
+                "command": "prompt",
+                "success": False,
+                "error": "Model not found: codify/x",
+            }
+        ],
+    )
+    terminals = [
+        e for e in _events(runtime_dir) if e["type"] in {"harness.completed", "harness.failed"}
+    ]
+    assert len(terminals) == 1
+    terminal = validate_event_v2(terminals[0])
+    assert terminal["type"] == "harness.failed"
+    failure = terminal["payload"]["failure"]
+    assert failure["kind"] == "configuration_error"
+    assert "Model not found" in failure["message"]
 
 
 def test_pi_native_ack_without_command_id_is_diagnostic_not_delivered():

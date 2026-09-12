@@ -208,19 +208,21 @@ pi_adapter_build_command() {
 }
 
 pi_adapter_materialize_skills() {
-    # Managed Skills are materialized to a Task-private Pi directory and loaded
-    # through Pi's native mechanism; .claude/skills is NOT the shared
-    # intermediate format for Pi (plan §5.4).
+    # Pi discovers skills under its CLI HOME (${CODIFY_PI_CLI_HOME}/.pi/agent/skills)
+    # and from the shared agentskills.io layout. Materialize the sealed
+    # per-task Skill snapshot (packaged as .claude/skills) there; PI_HOME is an
+    # application-private directory Pi never scans.
     if [ -z "${CODIFY_TASK_SKILLS_DIR:-}" ]; then
         return 0
     fi
-    if [ ! -d "${CODIFY_TASK_SKILLS_DIR}" ]; then
-        echo "Task Skills snapshot is missing: ${CODIFY_TASK_SKILLS_DIR}" >&2
+    local src="${CODIFY_TASK_SKILLS_DIR}/.claude/skills"
+    if [ ! -d "${src}" ]; then
+        echo "Task Skills snapshot does not contain skills: ${src}" >&2
         return 1
     fi
-    local dest="${PI_HOME:-${CODIFY_RUNTIME_DIR}/pi-home}/skills"
+    local dest="${CODIFY_PI_CLI_HOME:-/home/codify}/.pi/agent/skills"
     mkdir -p "${dest}"
-    if ! cp -a "${CODIFY_TASK_SKILLS_DIR}/." "${dest}/" 2>/dev/null; then
+    if ! cp -a "${src}/." "${dest}/" 2>/dev/null; then
         echo "Could not materialize skills into ${dest}" >&2
         return 1
     fi

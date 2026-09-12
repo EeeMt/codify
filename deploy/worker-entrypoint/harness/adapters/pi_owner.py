@@ -20,6 +20,9 @@ from pathlib import Path
 
 
 PI_RPC_STREAM_LIMIT = 16 * 1024 * 1024
+# Bounded wait for the translator to flush its single canonical terminal (and
+# the result file) after its stdin closes on a failure path.
+PI_TRANSLATOR_DRAIN_TIMEOUT_SECONDS = 30
 
 # Pi answers ``prompt``/``get_state``/``new_session`` on the RPC round trip, so
 # the start-up handshake stays on a request-scale bound.
@@ -229,7 +232,17 @@ class PiOwner:
                 ("prompt", self.prompt, {}),
             ):
                 _, response = await self._native_roundtrip(command, message, extra=extra)
-                await response
+                response = await response
+                if command == "prompt" and not response.get("success"):
+                    # Pi refused the initial prompt before accepting it: no turn
+                    # will ever start, so stop waiting for agent_settled.
+                    self._fail(
+                        RuntimeError(
+                            "Pi rejected the initial prompt: "
+                            + str(response.get("error") or "unknown native error")
+                        )
+                    )
+                    return
 
     async def _watch_translator(self) -> None:
         assert self.translator is not None
@@ -500,8 +513,20 @@ async def _main(args) -> None:
             owner.process.terminate()
             await owner.process.wait()
         if owner.translator and owner.translator.returncode is None:
-            owner.translator.terminate()
-            await owner.translator.wait()
+            # A failure before the drain marker (rejected prompt, stdout EOF,
+            # ...) must still let the translator write the single canonical
+            # terminal and the result file; close its stdin and give it a
+            # bounded moment to finish before falling back to SIGTERM.
+            if owner.translator.stdin is not None:
+                owner.translator.stdin.close()
+            try:
+                await asyncio.wait_for(
+                    owner.translator.wait(),
+                    timeout=PI_TRANSLATOR_DRAIN_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                owner.translator.terminate()
+                await owner.translator.wait()
 
 
 if __name__ == "__main__":

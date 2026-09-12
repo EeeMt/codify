@@ -306,6 +306,26 @@ def test_command_text_limit_uses_utf16_code_units_without_normalizing():
 # ── create_command ──────────────────────────────────────────────────────────
 
 
+async def test_created_by_column_holds_a_full_username(maker):
+    """CMD-04 on the engine that enforces the width (SQLite does not).
+
+    074 created ``created_by`` as varchar(64) while ``users.username`` is
+    varchar(255): a longer username failed every command PUT. 080 widens it.
+    """
+    async with maker() as db:
+        width = (
+            await db.execute(
+                sa.text(
+                    "SELECT character_maximum_length FROM information_schema.columns "
+                    "WHERE table_name = 'task_harness_commands' "
+                    "AND column_name = 'created_by'"
+                )
+            )
+        ).scalar_one()
+
+    assert width == 255
+
+
 async def test_create_command_allocates_strict_sequence(maker):
     task_id, _ = await _seed_running_pi(maker)
     async with maker() as db:

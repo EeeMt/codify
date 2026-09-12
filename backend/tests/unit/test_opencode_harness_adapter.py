@@ -61,7 +61,8 @@ def _environment(runtime_dir: Path) -> dict[str, str]:
 
 def _emit(runtime_dir: Path, event_type: str, payload: dict | None = None) -> None:
     subprocess.run(
-        ["python3", str(EVENT_WRITER), event_type, "--payload", json.dumps(payload or {})],
+        ["python3", str(EVENT_WRITER), event_type, "--payload-stdin"],
+        input=json.dumps(payload or {}),
         check=True,
         env=_environment(runtime_dir),
         capture_output=True,
@@ -3371,3 +3372,31 @@ def test_opencode_legacy_runner_default_cleanup_fits_cancel_budget(tmp_path):
     _finish_runner(process, 143)
     for pid, start in zip(pids, starts):
         _assert_process_gone(pid, start)
+
+
+def test_opencode_translator_emits_multi_megabyte_message_text(tmp_path):
+    # The adapter's writer call carries its payload on stdin. Before that, a
+    # large assistant message reached the writer as one argv element, so
+    # subprocess.run raised OSError(E2BIG) and the translator died before
+    # settling, leaving the attempt without a canonical result.
+    session_id = "ses-oc-big"
+    text = "z" * 2_000_000
+    _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate(
+        tmp_path,
+        [
+            _record(
+                "message.part.updated",
+                {
+                    "sessionID": session_id,
+                    "part": {"type": "text", "text": text, "messageID": "m-big", "id": "p-big"},
+                },
+            ),
+            _record("message.updated", {"sessionID": session_id, "info": {"id": "m-big", "role": "assistant"}}),
+            _record("session.idle", {"sessionID": session_id}),
+        ],
+    )
+
+    completed = [event for event in _events(tmp_path) if event["type"] == "message.completed"]
+    assert len(completed) == 1
+    assert completed[0]["payload"]["text"] == text

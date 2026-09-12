@@ -20,7 +20,10 @@ from app.core.harness_protocol import (
     validate_result_v2,
 )
 from app.core.task_event_archive import archive_bundle_name
-from app.core.task_failure_details import read_archived_harness_failure_detail
+from app.core.task_failure_details import (
+    read_archived_harness_failure_detail,
+    should_use_archived_failure_detail,
+)
 from app.core.usage_limits import upsert_task_usage_ledger
 from app.core.utcnow import utcnow
 from app.core.worker_git_delivery import (
@@ -590,7 +593,11 @@ async def parse_task_result(
             task.id,
             sanitize_sensitive_data,
         )
-        if archived_failure_detail and failure_kind != "protocol_error" and terminal_status != "protocol_error":
+        if archived_failure_detail and should_use_archived_failure_detail(failure_message):
+            # Legacy Pi attempts could persist the raw provider response (or
+            # nothing) as the reason; only then does the archive supply the
+            # terminal text. Cancelled / timeout / delivery failures keep the
+            # canonical message.
             failure_message = archived_failure_detail
         # Structured failures (harness.failed taxonomy, archived detail, and
         # the git_delivery reason carried by the worker finalizer) are

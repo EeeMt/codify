@@ -17,7 +17,6 @@ from starlette.requests import ClientDisconnect
 from app.api.task_command_routes import CreateCommandRequest
 from app.config import get_settings
 from app.core.docker_client import close_docker_clients
-from app.core.harness_execution_policy import require_explicit_harness_execution_mode
 from app.core.harness_protocol import is_valid_command_text, normalize_command_id
 from app.core.logging import get_logger, setup_logging
 from app.database import AsyncSessionLocal, close_db, get_db, init_db
@@ -55,7 +54,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     # Startup
     logger.info("Starting Codify...")
-    require_explicit_harness_execution_mode(settings)
 
     # Run database migrations first
     try:

@@ -734,7 +734,7 @@ class TaskHarnessCommand(Base):
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
-    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
     delivery_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -44,15 +44,55 @@ def test_scheduler_is_startup_migration_owner_and_nginx_waits_for_it(path: Path)
     assert "http://localhost:8001/health" in scheduler
     migrate = _service(content, "migrate")
     assert 'profiles: ["maintenance"]' in migrate
-    assert "AUTO_MIGRATE=false" in migrate
-    if path.name == "docker-compose.yml" and path.parent.name == "deploy":
-        assert 'command: ["/usr/local/bin/run-migration-owner"]' in migrate
-        assert "${MIGRATION_TARGET:-}" in migrate
-        assert ":?set MIGRATION_TARGET" not in migrate
-    else:
-        assert "- alembic" in migrate
-        assert "- upgrade" in migrate
-        assert "${MIGRATION_TARGET:?set MIGRATION_TARGET to the reviewed Alembic revision}" in migrate
+    # The one-shot maintenance service must not let the backend entrypoint run
+    # an unreviewed `alembic upgrade head` before the owner command below.
+    assert "AUTO_MIGRATE=true" not in migrate
+    # Both stacks run the reviewed-target guard instead of a bare
+    # `alembic upgrade`, and accept a blank MIGRATION_TARGET so ordinary
+    # `docker compose config`/startup does not hard-require the variable.
+    assert 'command: ["/usr/local/bin/run-migration-owner"]' in migrate
+    assert "- alembic" not in migrate
+    assert "alembic upgrade" not in migrate
+    assert "${MIGRATION_TARGET:-}" in migrate
+    assert ":?set MIGRATION_TARGET" not in migrate
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        REPO_ROOT / "deploy" / "docker-compose.yml",
+        REPO_ROOT / "deploy" / "offline-bundle" / "docker-compose.yml",
+    ],
+)
+def test_release_stacks_do_not_hard_require_harness_execution_mode(path: Path):
+    """Both release stacks must render and start with no HARNESS_EXECUTION_MODE.
+
+    ``v2_only`` is the only value the backend accepts, so an operator who sets
+    nothing must still get a runnable stack.
+    """
+    content = path.read_text()
+    assert ":?set HARNESS_EXECUTION_MODE" not in content
+    for name in ("backend", "scheduler"):
+        service = _service(content, name)
+        assert "HARNESS_EXECUTION_MODE=${HARNESS_EXECUTION_MODE:-v2_only}" in service
+
+
+_HARNESS_EXECUTION_MODE_BINDING = re.compile(
+    r"^\s*-?\s*HARNESS_EXECUTION_MODE\s*[:=]\s*(?P<value>.+)$", re.MULTILINE
+)
+
+
+def test_mock_integration_stack_needs_no_harness_execution_mode_override():
+    """The mock-integration stack must come up in v2_only (or with no override)."""
+    content = (
+        REPO_ROOT / "backend" / "tests" / "mock_integration" / "docker-compose.mock-test.yml"
+    ).read_text()
+    assert ":?set HARNESS_EXECUTION_MODE" not in content
+    for match in _HARNESS_EXECUTION_MODE_BINDING.finditer(content):
+        value = match.group("value").strip().strip("\"'")
+        assert value in {"v2_only", "${HARNESS_EXECUTION_MODE:-v2_only}"}, (
+            f"harness execution mode must be v2_only or unset, found {value!r}"
+        )
 
 
 @pytest.mark.parametrize("target", [None, "", "head", "bad target"])
@@ -534,3 +574,10 @@ def test_e2e_runs_migrate_once_before_backend_and_never_enables_service_auto_mig
     assert "AUTO_MIGRATE=false" in backend
     assert "AUTO_MIGRATE=false" in scheduler
     assert "service_completed_successfully" in backend
+
+
+def test_e2e_migration_target_defaults_to_head():
+    content = (REPO_ROOT / "deploy" / "docker-compose.e2e.yml").read_text()
+    migrate = _service(content, "migrate")
+    assert "- ${MIGRATION_TARGET:-head}" in migrate
+    assert ":?set MIGRATION_TARGET" not in content

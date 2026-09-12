@@ -245,6 +245,8 @@ def _failure_kind(message: str) -> str:
         return "authentication_error"
     if "429" in lowered or "rate limit" in lowered or "too many requests" in lowered:
         return "rate_limited"
+    if "model not found" in lowered or "unknown model" in lowered or "model not configured" in lowered:
+        return "configuration_error"
     if "sandbox" in lowered or "permission denied" in lowered:
         return "sandbox_error"
     return "engine_error"
@@ -262,13 +264,13 @@ def _emit(event_type: str, payload: dict, raw_line: int) -> None:
             sys.executable,
             writer,
             event_type,
-            "--payload",
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            "--payload-stdin",
             "--raw-stream",
             "harness-events/pi.jsonl",
             "--raw-line",
             str(raw_line),
         ],
+        input=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(),
         check=True,
         stdout=subprocess.DEVNULL,
     )
@@ -608,7 +610,8 @@ def _handle_response(record: dict, raw_line: int) -> None:
                     "payload_digest": ack.get("payload_digest"),
                     "sequence_no": ack.get("sequence_no"),
                     "rejection_code": ack.get("rejection_code", "delivery_outcome_unknown"),
-                    "rejection_message": ack.get("rejection_message"),
+                    "rejection_message": ack.get("rejection_message")
+                    or _failure_message(record.get("error"), "Harness rejected the control command"),
                 },
                 raw_line,
             )
@@ -624,6 +627,14 @@ def _handle_response(record: dict, raw_line: int) -> None:
         # Pi reports abort completion via agent_end(stopReason aborted), not a
         # distinct success here; a bare abort ACK is informational.
         _emit("diagnostic", {"code": "abort_ack", "success": success}, raw_line)
+        return
+
+    if command == "prompt" and not success:
+        # A rejected initial prompt was refused before Pi accepted it: no
+        # agent_start/agent_settled will ever arrive, so record the terminal
+        # here instead of hanging until TASK_TIMEOUT.
+        message = _failure_message(record.get("error"), "Pi rejected the initial prompt")
+        _STATE["terminal_failure"] = {"kind": _failure_kind(message), "message": message}
         return
 
     if not success:
