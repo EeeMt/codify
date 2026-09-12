@@ -2063,8 +2063,14 @@ def test_pi_subagent_tool_fans_out_to_one_delegation_row_per_child(tmp_path):
     ) == 2
 
 
-def test_pi_subagent_tool_without_child_inventory_emits_no_delegation(tmp_path):
-    """A management call (`status`/`list`) must not fabricate a delegation row."""
+def test_pi_subagent_tool_without_child_inventory_emits_one_bare_row(tmp_path):
+    """A childless call is one plain tool row, never a fabricated delegation.
+
+    Management calls (`status`/`list`) answer without children, and the Codify
+    ceiling refuses a background launch with an error result that carries no
+    inventory at all. Both must stay visible: the refusal is the only trace of
+    why the model retried in the foreground (Task 639).
+    """
     _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
     _translate(
         tmp_path,
@@ -2082,10 +2088,49 @@ def test_pi_subagent_tool_without_child_inventory_emits_no_delegation(tmp_path):
                 "result": {"content": [{"type": "text", "text": "Spawn budget: 0/4 used"}]},
                 "isError": False,
             },
+            {
+                "type": "tool_execution_start",
+                "toolCallId": "call_01_async",
+                "toolName": "subagent",
+                "args": {"async": True, "workflowScript": "return 1;"},
+            },
+            {
+                "type": "tool_execution_end",
+                "toolCallId": "call_01_async",
+                "toolName": "subagent",
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Background delegation is disabled for this workspace.",
+                        }
+                    ],
+                    "details": {},
+                },
+                "isError": True,
+            },
         ]
         + _turn_lifecycle(),
     )
 
     events = _events(tmp_path)
-    assert not [event for event in events if event["type"] == "tool.started"]
-    assert not [event for event in events if event["type"] == "tool.completed"]
+    started = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.started" and event["payload"]["name"] == "Subagent"
+    ]
+    completed = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.completed" and event["payload"]["name"] == "Subagent"
+    ]
+    assert len(started) == 2
+    assert [payload["tool_id"] for payload in started] == [
+        payload["tool_id"] for payload in completed
+    ]
+    assert len({payload["tool_id"] for payload in started}) == 2
+    assert not [payload for payload in started if "subagent" in payload]
+    assert [payload["error"] for payload in completed] == [False, True]
+    assert completed[0]["output"] == "Spawn budget: 0/4 used"
+    assert completed[1]["output"] == "Background delegation is disabled for this workspace."
+    import sys; print("STARTED1:", started[1], file=sys.stderr)

@@ -1035,6 +1035,41 @@ def _child_tool_rows(result: dict) -> list[str]:
     return rows
 
 
+def _settle_childless_call(record: dict, delegation: dict, raw_line: int) -> None:
+    """Project a ``subagent`` call that never produced a child row.
+
+    The Codify ceiling refuses a background top-level launch with an error
+    result carrying no inventory, and management/status actions answer without
+    children either. Without this row the refusal would be invisible on the
+    dashboard: the operator would see the model retry with no reason given.
+    Child-bearing calls never reach here, so no delegation is duplicated.
+    """
+    if record.get("type") != "tool_execution_end":
+        return
+    if int(delegation.get("rows", 0)) or delegation.get("childless"):
+        return
+    delegation["childless"] = True
+    tool_id = str(record.get("toolCallId") or "").strip()
+    input_payload = delegation.get("input")
+    if not isinstance(input_payload, dict):
+        input_payload = _tool_input(record)
+    _emit(
+        "tool.started",
+        {"tool_id": tool_id, "name": "Subagent", "input": input_payload},
+        raw_line,
+    )
+    _emit(
+        "tool.completed",
+        {
+            "tool_id": tool_id,
+            "name": "Subagent",
+            "output": _tool_output(record),
+            "error": bool(record.get("isError")),
+        },
+        raw_line,
+    )
+
+
 def _handle_subagent_tool(record: dict, raw_line: int) -> None:
     """Project the Kit-fixed plugin's ``subagent`` tool onto delegation rows.
 
@@ -1049,14 +1084,19 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
     if not tool_call_id:
         _emit("diagnostic", {"code": "tool_missing_id", "name": SUBAGENT_TOOL_NAME}, raw_line)
         return
+    delegation = _STATE["delegations"].setdefault(tool_call_id, {})
+    if isinstance(record.get("args"), dict) and "input" not in delegation:
+        # ``tool_execution_end`` repeats only the tool name and result, so the
+        # input must be captured from the start record to survive into the
+        # childless-call row below.
+        delegation["input"] = _tool_input(record)
     details = _subagent_details(record)
     if details is None:
         # No child inventory yet (the call just started, or it is a
         # management action such as `status`/`list`): keep the raw evidence and
         # wait for the structured result instead of inventing a delegation.
-        _STATE["delegations"].setdefault(tool_call_id, {})
+        _settle_childless_call(record, delegation, raw_line)
         return
-    delegation = _STATE["delegations"].setdefault(tool_call_id, {})
     # The final record is the last chance to settle a child: a terminal state
     # that only ever appeared with a partial inventory must still produce one
     # row, even though a complete one is preferable while the run is live.
@@ -1099,6 +1139,7 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
                 raw_line,
             )
             child_state_flags["started"] = True
+            delegation["rows"] = int(delegation.get("rows", 0)) + 1
         if status is None or child_state_flags["completed"]:
             continue
         output = result.get("finalOutput")
@@ -1150,6 +1191,10 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
                 raw_line,
                 agent=agent_ref,
             )
+    # A terminal result whose inventory carries no children still deserves one
+    # row (refused launch, empty fan-out), and the guard above already covers
+    # the no-inventory case.
+    _settle_childless_call(record, delegation, raw_line)
 
 
 def _handle_tool(record: dict, raw_line: int) -> None:
