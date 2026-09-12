@@ -30,6 +30,7 @@ Pi 通道分层清晰（配置/快照 → 命令构造 → 唯一 stdio owner �
 
 ### PI-01 原生拒绝 ACK 产出的 `control.command.rejected` 缺 `rejection_message`，导致投影 ingest 永久卡死
 - **判定**：FIX_NOW
+- **状态**：已修复（`7794eb92`）
 - **位置**：`deploy/worker-entrypoint/harness/adapters/pi_events.py:603-613`（提交 `cbad9e56`）
 - **证据**：
   - 发射端：`pi_events.py:604-613` 用 `"rejection_message": ack.get("rejection_message")` 构造 payload，而 `ack` 是 owner 注入的 metadata，owner 只写 4 个键：`pi_owner.py:356-361`（`command_id` / `sequence_no` / `payload_digest` / `_delivered_at`）。真实路径下该键必然缺失 → `null`。
@@ -43,6 +44,7 @@ Pi 通道分层清晰（配置/快照 → 命令构造 → 唯一 stdio owner �
 
 ### PI-02 初始 `prompt` 被 Pi 拒绝时只记 diagnostic、不产生 terminal，任务挂到超时
 - **判定**：FIX_NOW —— 上线后默认 harness，配置/模型类错误最先撞上且只挂到超时
+- **状态**：已修复（`7794eb92`，并新增 model-not-found → `configuration_error` 映射）
 - **位置**：`deploy/worker-entrypoint/harness/adapters/pi_events.py:629-634`（提交 `cbad9e56`）
 - **证据**：`_handle_response`（`pi_events.py:553-634`）对 `command=="prompt"` 且 `success:false` 落到兜底分支，只发 `diagnostic{"code":"native_command_failed"}`；不设 `_STATE["terminal_failure"]`，此后不会再有 `agent_start`/`agent_end`/`agent_settled`，而 translator 的 terminal 只在 stdin EOF 时产生（`pi_events.py:464-550`），owner 也只在 settled 后结束（`pi_owner.py:461-482`）。owner 侧同样丢弃了握手响应：`pi_owner.py:221-232`（`await response` 后不检查 `success`）。上游文档确认该形态可达：`deploy/worker-cli/pi/docs/rpc.md:65`、`deploy/worker-cli/pi/docs/rpc.md:1347-1358`；`pi.sh:181-183` 的作者注释自己点名了最常见的成因——“`--list-models` 为空、每次 prompt 都以 `Model not found` 失败”。
 - **影响**：一次配置/模型解析错误会静默挂起到 `TASK_TIMEOUT`（默认 1800s），最终以 `harness.failed{kind:timeout}`（`runner.sh:150-180`）收尾，真正的 `error` 文本只留在 console log；若 Pi 在该情况下直接退出，则退化为 `protocol_error`（`pi_events.py:510-530`），错误分类同样失真（应为 `configuration_error`）。
@@ -51,6 +53,7 @@ Pi 通道分层清晰（配置/快照 → 命令构造 → 唯一 stdio owner �
 
 ### PI-04 Managed Skills 被物化到 Pi 不会扫描的目录，`task_skills` 静默无效
 - **判定**：FIX_NOW —— 上线后默认 harness 的正常路径缺陷（表单可勾选 skills 却静默不生效）
+- **状态**：已修复（`7794eb92`，物化到 `${CODIFY_PI_CLI_HOME}/.pi/agent/skills`）
 - **位置**：`deploy/worker-entrypoint/harness/adapters/pi.sh:210-229`（提交 `cbad9e56`）
 - **证据**：
   - 代码把快照拷到 `${PI_HOME}/skills`（`pi.sh:221-223`），而 `PI_HOME` 是 Codify 自造变量（`pi.sh:84-88`）：`/opt/codify-issue-shared/pi-home` 或 `${CODIFY_RUNTIME_DIR}/pi-home`。

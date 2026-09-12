@@ -45,6 +45,7 @@
 
 ### OPS-01 离线包 `start.sh` 因两个必填插值变量缺失无法启动
 - **判定**：FIX_NOW —— 离线包是内网生产的唯一铺装路径
+- **状态**：已修复（`7794eb92`：执行模式默认 `v2_only`，并移除「必须显式配置」的启动门禁）
 - **位置**：`deploy/offline-bundle/docker-compose.yml:30`（另见 `:79`、`:128`）
 - **证据**：
   - 本次改动新增 `- HARNESS_EXECUTION_MODE=${HARNESS_EXECUTION_MODE:?set HARNESS_EXECUTION_MODE to v2_only}`（backend `:30`、scheduler `:79`），`migrate` 服务新增 `command: [... alembic upgrade ${MIGRATION_TARGET:?set MIGRATION_TARGET to the reviewed Alembic revision}]`（`:123-128`）。
@@ -57,6 +58,7 @@
 
 ### OPS-03 mock 集成 compose 仍写 `dual_canary`，backend/scheduler 启动即崩
 - **判定**：FIX_NOW —— 离线环境里这是不需外部 GitLab 的主要自动化验证入口
+- **状态**：已修复（`7794eb92`）
 - **位置**：`backend/tests/mock_integration/docker-compose.mock-test.yml:69`（另见 `:113`）
 - **证据**：本次改动在该文件两处**新增** `HARNESS_EXECUTION_MODE: dual_canary`（`git diff` 显示为 `+` 行）；
   而 HEAD 代码只接受 `v2_only`：`backend/app/core/harness_execution_policy.py:15`
@@ -72,6 +74,7 @@
 
 ### OPS-04 E2E compose 的 migration 目标落后 4 个 revision，E2E 数据库 schema 与代码不符
 - **判定**：FIX_NOW
+- **状态**：已修复（`7794eb92`）
 - **位置**：`deploy/docker-compose.e2e.yml:41`
 - **证据**：新增的 `migrate` 服务命令为 `alembic upgrade ${MIGRATION_TARGET:-075_pi_command_dispatch_journal}`；
   实测 `ScriptDirectory.from_config(Config('alembic.ini')).get_current_head()` = `079_task_execution_timeout`
@@ -87,6 +90,7 @@
 
 ### OPS-05 `make worker-runtime-bundle-export` 未传 `--env-file`，文档化的 L3 导出命令直接失败
 - **判定**：FIX_NOW
+- **状态**：**待修**（本批未做）
 - **位置**：`Makefile:54`
 - **证据**：该目标（本区间新增）执行
   `docker-compose -f $(PROJECT_ROOT)/deploy/docker-compose.yml exec -T backend python -m app.scripts.export_runtime_bundle ...`，
@@ -102,6 +106,7 @@
 
 ### OPS-08 部署文档仍把 `dual_canary` 写成合法值，按文档执行会启动失败
 - **判定**：FIX_NOW —— 纯 grep 替换
+- **状态**：已修复（`7794eb92`）
 - **位置**：`docs/DEPLOYMENT.md:134`（另见 `:20`、`:64`）
 - **证据**：这三行都是本次改动**新增/改写**的内容：
   - `docs/DEPLOYMENT.md:20`「`HARNESS_EXECUTION_MODE` 必须显式设置为 `dual_canary` 或 `v2_only`」；
@@ -150,6 +155,7 @@
 
 ### OPS-07 离线包 maintenance `migrate` 绕过 `run-migration-owner` 的 fail-closed 守卫
 - **判定**：FIX_IF_CHEAP —— 守卫非必须（可停机、可手工迁移），与 OPS-01 同一处编辑顺手对齐
+- **状态**：已修复（`7794eb92`，与 OPS-01 同一处编辑）
 - **位置**：`deploy/offline-bundle/docker-compose.yml:128`
 - **证据**：离线包新增的 `migrate` 服务直接执行 `python3 -m alembic upgrade ${MIGRATION_TARGET:?...}`
   （`:123-128`），只校验「非空」；而开发 compose 走守卫脚本

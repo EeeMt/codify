@@ -31,6 +31,7 @@ V2 的信任边界整体收紧且可验证：凭据解析对 `revoked` 一律 fa
 
 ### SEC-02 git 历史仍含真实凭据（HEAD 已清理但未吊销，仍可完整检出）
 - **判定**：FIX_NOW —— 本 patch 只清 HEAD，吊销是纯运维、0 代码
+- **状态**：**待运维执行**：吊销/轮换 GitLab PAT、Provider key、`CONFIG_ENCRYPTION_KEY`（0 代码，不在本批代码改动内）
 - **位置**：`deploy/.env.test:6-7`（提交 `cbad9e56`，本 patch 将真实值替换为 `replace-via-secret-store`）；原始明文见 `git show 8081c946^:deploy/.env.test:3,9,32`
 - **证据**：
   ```

@@ -36,6 +36,7 @@ V2 事件契约层整体是**收紧**而非放松：V1 常量与 `validate_event
 
 ### EVT-02 `control.command.rejected` 生产者可产出 `rejection_message=null`，被后端 schema 拒绝
 - **判定**：FIX_NOW —— 修法 1 行
+- **状态**：已修复（`7794eb92`，与 PI-01 同一处代码）：rejected 事件补齐 `rejection_message`
 - **位置**：`backend/app/core/harness_protocol.py:346-354`（提交 `72140882`），生产者 `deploy/worker-entrypoint/harness/adapters/pi_events.py:604-613`（提交 `e7f8c020`）、`deploy/worker-entrypoint/harness/adapters/pi_owner.py:356-361`
 - **证据**：后端强制 `rejection_message` 必须是字符串：
 

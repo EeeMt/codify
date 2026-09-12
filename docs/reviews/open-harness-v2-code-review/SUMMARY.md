@@ -19,6 +19,9 @@ Pi 通道的 3 条也进入主路径），**49 条属于过度防御应书面关
 
 执行顺序：10 条主路径项 → 切库前两条 SQL → 其余单行项 → 接受清单书面关闭；各档明细见 §3~§6。
 
+**进展**：Tier-1 的 10 条主路径项已随 `7794eb92` 修复（含 OPS-07/OPS-08 两处延伸项），每条都带复现失败—修复后通过的回归测试；
+本批未动的仅剩 OPS-05（`Makefile --env-file`）与 SEC-02（凭据吊销，运维动作）。
+
 ## 2. 判定统计
 
 ### 2.1 各专题原始计数（与各文档 §1 一致）
@@ -84,78 +87,91 @@ Pi 通道的 3 条也进入主路径），**49 条属于过度防御应书面关
 - **位置**（`01-command-plane.md`）：`backend/app/models.py:737`（对照 `:1480`）、`backend/alembic/versions/074_open_harness_v2.py:103`、`backend/app/api/task_command_routes.py:69-72`
 - **影响**：GitLab/OIDC 用户名长度 > 64 的用户（自建 GitLab 允许至 255）**完全无法发送命令**，每次 PUT 500；SQLite 不校验长度，故单测不会暴露该问题。
 - **最小动作**：`created_by` 放宽到 `String(255)` + 一条迁移（与仓库其它 username 列一致）
+- **状态**：已修复（`7794eb92`）
 
 ### PI-01 原生拒绝 ACK 产出的 `control.command.rejected` 缺 `rejection_message`，导致投影 ingest 永久卡死
 
 - **位置**（`03-pi-bridge.md` ≈ `02-event-contract.md` EVT-02，同一根因）：`deploy/worker-entrypoint/harness/adapters/pi_events.py:603-613`
 - **影响**：拒绝事件在流中位于 `agent_settled` 之前（probe 证据：`docs/harness-probes/v2/pi/steer.raw.jsonl` 第 10 行是 ACK、第 104 行才是 `agent_settled`）。ingest 卡死后 `agent_settled` 永不…
 - **最小动作**：`pi_events.py:610`：`rejection_message` 缺省回退 `record.get("error")` 或固定文案（1 行）；不必改 projector 的隔离机制
+- **状态**：已修复（`7794eb92`；同一根因的 EVT-02 一并修复）
 
 ### PI-02 初始 `prompt` 被 Pi 拒绝时只记 diagnostic、不产生 terminal，任务挂到超时
 
 - **位置**（`03-pi-bridge.md`）：`deploy/worker-entrypoint/harness/adapters/pi_events.py:629-634`
 - **影响**：一次配置/模型解析错误会静默挂起到 `TASK_TIMEOUT`（默认 1800s），最终以 `harness.failed{kind:timeout}`（`runner.sh:150-180`）收尾，真正的 `error` 文本只留在 console log；若 Pi 在该情况下直接退出，则退化为…
 - **最小动作**：translator 兜底前单列 `prompt` 且 `success:false` → 置 `terminal_failure`（~4 行）；owner 在 prompt ACK 失败时 `_fail` 收口（~3 行）
+- **状态**：已修复（`7794eb92`）
 
 ### PI-04 Managed Skills 被物化到 Pi 不会扫描的目录，`task_skills` 静默无效
 
 - **位置**（`03-pi-bridge.md`）：`deploy/worker-entrypoint/harness/adapters/pi.sh:210-229`
 - **影响**：manifest 声明 `task_skills: true`，但任何使用 Managed Skills 的 Pi 任务里技能都不会被加载，系统提示词中也没有技能清单，用户侧表现为“技能配置无效且无任何报错”。
 - **最小动作**：物化到 Pi 实际扫描位置（`${CODIFY_PI_CLI_HOME}/.pi/agent/skills` 或 `.agents/skills`）或追加 `--skill`；拷贝源与 codex 对齐（~4 行）
+- **状态**：已修复（`7794eb92`）
 
 ### RUN-01 V2 manifest 收窄 capability 词表后，`run_text`/`codegraph` 判定永久失效
 
 - **位置**（`07-runner-infra.md`）：`deploy/worker-entrypoint/harness/manifest.json:29-35`（claude）、`:90-96`（pi）；消费方 `deploy/worker-entrypoint/harness/runner.sh:94-99,194-200`、`deploy/worker-entrypoint/codegraph.sh:73-79`、`deploy/worker-…
 - **影响**：当前默认 claude、上线后默认 pi 的任务中（manifest 里 pi 的 capabilities 同样只有 5 键），(a) commit message 恒走 `main.sh:159-166` 的硬编码兜底文案（日志 `Harness commit message generatio…
 - **最小动作**：① `runner.sh:194-200` 的能力判定 `codify_harness_capability_enabled "run_text"` → `declare -F adapter_run_text`（4 个 adapter 都定义了该函数；不支持的 codex 版返回非零，自然回落，与今天行为一致）。② `codegraph.sh:73-79` 的 capability 分支 → 按…
+- **状态**：已修复（`7794eb92`）
 
 ### RUN-02 canonical event writer 只接受 argv 传 payload，超 ~128 KiB 即整条链路失败
 
 - **位置**（`07-runner-infra.md`）：`deploy/worker-entrypoint/harness/events.py:369-376`；写入方 `deploy/worker-entrypoint/harness/common.sh:17-24`、`deploy/worker-entrypoint/harness/adapters/claude_events.py:134-149`
 - **影响**：两条独立后果。(a) **adapter 侧**：`claude_events.main()` 逐行 `translate()` 无 per-record 兜底（`claude_events.py:383-428`），`OSError` 直接逸出 → translator 进程死 → 不再写 `CO…
 - **最小动作**：`events.py` 增 `--payload-stdin`（`main()` 里 `json.loads(sys.stdin.read())`，~4 行）；`common.sh:17-24` 的 `codify_emit_event` 与 4 个 adapter 的 `_emit` 改为 `input=payload` 传 stdin（各 1 行）。无 payload 大小上限、无截断、无共享…
+- **状态**：已修复（`7794eb92`）
 
 ### DEL-01 终态失败原因被归档的 provider 错误覆盖
 
 - **位置**（`11-delivery-lifecycle.md`）：`backend/app/api/tasks.py:657-668`（另见 `:709-718`）
 - **影响**：两类终态的失败原因与事实不符：(a) 取消的任务 —— canonical/生命周期写入的是 `"Cancelled by user"`（`worker_task_lifecycle.py:1301-1309`），持久化与接口却显示 provider 错误（如 "Pi provider return…
 - **最小动作**：仅当 canonical 失败原因为空（legacy Pi 记录才是 raw payload）时才用归档 detail 兜底，且排除 cancelled / timeout / 交付失败；归档 detail 另存字段。改 2 处条件：`api/tasks.py:657-668`（读，含 `:709-718` 的 failure_summary）、`core/worker_results.py:58…
+- **状态**：已修复（`7794eb92`）
 
 ### SEC-02 git 历史仍含真实凭据（HEAD 已清理但未吊销，仍可完整检出）
 
 - **位置**（`13-security.md` ≈ `15-deploy-ops.md` OPS-02，同一根因）：`deploy/.env.test:6-7`
 - **影响**：任何拥有仓库读权限（含 CI、镜像构建上下文、历史 clone）者可取得：① GitLab bot PAT（按 `docs/architecture/open-harness-v2.md` 的部署模型，该 token 对所有受管项目有写权限）；② 一个可用的模型 Provider key；③ 若 …
 - **最小动作**：吊销/轮换三类凭据；`CONFIG_ENCRYPTION_KEY` 换新后按需重新录入受影响密文（provider key / webhook secret）。建议过重：`git filter-repo` 清理历史 + 通知所有 clone/CI 重拉没必要（凭据死了即可）
+- **状态**：**待运维执行**（吊销/轮换凭据）
 
 ### OPS-01 离线包 `start.sh` 因两个必填插值变量缺失无法启动
 
 - **位置**（`15-deploy-ops.md`）：`deploy/offline-bundle/docker-compose.yml:30`（另见 `:79`、`:128`）
 - **影响**：按 README/CONFIGURATION 的离线部署步骤在目标主机执行 `./scripts/start.sh`，会在插值阶段直接失败，整栈（含不启用 `maintenance` profile 的默认路径）都起不来；这是离线交付的主路径。要求「必须显式指定执行模式」本身与本画像不符（上线默认即…
 - **最小动作**：把 `v2_only` 变成默认——`backend/app/config.py` 的 `harness_execution_mode` 默认 `v2_only`；compose 删除 `${HARNESS_EXECUTION_MODE:?…}` 必填插值（或改 `:-v2_only`）且模板不再需要该键；同时把 `${MIGRATION_TARGET:?...}` → `${MIGRATION_…
+- **状态**：已修复（`7794eb92`：默认 `v2_only` + 移除显式配置门禁）
 
 ### OPS-03 mock 集成 compose 仍写 `dual_canary`，backend/scheduler 启动即崩
 
 - **位置**（`15-deploy-ops.md` ≈ `16-tests.md` TST-01，同一根因）：`backend/tests/mock_integration/docker-compose.mock-test.yml:69`（另见 `:113`）
 - **影响**：`make test-mock-integration`、`make test-mock-integration-parallel`（`Makefile:276/:304`）以及
 - **最小动作**：删掉这两处 `HARNESS_EXECUTION_MODE: dual_canary`（默认即 `v2_only`，无需显式配置）
+- **状态**：已修复（`7794eb92`；同一行配置的 TST-01 一并修复）
 
 ### OPS-04 E2E compose 的 migration 目标落后 4 个 revision，E2E 数据库 schema 与代码不符
 
 - **位置**（`15-deploy-ops.md`）：`deploy/docker-compose.e2e.yml:41`
 - **影响**：`docker-compose -f docker-compose.e2e.yml up` 后数据库停在 075，backend 一旦读写 tasks
 - **最小动作**：`docker-compose.e2e.yml:41` 默认值改 `${MIGRATION_TARGET:-head}`（1 词）
+- **状态**：已修复（`7794eb92`）
 
 ### OPS-05 `make worker-runtime-bundle-export` 未传 `--env-file`，文档化的 L3 导出命令直接失败
 
 - **位置**（`15-deploy-ops.md`）：`Makefile:54`
 - **影响**：`docs/DEPLOYMENT.md` §10.1 与 `docs/runbooks/multi-harness-rollout.md` §5.1 记载的
 - **最小动作**：`Makefile:54` 加 `--env-file $(PROJECT_ROOT)/deploy/.env.test`（1 行）
+- **状态**：**待修**
 
 ### OPS-08 部署文档仍把 `dual_canary` 写成合法值，按文档执行会启动失败
 
 - **位置**（`15-deploy-ops.md`）：`docs/DEPLOYMENT.md:134`（另见 `:20`、`:64`）
 - **影响**：运维照 DEPLOYMENT.md §4.3 / DEVELOPMENT.md 执行，Backend 与 Scheduler 会在启动校验处
 - **最小动作**：6 处改为「默认 `v2_only`、无需显式配置」，并删除 canary/双轨叙述
+- **状态**：已修复（`7794eb92`）
 
 ## 4. FIX_IF_CHEAP 索引（48 条）
 
@@ -291,28 +307,27 @@ Pi 通道的 3 条也进入主路径），**49 条属于过度防御应书面关
 
 ## 7. 修复顺序
 
-### Tier-1：10 条主路径项（一次小 PR；Pi 上线后为默认 harness，故 Pi 通道 3 条同批）
+### Tier-1：10 条主路径项 —— 已修复（`7794eb92`）
 
-| # | 条目 | 最小动作 | 影响面 |
-|---|---|---|---|
-| 1 | PI-01（≈ EVT-02） | `pi_events.py` rejected 分支补 `rejection_message` 缺省（1 行） | 事件流永久卡死 + 丢统计投影 |
-| 2 | PI-02 | `prompt` 被拒即置 `terminal_failure` 并让 owner 收口（~7 行） | 配置类错误挂到超时、错误分类失真 |
-| 3 | PI-04 | skills 物化到 Pi 实际扫描目录或追加 `--skill`（~4 行） | 表单勾选的技能静默不生效 |
-| 4 | RUN-02 | `events.py` 加 `--payload-stdin`，`common.sh` 与 4 个 adapter 走 stdin | 大 payload 时成果不提交不推送 |
-| 5 | RUN-01 | run_text 判定改 `declare -F adapter_run_text`；codegraph 按 harness key 判定（2 行） | commit message / MR summary / CodeGraph 静默失效 |
-| 6 | DEL-01 | 收窄归档 detail 对 `error_message`/`failure_summary` 的覆盖条件（2 处） | 真实失败原因被 provider 重试错误盖住 |
-| 7 | CMD-04 | `created_by` 放宽 `String(255)` + 一条迁移 | 长用户名用户无法发命令 |
-| 8 | OPS-01（含 OPS-07 同处） | `harness_execution_mode` 默认 `v2_only`；compose 去掉 `${HARNESS_EXECUTION_MODE:?…}` 必填插值；`${MIGRATION_TARGET:-}` | 离线包 `start.sh` 插值即失败 |
-| 9 | OPS-03（≈ TST-01） | 删掉 mock compose 两处 `HARNESS_EXECUTION_MODE: dual_canary` | 无外网依赖的端到端验收整层不可跑 |
-| 10 | OPS-04 | e2e 迁移目标改 `${MIGRATION_TARGET:-head}` | E2E 必然 `UndefinedColumn` |
-
+| # | 条目 | 最小动作 | 影响面 | 状态 |
+|---|---|---|---|---|
+| 1 | PI-01（≈ EVT-02） | `pi_events.py` rejected 分支补 `rejection_message` 缺省（1 行） | 事件流永久卡死 + 丢统计投影 | 已修复（`7794eb92`） |
+| 2 | PI-02 | `prompt` 被拒即置 `terminal_failure` 并让 owner 收口（~7 行） | 配置类错误挂到超时、错误分类失真 | 已修复（`7794eb92`） |
+| 3 | PI-04 | skills 物化到 Pi 实际扫描目录或追加 `--skill`（~4 行） | 表单勾选的技能静默不生效 | 已修复（`7794eb92`） |
+| 4 | RUN-02 | `events.py` 加 `--payload-stdin`，`common.sh` 与 4 个 adapter 走 stdin | 大 payload 时成果不提交不推送 | 已修复（`7794eb92`） |
+| 5 | RUN-01 | run_text 判定改 `declare -F adapter_run_text`；codegraph 按 harness key 判定（2 行） | commit message / MR summary / CodeGraph 静默失效 | 已修复（`7794eb92`） |
+| 6 | DEL-01 | 收窄归档 detail 对 `error_message`/`failure_summary` 的覆盖条件（2 处） | 真实失败原因被 provider 重试错误盖住 | 已修复（`7794eb92`） |
+| 7 | CMD-04 | `created_by` 放宽 `String(255)` + 一条迁移 | 长用户名用户无法发命令 | 已修复（`7794eb92`） |
+| 8 | OPS-01（含 OPS-07 同处） | `harness_execution_mode` 默认 `v2_only`；compose 去掉 `${HARNESS_EXECUTION_MODE:?…}` 必填插值；`${MIGRATION_TARGET:-}` | 离线包 `start.sh` 插值即失败 | 已修复（`7794eb92`） |
+| 9 | OPS-03（≈ TST-01） | 删掉 mock compose 两处 `HARNESS_EXECUTION_MODE: dual_canary` | 无外网依赖的端到端验收整层不可跑 | 已修复（`7794eb92`） |
+| 10 | OPS-04 | e2e 迁移目标改 `${MIGRATION_TARGET:-head}` | E2E 必然 `UndefinedColumn` | 已修复（`7794eb92`） |
 ### Tier-2：其余 FIX_NOW（同上 PR 顺手）
 
-| 条目 | 最小动作 |
-|---|---|
-| OPS-05 | `Makefile` 导出目标补 `--env-file`（1 行） |
-| OPS-08 | 6 处文档改为「默认 `v2_only`、无需显式配置」，删除 canary/双轨叙述 |
-| SEC-02 | 吊销/轮换 git 历史中的 GitLab PAT、Provider key、`CONFIG_ENCRYPTION_KEY`（0 代码） |
+| 条目 | 最小动作 | 状态 |
+|---|---|---|
+| OPS-05 | `Makefile` 导出目标补 `--env-file`（1 行） | **待修** |
+| OPS-08 | 6 处文档改为「默认 `v2_only`、无需显式配置」，删除 canary/双轨叙述 | 已修复（`7794eb92`） |
+| SEC-02 | 吊销/轮换 git 历史中的 GitLab PAT、Provider key、`CONFIG_ENCRYPTION_KEY`（0 代码） | **待运维执行** |
 
 ### Tier-3 / Tier-4
 
@@ -357,6 +372,7 @@ Pi 通道的 3 条也进入主路径），**49 条属于过度防御应书面关
 | 12 | CMD-01「CAS」非真 CAS | 依据 SQLAlchemy identity-map 语义复核 T01 推理 | 采信（跨会话终态靠 CHECK 兜底）→ FIX_IF_CHEAP |
 | 13 | FE-01 en 缺键 / FE-03 command_id 每次重生成 | grep 两侧语言包 + 读 `api/tasks.ts` | 确认 → FIX_IF_CHEAP |
 | 14 | 按画像重判全部 170 条 | 7 组并行复核「现在做不做」 | 全部落到四档判定，见 §2~§6 |
+| 16 | 修复后的独立复核（2 名 reviewer 并行过审本批 diff） | 审阅代码 + 实跑端到端 | 采纳 3 项：rejected prompt 的终态被 `finally` 里的 translator SIGTERM 吞掉（已由 translator drain 修复，端到端复现 pre-fix 只剩 `run.started`）、归档兜底漏掉「状态前缀 + JSON/HTML 体」、`require_explicit_harness_execution_mode` 使 mock 栈仍不可启动（已删除该门禁）；mock 栈「无执行模式即失败」一条经实测为误报（默认即 `v2_only`） |
 | 15 | 上线形态（默认 `v2_only`、无 canary、默认 harness=Pi） | 按团队确认的部署形态复检受影响条目 | OPS-01/03/07/08 措辞与动作已改写，OPS-09 与 MIG-INFO-03 改判 ACCEPT/CLOSE，PI-02/PI-04 升为 FIX_NOW，RTB-02/PI-03 去掉「Pi 非默认」依据 |
 
 ## 10. 局限与未验证项

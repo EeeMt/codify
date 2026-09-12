@@ -56,6 +56,7 @@
 
 ### DEL-01 终态失败原因被归档的 provider 错误覆盖
 - **判定**：FIX_NOW —— 触犯本档「对交付结果说谎」的定义
+- **状态**：已修复（`7794eb92`，新增 `should_use_archived_failure_detail` 判定）
 - **位置**：`backend/app/api/tasks.py:657-668`（另见 `:709-718`）（提交 `ab869c67`）；更深一处在 `backend/app/core/worker_results.py:591-595`（提交 `9c4a094b`，属失败分类专题，建议与 T02 协同）
 - **证据**：`get_task` 对终态任务取归档 detail 后无条件覆盖 `error_message`，失败摘要同样被覆盖（仅排除 `failure_kind == "protocol_error"`）：
 

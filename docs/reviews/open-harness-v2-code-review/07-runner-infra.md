@@ -29,6 +29,7 @@
 
 ### RUN-01 V2 manifest 收窄 capability 词表后，`run_text`/`codegraph` 判定永久失效
 - **判定**：FIX_NOW —— 修复 2 行、零 schema 改动
+- **状态**：已修复（`7794eb92`）
 - **位置**：`deploy/worker-entrypoint/harness/manifest.json:29-35`（claude）、`:90-96`（pi）；消费方 `deploy/worker-entrypoint/harness/runner.sh:94-99,194-200`、`deploy/worker-entrypoint/codegraph.sh:73-79`、`deploy/worker-entrypoint/main.sh:155,235`（提交 `cbad9e56`）
 - **证据**：
   1. V2 manifest 的 `adapters.claude.capabilities` 只有 `resume/task_skills/usage_tokens/steering/follow_up`（`manifest.json:29-35`）；V1 基线同一处声明了 `"run_text": true, "codegraph": true`（`git show 8081c946^:deploy/worker-entrypoint/harness/manifest.json`）。
@@ -42,6 +43,7 @@
 
 ### RUN-02 canonical event writer 只接受 argv 传 payload，超 ~128 KiB 即整条链路失败
 - **判定**：FIX_NOW —— 触发面 ≪1% 任务，但修复代价近乎零
+- **状态**：已修复（`7794eb92`，`--payload-stdin`，无上限/截断）
 - **位置**：`deploy/worker-entrypoint/harness/events.py:369-376`；写入方 `deploy/worker-entrypoint/harness/common.sh:17-24`、`deploy/worker-entrypoint/harness/adapters/claude_events.py:134-149`（提交 `cbad9e56`）
 - **证据**：
   1. writer 的唯一 payload 入口是 `--payload "$2"`（`events.py:371-376`）；shell 侧 `codify_emit_event()` 用 `python3 "$writer" "$type" --payload "$payload"`（`common.sh:17-24`），四个 adapter 全部用 `subprocess.run([python, writer, type, "--payload", json.dumps(payload)], check=True)`（`claude_events.py:134-149`、`codex_events.py:150-160`、`pi_events.py:259-270`、`opencode_events.py:296-310`）。

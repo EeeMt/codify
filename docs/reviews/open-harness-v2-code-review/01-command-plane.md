@@ -33,6 +33,7 @@
 ### CMD-04 `created_by` 列宽 64 < `username` 上限 255，长用户名使 PUT 直接 500
 
 - **判定**：FIX_NOW —— 主干路径可用性故障，非边缘情形
+- **状态**：已修复（`7794eb92`）：列宽 64 → 255 + 迁移 `080_task_command_created_by`
 - **位置**：`backend/app/models.py:737`（对照 `:1480`）、`backend/alembic/versions/074_open_harness_v2.py:103`、`backend/app/api/task_command_routes.py:69-72`（提交 `cbad9e56`）
 - **证据**：`TaskHarnessCommand.created_by = String(64)`；`User.username = String(255)`（`models.py:1480`，仓库其它 username 列一律 255：`models.py:125/369/1435/1537`）；`_created_by()` 直接把 `current_user.username` 作为 `created_by` 写库（`task_command_routes.py:69-72` → `:218` → `task_harness_commands.py:286`）。PostgreSQL 对 `varchar(64)` 溢出抛 `StringDataRightTruncation`（SQLAlchemy `DataError`，属 `DBAPIError` 但非 `IntegrityError`），`put_command` 的 `except DBAPIError` 只在 SQLSTATE `40P01` 时重试、否则 re-raise（`:234-242`）→ 500。
 - **影响**：GitLab/OIDC 用户名长度 > 64 的用户（自建 GitLab 允许至 255）**完全无法发送命令**，每次 PUT 500；SQLite 不校验长度，故单测不会暴露该问题。
