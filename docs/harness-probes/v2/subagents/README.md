@@ -175,11 +175,36 @@ without `subagent`/`agent` metadata:
 
 See [../../../../deploy/worker-cli/pi-subagents/README.md](../../../../deploy/worker-cli/pi-subagents/README.md).
 
+### Codex `0.146.0` — PASSED on the development Host
+
+Task 622 (`harness=codex`, provider `openai_responses`, `require_changes=false`)
+completed in 25 s. The root spawned two children in parallel; the projected
+`TaskLog` state:
+
+| Row | `name` | `agent` | `subagent` |
+|---|---|---|---|
+| delegation 1 | `Subagent` | – | `{id: <UUID:e4ab12b5>, parent_id: root, role: agent, status: completed}` |
+| delegation 2 | `Subagent` | – | `{id: <UUID:f0d6b774>, parent_id: root, role: agent, status: completed}` |
+| child 1 tool | `shell` | `{id: <UUID:e4ab12b5>, parent_id: root, role: agent}` | – |
+| child 2 tool | `shell` | `{id: <UUID:f0d6b774>, parent_id: root, role: agent}` | – |
+
+Served browser (`/tasks/622`) renders `Subagent · agent #1/#2` with
+`Completed`, indented child `shell`/`AI` rows carrying the matching badge, the
+two children interleaved in real arrival order, and
+`scrollWidth == clientWidth == 1512`.
+
+Codex reports no child role, so `role` stays the neutral `agent`; the child
+identity is the sanitizer's stable pseudonym for the native child thread id.
+
 ### Net result
 
-OpenCode passes the subagent acceptance end to end on the development Host
-(Kits, canonical events, `TaskLog` metadata, served browser). Claude is blocked
-by `--bare` and Pi by detached workflow runs, so **no manifest entry declares
-`subagents: true` yet** — the contract's fail-closed default still holds for all
-four, and flipping a harness requires finishing its own blocker plus the §10
-matrix (cancel, usage, two-protocol coverage) for that harness.
+Codex (`openai_responses`) and OpenCode (`anthropic_messages`) pass the
+subagent acceptance end to end on the development Host: Kits, canonical events,
+`TaskLog` metadata, and the served browser. Claude is blocked by `--bare` and Pi
+by detached workflow runs.
+
+**No manifest entry declares `subagents: true` yet.** Flipping one requires its
+own blocker resolved plus the rest of the §10 matrix for that harness — the
+cancel-convergence check, `usage.final` vs native totals, and the remaining
+model-protocol combinations (Pi's three, OpenCode's other two) — which this
+session did not run.
