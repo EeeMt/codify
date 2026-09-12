@@ -170,12 +170,107 @@ _STATE: dict = {
     "settled": False,
     "settled_line": None,
     "last_line": 1,
+    # Subagent adaptation (open-harness-v2-subagent-adaptation.md §6.3). The
+    # root session id arrives as an explicit Bridge control record, never as a
+    # "first session seen wins" guess; child sessions are attributed by their
+    # native session id and parentID.
+    "root_session_id": None,
+    "agents": {},               # child session_id -> {id, parent_id, role}
+    "delegations": {},          # root tool_id -> child session_id
+    "child_message_ids": [],    # child assistant messages pending completion
+    "child_usage": {},          # child session id -> detail-only leaf usage
 }
 _REAL_SESSION_ID: str = ""
 
+# Canonical event types that may carry `payload.agent` (mirrors the frozen
+# backend vocabulary in harness_protocol.AGENT_ATTRIBUTED_EVENT_TYPES).
+_AGENT_ATTRIBUTED_EVENT_TYPES = frozenset(
+    {
+        "message.delta",
+        "message.completed",
+        "reasoning_summary.started",
+        "reasoning_summary.delta",
+        "reasoning_summary.completed",
+        "reasoning_summary.interrupted",
+        "tool.started",
+        "tool.completed",
+        "context.compacted",
+        "diagnostic",
+    }
+)
+_ROOT_SESSION_CONTROL_TYPE = "codify.root_session"
+# Canonical root identity for ``parent_id`` (the frozen public shape), kept
+# distinct from the native root session id used only for admission.
+ROOT_AGENT_KEY = "root"
+# One OpenCode session that the root delegates to is a child, never a second
+# Task: support_tier stays root + direct children only (no nested subagents).
+_CURRENT_AGENT: dict | None = None
+
+
+def _current_agent_id() -> str | None:
+    agent = _CURRENT_AGENT
+    return agent.get("id") if isinstance(agent, dict) else None
+
+
+def _root_session_id() -> str | None:
+    value = _STATE.get("root_session_id")
+    return value if isinstance(value, str) and value else None
+
+
+def _is_root_session(session_id: object) -> bool:
+    """Whether a native session id belongs to the root Harness session.
+
+    The Bridge publishes the root explicitly before any event flows. When no
+    root is known (a legacy caller that never sends the control record), the
+    first session observed is treated as the root, which is exactly the
+    pre-subagent behavior — attribution is opt-in and fail-safe.
+    """
+    root = _root_session_id()
+    if root is not None:
+        return session_id == root
+    return session_id not in _STATE["agents"]
+
+
+def _agent_for_session(session_id: object) -> dict | None:
+    if not isinstance(session_id, str) or not session_id:
+        return None
+    if _is_root_session(session_id):
+        return None
+    agent = _STATE["agents"].get(session_id)
+    return dict(agent) if isinstance(agent, dict) else None
+
+
+def _remember_agent(session_id: object, *, role: object = None) -> dict | None:
+    """Record a child session's native identity (never a guessed parent)."""
+    if not isinstance(session_id, str) or not session_id.strip():
+        return None
+    session_id = session_id.strip()
+    if _is_root_session(session_id):
+        return None
+    existing = _STATE["agents"].get(session_id)
+    agent = dict(existing) if isinstance(existing, dict) else {
+        "id": session_id,
+        # ``parent_id`` is the canonical root identity, not the native session
+        # id: the frozen public shape is uniform across all four adapters and
+        # only the first release's direct children are attributed
+        # (open-harness-v2-subagent-adaptation.md §5.3).
+        "parent_id": ROOT_AGENT_KEY,
+        "role": None,
+    }
+    if isinstance(role, str) and role.strip():
+        agent["role"] = role.strip()
+    if not agent.get("role"):
+        agent["role"] = "agent"
+    _STATE["agents"][session_id] = agent
+    return agent
+
 
 def _capture_real_session_id(raw_text: str) -> None:
-    """Keep OpenCode's unmasked session id before sanitization so resume stays possible."""
+    """Keep OpenCode's unmasked session id before sanitization so resume stays possible.
+
+    Only the root session is a resume target; a child session id must never
+    become the task's ``output_session_id``.
+    """
     global _REAL_SESSION_ID
     if _REAL_SESSION_ID:
         return
@@ -193,8 +288,12 @@ def _capture_real_session_id(raw_text: str) -> None:
         data = record.get("data")
         if isinstance(data, dict):
             session_id = data.get("sessionID") or data.get("sessionId")
-    if isinstance(session_id, str) and session_id and "<" not in session_id:
-        _REAL_SESSION_ID = session_id
+    if not isinstance(session_id, str) or not session_id or "<" in session_id:
+        return
+    root = _root_session_id()
+    if root is not None and session_id != root:
+        return
+    _REAL_SESSION_ID = session_id
 
 
 def _session_id(value: object = None) -> str | None:
@@ -266,15 +365,25 @@ def _error_message(value: object, default: str) -> tuple[str, object]:
 
 
 def _remember_session(properties: dict) -> None:
+    """Remember the ROOT session only: a child id is never the resume target."""
     session_id = properties.get("sessionID") or properties.get("sessionId")
-    if session_id:
-        _STATE["session_id"] = _STATE["session_id"] or _session_id(session_id)
+    if not session_id:
+        return
+    if _root_session_id() is not None and not _is_root_session(session_id):
+        return
+    if session_id in _STATE["agents"]:
+        return
+    _STATE["session_id"] = _STATE["session_id"] or _session_id(session_id)
 
 
 def _remember_assistant_message(message_id: object) -> str | None:
     if message_id is None or not str(message_id).strip():
         return None
     normalized = str(message_id).strip()
+    if _CURRENT_AGENT is not None:
+        # Child text must never concatenate into the root result; child text
+        # reaches the timeline through its own message.completed event.
+        return
     if normalized not in _STATE["assistant_message_ids"]:
         _STATE["assistant_message_ids"].append(normalized)
     current = _STATE.get("message")
@@ -294,6 +403,11 @@ def _is_rate_limit_reason(value: object) -> bool:
 
 def _emit(event_type: str, payload: dict, raw_line: int) -> None:
     writer = os.environ["CODIFY_CANONICAL_EVENT_WRITER"]
+    # Child attribution is applied here, once, so no per-event branch can
+    # forget it and no adapter-private field can drift. Root events carry no
+    # `agent` key at all (open-harness-v2-subagent-adaptation.md §5.3).
+    if _CURRENT_AGENT is not None and event_type in _AGENT_ATTRIBUTED_EVENT_TYPES:
+        payload = {**payload, "agent": dict(_CURRENT_AGENT)}
     try:
         subprocess.run(
             [
@@ -754,6 +868,9 @@ def _handle_durable_event(record_type: str, data: dict, raw_line: int) -> None:
     safe existing canonical equivalent are promoted and the rest are retained
     as explicit diagnostics/raw evidence.
     """
+    if _CURRENT_AGENT is not None and record_type.startswith("session.next.text."):
+        _handle_child_durable_text(record_type, data, raw_line)
+        return
     _remember_session(data)
 
     if record_type == "session.next.text.started":
@@ -1030,12 +1147,68 @@ def _handle_durable_event(record_type: str, data: dict, raw_line: int) -> None:
     _emit("diagnostic", payload, raw_line)
 
 
+def _handle_child_durable_text(record_type: str, data: dict, raw_line: int) -> None:
+    """Stream a child's durable text as its own attributed message rows."""
+    message_id = data.get("assistantMessageID") or data.get("messageID") or "__child__"
+    message_id = str(message_id)
+    part_id = str(data.get("textID") or "__default__")
+    if record_type == "session.next.text.started":
+        _part_state(message_id, part_id)
+        return
+    state = _part_state(message_id, part_id)
+    if record_type == "session.next.text.delta":
+        delta = data.get("delta")
+        if isinstance(delta, str) and delta and not state["text"].endswith(delta):
+            state["text"] += delta
+            _emit("message.delta", {"content": delta, "role": "assistant"}, raw_line)
+        return
+    if record_type == "session.next.text.ended":
+        text = data.get("text")
+        if isinstance(text, str):
+            state["text"] = text
+        _emit_child_message_completed(message_id, raw_line)
+
+
+def _delegation_child(state: dict) -> str | None:
+    """Child session id of a native ``task`` delegation, from native metadata.
+
+    Frozen 1.18.19 evidence (docs/harness-probes/v2/subagents/opencode): the
+    root session's ``task`` tool part carries
+    ``state.metadata.sessionId``/``parentSessionId``; the child session it
+    names is the delegation target. Never inferred from the prompt text.
+    """
+    metadata = state.get("metadata") if isinstance(state.get("metadata"), dict) else {}
+    child = metadata.get("sessionId") or metadata.get("sessionID")
+    return child if isinstance(child, str) and child.strip() else None
+
+
+def _delegation_role(state: dict, child_id: str) -> str:
+    """Display role from the native ``subagent_type`` input, then the session."""
+    source = state.get("input") if isinstance(state.get("input"), dict) else {}
+    value = source.get("subagent_type") or source.get("agent")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    agent = _STATE["agents"].get(child_id)
+    role = agent.get("role") if isinstance(agent, dict) else None
+    return role if isinstance(role, str) and role else "agent"
+
+
 def _handle_tool_part(properties: dict, raw_line: int) -> None:
     part = properties.get("part") if isinstance(properties.get("part"), dict) else {}
     state = part.get("state") if isinstance(part.get("state"), dict) else {}
     status = state.get("status")
     tool_id = _tool_id(properties, part)
     name = _display_tool_name(part)
+    # A root-level native ``task`` call is a delegation: the same row ends in
+    # place with the child's status, and the child's own session events carry
+    # the matching attribution (plan §6.3).
+    delegation_child = (
+        _delegation_child(state)
+        if _CURRENT_AGENT is None and _raw_tool_name(part).lower() == "task"
+        else None
+    )
+    if delegation_child is not None:
+        name = "Subagent"
     if status not in _TOOL_ACTIVE_STATUSES | _TOOL_TERMINAL_STATUSES:
         _emit("diagnostic", {"code": "unknown_tool_state", "name": name, "status": status}, raw_line)
         return
@@ -1045,9 +1218,10 @@ def _handle_tool_part(properties: dict, raw_line: int) -> None:
 
     lifecycle = _STATE["tools"].setdefault(
         tool_id,
-        {"name": name, "input": {}, "started": False, "completed": False},
+        {"name": name, "input": {}, "started": False, "completed": False, "agent": None},
     )
     lifecycle["name"] = name
+    lifecycle["agent"] = _CURRENT_AGENT
     input_value = _tool_input(part)
     if input_value:
         lifecycle["input"] = input_value
@@ -1057,15 +1231,21 @@ def _handle_tool_part(properties: dict, raw_line: int) -> None:
     # file path; terminal-first streams still get a synthetic start below.
     if status in _TOOL_ACTIVE_STATUSES and not lifecycle["started"]:
         if status != "pending" or lifecycle["input"]:
-            _emit(
-                "tool.started",
-                {
-                    "tool_id": tool_id,
-                    "name": name,
-                    "input": redact_hidden_reasoning(lifecycle["input"]),
-                },
-                raw_line,
-            )
+            payload = {
+                "tool_id": tool_id,
+                "name": name,
+                "input": redact_hidden_reasoning(lifecycle["input"]),
+            }
+            if delegation_child is not None:
+                role = _delegation_role(state, delegation_child)
+                _remember_agent(delegation_child, role=role)
+                lifecycle["subagent"] = {
+                    "id": delegation_child,
+                    "parent_id": ROOT_AGENT_KEY,
+                    "role": role,
+                }
+                payload["subagent"] = dict(lifecycle["subagent"])
+            _emit("tool.started", payload, raw_line)
             lifecycle["started"] = True
 
     if status in _TOOL_TERMINAL_STATUSES and not lifecycle["completed"]:
@@ -1103,6 +1283,13 @@ def _handle_tool_part(properties: dict, raw_line: int) -> None:
             payload["error_message"] = error_message
         if isinstance(exit_code, int) and not isinstance(exit_code, bool):
             payload["exit_code"] = exit_code
+        if isinstance(lifecycle.get("subagent"), dict):
+            subagent = dict(lifecycle["subagent"])
+            subagent["status"] = "failed" if error else "completed"
+            child_usage = _STATE["child_usage"].get(subagent["id"])
+            if child_usage:
+                subagent["usage"] = child_usage
+            payload["subagent"] = subagent
         _emit("tool.completed", payload, raw_line)
         lifecycle["completed"] = True
 
@@ -1210,9 +1397,52 @@ def _finalize_terminal() -> None:
         _emit("harness.failed", {"failure": failure}, terminal_line)
 
 
+def _session_of(properties: dict) -> object:
+    return properties.get("sessionID") or properties.get("sessionId")
+
+
+def _session_ref(record: dict, properties: dict) -> str | None:
+    """Extract the owning session id from either frozen SSE envelope shape.
+
+    Mirrors the Bridge's extraction: message part records may carry the id at
+    the envelope, inside ``part``, or inside ``info``; durable records use
+    ``data``. Attribution must never fall back to "root" because the id sat in
+    a different container than expected.
+    """
+    for container in (properties, record.get("data") if isinstance(record.get("data"), dict) else {}):
+        if not isinstance(container, dict):
+            continue
+        for key in ("sessionID", "sessionId"):
+            value = container.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        part = container.get("part")
+        if isinstance(part, dict):
+            for key in ("sessionID", "sessionId"):
+                value = part.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        info = container.get("info")
+        if isinstance(info, dict):
+            for key in ("sessionID", "sessionId"):
+                value = info.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    return None
+
+
 def _handle_session_status(properties: dict, raw_line: int) -> None:
     status = properties.get("status") if isinstance(properties.get("status"), dict) else {}
     status_type = status.get("type")
+    if _CURRENT_AGENT is not None:
+        # A child's busy/retry/idle status is delegation detail: it must never
+        # settle or fail the Task (open-harness-v2-subagent-adaptation.md §5.5).
+        _emit(
+            "diagnostic",
+            {"code": "subagent_session_status", "status": status_type},
+            raw_line,
+        )
+        return
     if status_type == "busy":
         _STATE["busy"] = True
         _emit("diagnostic", {"code": "session_busy"}, raw_line)
@@ -1310,6 +1540,15 @@ def _handle_interactive_event(record_type: str, properties: dict, raw_line: int)
 
 
 def _handle_session_error(properties: dict, raw_line: int) -> None:
+    if _CURRENT_AGENT is not None:
+        # The child's native error is recorded against the delegation; whether
+        # the Task continues is the root Harness's decision, not the adapter's.
+        _emit(
+            "diagnostic",
+            {"code": "subagent_session_error", "session_id": _session_of(properties)},
+            raw_line,
+        )
+        return
     _remember_session(properties)
     error = properties.get("error") or properties.get("message")
     message, status_code = _error_message(error, "OpenCode session error")
@@ -1327,7 +1566,19 @@ def _handle_message_updated(properties: dict, raw_line: int) -> None:
     info = properties.get("info") if isinstance(properties.get("info"), dict) else {}
     usage = info.get("usage") if isinstance(info.get("usage"), dict) else info.get("tokens")
     if isinstance(usage, dict):
-        _STATE["usage"] = _usage({"usage": usage, "cost": info.get("cost")})
+        # Child usage is detail-only (open-harness-v2-subagent-adaptation.md
+        # §5.6): the attempt total stays the root's native usage, and the child
+        # detail is attached to its delegation row instead.
+        agent_id = _current_agent_id()
+        if agent_id is not None:
+            totals = _STATE["child_usage"].setdefault(agent_id, {})
+            child_usage = _usage({"usage": usage, "cost": info.get("cost")})
+            for key in ("input_tokens", "output_tokens"):
+                value = child_usage.get(key)
+                if isinstance(value, int) and not isinstance(value, bool):
+                    totals[key] = totals.get(key, 0) + value
+        else:
+            _STATE["usage"] = _usage({"usage": usage, "cost": info.get("cost")})
     role = info.get("role")
     message_id = info.get("id") or properties.get("messageID")
     if not message_id and role == "assistant":
@@ -1335,6 +1586,17 @@ def _handle_message_updated(properties: dict, raw_line: int) -> None:
     if message_id and role == "user":
         _STATE["user_message_ids"].add(message_id)
         _STATE["messages"].pop(message_id, None)
+    if role == "assistant" and _CURRENT_AGENT is not None:
+        # A child assistant message completes as its own timeline row; it never
+        # replaces the root's final message.
+        if isinstance(message_id, str) and message_id and message_id not in _STATE["child_message_ids"]:
+            _STATE["child_message_ids"].append(message_id)
+        if _message_finished(info) and _emit_child_message_completed(message_id, raw_line):
+            if message_id in _STATE["child_message_ids"]:
+                _STATE["child_message_ids"].remove(message_id)
+        _flush_pending_deltas(message_id)
+        _remember_session(properties)
+        return
     if role == "assistant":
         _STATE["message"] = info
         _remember_assistant_message(message_id)
@@ -1392,6 +1654,45 @@ def _refresh_text() -> None:
             if isinstance(text, str):
                 text_parts.append(text)
     _STATE["text_parts"] = text_parts
+
+
+def _message_finished(info: dict) -> bool:
+    """Native evidence that an assistant message stopped producing text."""
+    timing = info.get("time") if isinstance(info.get("time"), dict) else {}
+    return isinstance(timing.get("completed"), (int, float)) and not isinstance(
+        timing.get("completed"), bool
+    )
+
+
+def _child_message_text(message_id: object) -> str:
+    if not isinstance(message_id, str) or not message_id:
+        return ""
+    return "".join(
+        part.get("text")
+        for part in _STATE["messages"].get(message_id, {}).values()
+        if isinstance(part.get("text"), str)
+    )
+
+
+def _emit_child_message_completed(message_id: object, raw_line: int) -> bool:
+    """Emit one child message row; return whether it was actually emitted.
+
+    A ``message.updated`` completion can arrive before the part snapshot that
+    carries its text, so a message with no text yet stays pending instead of
+    being dropped silently.
+    """
+    text = _child_message_text(message_id)
+    if not text:
+        return False
+    _emit("message.completed", {"message_id": message_id, "text": text}, raw_line)
+    return True
+
+
+def _flush_child_messages(raw_line: int) -> None:
+    """Close the pending child assistant messages when their session idles."""
+    for message_id in list(_STATE["child_message_ids"]):
+        _emit_child_message_completed(message_id, raw_line)
+    _STATE["child_message_ids"] = []
 
 
 def _flush_pending_deltas(message_id: str) -> None:
@@ -1531,6 +1832,14 @@ def _handle_message_part_delta(properties: dict, raw_line: int) -> None:
 
 
 def _handle_session_idle(properties: dict, raw_line: int) -> None:
+    if _CURRENT_AGENT is not None:
+        _flush_child_messages(raw_line)
+        _emit(
+            "diagnostic",
+            {"code": "subagent_idle", "session_id": _session_of(properties)},
+            raw_line,
+        )
+        return
     _remember_session(properties)
     _STATE["idle_seen"] = True
     _STATE["busy"] = False
@@ -1547,7 +1856,7 @@ def _handle_session_idle(properties: dict, raw_line: int) -> None:
         active_tools = [
             lifecycle["name"]
             for lifecycle in _STATE["tools"].values()
-            if not lifecycle.get("completed")
+            if not lifecycle.get("completed") and lifecycle.get("agent") is None
         ]
         if active_tools:
             _STATE["terminal_failure"] = {
@@ -1601,9 +1910,64 @@ def _handle_observed_failure_event(record_type: str, properties: dict, raw_line:
     )
 
 
+def _set_current_agent(record: dict, properties: dict) -> None:
+    """Point every event emitted for this record at its owning child session."""
+    global _CURRENT_AGENT
+    session_id = _session_ref(record, properties)
+    if session_id is not None:
+        role = properties.get("agent") or _durable_role(record)
+        _CURRENT_AGENT = _remember_agent(session_id, role=role)
+    else:
+        _CURRENT_AGENT = None
+
+
+def _durable_role(record: dict) -> object:
+    data = record.get("data") if isinstance(record.get("data"), dict) else {}
+    return data.get("agent")
+
+
+def _register_child_session(properties: dict) -> None:
+    """Admit a child session from its native lifecycle record's parentID."""
+    info = properties.get("info") if isinstance(properties.get("info"), dict) else properties
+    session_id = info.get("id") or info.get("sessionID") or info.get("sessionId")
+    parent_id = info.get("parentID") or info.get("parentId")
+    if not isinstance(session_id, str) or not session_id.strip():
+        return
+    session_id = session_id.strip()
+    if _is_root_session(session_id):
+        return
+    root = _root_session_id()
+    if not isinstance(parent_id, str) or not parent_id.strip():
+        return
+    parent_id = parent_id.strip()
+    # Only a direct child of the root is supported in this release: a nested
+    # grandchild keeps its raw evidence and a diagnostic, never attribution.
+    if parent_id != root:
+        if parent_id in _STATE["agents"]:
+            _emit(
+                "diagnostic",
+                {
+                    "code": "subagent_depth_unsupported",
+                    "session_id": session_id,
+                    "parent_id": parent_id,
+                },
+                _STATE.get("last_line") or 1,
+            )
+        return
+    _remember_agent(session_id, role=info.get("agent"))
+
+
 def translate(record: dict, raw_line: int) -> None:
     record_type = record.get("type")
     properties = record.get("properties") if isinstance(record.get("properties"), dict) else {}
+    if record_type == _ROOT_SESSION_CONTROL_TYPE:
+        session_id = (properties.get("sessionID") or properties.get("sessionId") or "").strip()
+        if session_id:
+            _STATE["root_session_id"] = session_id
+        return
+    if record_type in ("session.created", "session.updated"):
+        _register_child_session(properties)
+    _set_current_agent(record, properties)
     if isinstance(record_type, str) and record_type.startswith("session.next."):
         _handle_durable_event(record_type, _durable_data(record, properties), raw_line)
         return
@@ -1674,6 +2038,16 @@ def main() -> int:
         for raw_input in sys.stdin:
             raw_input = raw_input.rstrip("\n")
             if not raw_input.strip():
+                continue
+            try:
+                parsed = json.loads(raw_input)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict) and parsed.get("type") == _ROOT_SESSION_CONTROL_TYPE:
+                # Bridge control record, not a native OpenCode event: it sets
+                # the root identity and never enters the raw archive, which
+                # stays a faithful capture of native traffic only.
+                translate(parsed, line_no or 1)
                 continue
             _capture_real_session_id(raw_input)
             try:

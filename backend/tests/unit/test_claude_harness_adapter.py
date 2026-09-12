@@ -1444,3 +1444,189 @@ def test_claude_translator_emits_multi_megabyte_message_text(tmp_path):
     completed = [event for event in _events(tmp_path) if event["type"] == "message.completed"]
     assert len(completed) == 1
     assert completed[0]["payload"]["text"] == text
+
+
+def test_claude_two_children_keep_message_thinking_and_tool_state_separate(tmp_path):
+    """Two concurrent children reuse native message/tool ids without crossing."""
+    _emit_v2(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+
+    def assistant(message_id: str, parent: str | None, blocks: list[dict]) -> dict:
+        return {
+            "type": "assistant",
+            "session_id": "session-1",
+            "parent_tool_use_id": parent,
+            "message": {"id": message_id, "role": "assistant", "content": blocks},
+        }
+
+    def tool_result(tool_id: str, parent: str | None, content: str, error: bool = False) -> dict:
+        return {
+            "type": "user",
+            "session_id": "session-1",
+            "parent_tool_use_id": parent,
+            "message": {
+                "id": "msg-user-1",
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": tool_id, "content": content, "is_error": error}
+                ],
+            },
+        }
+
+    def stream_event(event: dict, parent: str | None) -> dict:
+        return {
+            "type": "stream_event",
+            "session_id": "session-1",
+            "parent_tool_use_id": parent,
+            "event": event,
+        }
+
+    _translate_stream_v2(
+        tmp_path,
+        [
+            # Root delegates twice; both children share the native ids below.
+            assistant(
+                "msg-root",
+                None,
+                [
+                    {"type": "tool_use", "id": "delegate-a", "name": "Agent", "input": {"subagent_type": "reviewer", "prompt": "review auth"}},
+                    {"type": "tool_use", "id": "delegate-b", "name": "Agent", "input": {"subagent_type": "explore", "prompt": "find auth"}},
+                ],
+            ),
+            # Child A opens thinking on the shared message id, then child B does.
+            stream_event({"type": "message_start", "message": {"id": "msg-shared"}}, "delegate-a"),
+            stream_event({"type": "content_block_start", "index": 0, "content_block": {"type": "thinking"}}, "delegate-a"),
+            stream_event({"type": "message_start", "message": {"id": "msg-shared"}}, "delegate-b"),
+            stream_event({"type": "content_block_start", "index": 0, "content_block": {"type": "thinking"}}, "delegate-b"),
+            # A new message for child A must not interrupt child B's block.
+            stream_event({"type": "message_start", "message": {"id": "msg-shared-2"}}, "delegate-a"),
+            stream_event({"type": "content_block_stop", "index": 0}, "delegate-b"),
+            # Both children run a tool with the SAME native tool id.
+            assistant("msg-shared", "delegate-a", [{"type": "tool_use", "id": "native-1", "name": "Bash", "input": {"command": "ls"}}]),
+            assistant("msg-shared", "delegate-b", [{"type": "tool_use", "id": "native-1", "name": "Bash", "input": {"command": "pwd"}}]),
+            assistant("msg-shared", "delegate-a", [{"type": "text", "text": "alpha done"}]),
+            assistant("msg-shared", "delegate-b", [{"type": "text", "text": "beta done"}]),
+            tool_result("native-1", "delegate-a", "alpha-output"),
+            tool_result("native-1", "delegate-b", "beta-output"),
+            # Native child lifecycle: task_started caches the role, and the
+            # notification repeats the terminal the tool result already gave.
+            {
+                "type": "system",
+                "subtype": "task_started",
+                "tool_use_id": "delegate-a",
+                "subagent_type": "reviewer",
+                "description": "review auth",
+                "session_id": "session-1",
+            },
+            tool_result("delegate-a", None, "alpha summary"),
+            tool_result("delegate-b", None, "beta summary", error=True),
+            {
+                "type": "system",
+                "subtype": "task_notification",
+                "tool_use_id": "delegate-a",
+                "status": "completed",
+                "summary": "review auth",
+                "usage": {"total_tokens": 15721, "tool_uses": 1, "duration_ms": 2556},
+                "session_id": "session-1",
+            },
+            {
+                "type": "result",
+                "subtype": "success",
+                "session_id": "session-1",
+                "result": "root summary",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        ],
+    )
+
+    events = _events(tmp_path)
+    deltas = {
+        (event["payload"].get("agent", {}).get("id"), event["payload"]["text"])
+        for event in events
+        if event["type"] == "message.completed" and event["payload"].get("agent")
+    }
+    assert deltas == {("delegate-a", "alpha done"), ("delegate-b", "beta done")}
+
+    # Child A's own new message ends its own open block; child B's block is
+    # untouched and closes on its own native stop.
+    interrupted = [
+        (event["payload"]["agent"]["id"], event["payload"]["reasoning_id"])
+        for event in events
+        if event["type"] == "reasoning_summary.interrupted"
+    ]
+    assert interrupted == [("delegate-a", "claude-think-delegate-a-msg-shared-0")]
+    completed_reasoning = {
+        event["payload"]["agent"]["id"]: event["payload"]["reasoning_id"]
+        for event in events
+        if event["type"] == "reasoning_summary.completed"
+    }
+    assert completed_reasoning == {"delegate-b": "claude-think-delegate-b-msg-shared-0"}
+    started = {
+        event["payload"]["agent"]["id"]: event["payload"]["reasoning_id"]
+        for event in events
+        if event["type"] == "reasoning_summary.started"
+    }
+    assert started == {
+        "delegate-a": "claude-think-delegate-a-msg-shared-0",
+        "delegate-b": "claude-think-delegate-b-msg-shared-0",
+    }
+
+    # Identical native tool ids stay in separate agent buckets.
+    child_tool_starts = [
+        event
+        for event in events
+        if event["type"] == "tool.started" and event["payload"]["tool_id"] == "native-1"
+    ]
+    assert [
+        (event["payload"]["agent"]["id"], event["payload"]["input"]["command"])
+        for event in child_tool_starts
+    ] == [("delegate-a", "ls"), ("delegate-b", "pwd")]
+    child_tool_results = [
+        event
+        for event in events
+        if event["type"] == "tool.completed" and event["payload"]["tool_id"] == "native-1"
+    ]
+    assert [
+        (event["payload"]["agent"]["id"], event["payload"]["output"])
+        for event in child_tool_results
+    ] == [("delegate-a", "alpha-output"), ("delegate-b", "beta-output")]
+
+    delegation_starts = [
+        event["payload"]["subagent"]
+        for event in events
+        if event["type"] == "tool.started" and "subagent" in event["payload"]
+    ]
+    assert [
+        (item["id"], item["role"]) for item in delegation_starts
+    ] == [("delegate-a", "reviewer"), ("delegate-b", "explore")]
+
+    delegations = [
+        event["payload"]["subagent"]
+        for event in events
+        if event["type"] == "tool.completed" and "subagent" in event["payload"]
+    ]
+    assert {item["id"]: item["status"] for item in delegations} == {
+        "delegate-a": "completed",
+        "delegate-b": "failed",
+    }
+    assert {item["id"]: item["role"] for item in delegations} == {
+        "delegate-a": "reviewer",
+        "delegate-b": "explore",
+    }
+    # The Agent tool result and the native task_notification are two views of
+    # one terminal: exactly one tool.completed per delegation.
+    delegation_completions = [
+        event["payload"]["tool_id"]
+        for event in events
+        if event["type"] == "tool.completed" and "subagent" in event["payload"]
+    ]
+    assert sorted(delegation_completions) == ["delegate-a", "delegate-b"]
+    # ``task_started`` also refreshes the role even without the tool_use block.
+    assert all(
+        item["role"] == "reviewer"
+        for item in delegations
+        if item["id"] == "delegate-a"
+    )
+    # Delegation failure is not a Task terminal: the root still completes.
+    assert sum(event["type"] == "harness.completed" for event in events) == 1
+    assert sum(event["type"] == "harness.failed" for event in events) == 0
+    assert json.loads((tmp_path / "harness-result.json").read_text(encoding="utf-8"))["status"] == "completed"

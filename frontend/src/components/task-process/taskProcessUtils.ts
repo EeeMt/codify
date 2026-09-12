@@ -62,6 +62,7 @@ import {
   PencilOutline,
   SearchOutline,
   ExtensionPuzzleOutline,
+  GitBranchOutline,
 } from '@vicons/ionicons5'
 
 export interface ParsedTextEntry {
@@ -78,21 +79,38 @@ export interface ParsedTextEntry {
   durationMs?: number | null
 }
 
+export interface ProcessAgentRef {
+  id: string
+  parentId: string
+  role: string
+  ordinal: number | null
+}
+
+export interface ProcessSubagentState extends ProcessAgentRef {
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  inputTokens?: number
+  outputTokens?: number
+}
+
 export interface NormalizedTextEventRow {
   kind: 'thinking' | 'assistant_text'
   event: TaskLog
   textEntry: ParsedTextEntry
+  agent: ProcessAgentRef | null
 }
 
 export interface NormalizedToolEventRow {
   kind: 'tool_call'
   event: TaskLog
   toolCall: ToolCall
+  agent: ProcessAgentRef | null
+  subagent: ProcessSubagentState | null
 }
 
 export interface NormalizedCompactRow {
   kind: 'context_compact'
   event: TaskLog
+  agent: ProcessAgentRef | null
 }
 
 export interface ParsedControlEntry {
@@ -287,6 +305,7 @@ export function getToolIcon(name: string): Component {
     case 'Edit': return PencilOutline
     case 'Glob':
     case 'Grep': return SearchOutline
+    case 'Subagent': return GitBranchOutline
     default: return ExtensionPuzzleOutline
   }
 }
@@ -300,6 +319,7 @@ export function getToolColor(name: string): string {
     case 'Edit': return '#d97706'
     case 'Glob':
     case 'Grep': return '#64748b'
+    case 'Subagent': return '#7c3aed'
     default: return '#db2777'
   }
 }
@@ -460,18 +480,131 @@ export function isControlEventRow(row: NormalizedTaskProcessRow): row is Normali
   return row.kind === 'control_event'
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function readIdentity(value: Record<string, unknown>, camel: string, snake: string): string | null {
+  const raw = value[camel] ?? value[snake]
+  return typeof raw === 'string' && raw.trim() ? raw : null
+}
+
+/**
+ * Parse the common `metadata.agent` ref. Harness-specific fields are never
+ * inspected: root events omit `agent` and always render exactly as before.
+ */
+export function parseAgentRef(metadata: unknown): ProcessAgentRef | null {
+  const obj = asRecord(parseJsonMetadata(metadata))
+  const agent = asRecord(obj?.agent)
+  if (!agent) return null
+  const id = readIdentity(agent, 'id', 'id')
+  if (!id) return null
+  return {
+    id,
+    parentId: readIdentity(agent, 'parentId', 'parent_id') ?? 'root',
+    role: readIdentity(agent, 'role', 'role') ?? '',
+    ordinal: null,
+  }
+}
+
+function readTokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+}
+
+/**
+ * Parse the `metadata.subagent` state on a delegation tool row. A start row
+ * has no status yet (running); a completed row carries the native terminal
+ * status and optional detail usage. This never participates in token totals.
+ */
+export function parseSubagentState(metadata: unknown): ProcessSubagentState | null {
+  const obj = asRecord(parseJsonMetadata(metadata))
+  const subagent = asRecord(obj?.subagent)
+  if (!subagent) return null
+  const id = readIdentity(subagent, 'id', 'id') ?? readIdentity(obj ?? {}, 'tool_use_id', 'tool_use_id')
+  if (!id) return null
+  const status = subagent.status
+  const normalizedStatus =
+    status === 'completed' || status === 'failed' || status === 'cancelled'
+      ? status
+      : 'running'
+  const usage = asRecord(subagent.usage)
+  return {
+    id,
+    parentId: readIdentity(subagent, 'parentId', 'parent_id') ?? 'root',
+    role: readIdentity(subagent, 'role', 'role') ?? '',
+    ordinal: null,
+    status: normalizedStatus,
+    inputTokens: usage ? readTokenCount(usage.input_tokens) : undefined,
+    outputTokens: usage ? readTokenCount(usage.output_tokens) : undefined,
+  }
+}
+
+/**
+ * Assign `#1/#2` only when one attempt has several children of the same role.
+ * Numbering follows the first `TaskLog.id` an agent identity appears at, so it
+ * stays stable across refreshes and concurrent (interleaved) event arrival.
+ */
+function assignRoleOrdinals(
+  agents: Map<string, ProcessAgentRef>,
+  firstSeenIndex: Map<string, number>,
+): void {
+  const byRole = new Map<string, string[]>()
+  for (const [id, agent] of agents) {
+    if (!agent.role) continue
+    const list = byRole.get(agent.role) ?? []
+    list.push(id)
+    byRole.set(agent.role, list)
+  }
+  for (const ids of byRole.values()) {
+    if (ids.length < 2) continue
+    ids.sort((a, b) => (firstSeenIndex.get(a) ?? 0) - (firstSeenIndex.get(b) ?? 0))
+    ids.forEach((id, index) => {
+      const agent = agents.get(id)
+      if (agent) agent.ordinal = index + 1
+    })
+  }
+}
+
+export function agentDisplayName(agent: ProcessAgentRef): string {
+  const role = agent.role || 'agent'
+  return agent.ordinal === null ? role : `${role} #${agent.ordinal}`
+}
+
 export function normalizeTaskProcessRows(taskLogs: TaskLog[]): NormalizedTaskProcessRow[] {
   const directEvents = taskLogs.filter((l) => STRUCTURED_TYPES.has(l.log_type ?? ''))
 
-  const sortedEvents = [...directEvents].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  // `TaskLog.id` is the stable timeline order; `created_at` is display-only so
+  // concurrent children sharing a timestamp can never reorder on refresh.
+  const sortedEvents = [...directEvents].sort((a, b) => a.id - b.id)
+  const agents = new Map<string, ProcessAgentRef>()
+  const firstSeenIndex = new Map<string, number>()
   const rows: NormalizedTaskProcessRow[] = []
+
+  const track = (agent: ProcessAgentRef | null, index: number) => {
+    if (!agent) return
+    if (!agents.has(agent.id)) {
+      agents.set(agent.id, agent)
+      firstSeenIndex.set(agent.id, index)
+    }
+  }
+
   for (const event of sortedEvents) {
+    const index = rows.length
     if (event.log_type === 'thinking' || event.log_type === 'assistant_text') {
-      rows.push({ kind: event.log_type, event, textEntry: parseTextEntry(event.metadata) })
+      const agent = parseAgentRef(event.metadata)
+      track(agent, index)
+      rows.push({ kind: event.log_type, event, textEntry: parseTextEntry(event.metadata), agent })
     } else if (event.log_type === 'tool_call') {
-      rows.push({ kind: 'tool_call', event, toolCall: parseToolCall(event) })
+      const agent = parseAgentRef(event.metadata)
+      const subagent = parseSubagentState(event.metadata)
+      track(agent, index)
+      track(subagent, index)
+      rows.push({ kind: 'tool_call', event, toolCall: parseToolCall(event), agent, subagent })
     } else if (event.log_type === 'context_compact') {
-      rows.push({ kind: 'context_compact', event })
+      const agent = parseAgentRef(event.metadata)
+      track(agent, index)
+      rows.push({ kind: 'context_compact', event, agent })
     } else if (event.log_type === 'control_event') {
       const controlEntry = parseControlEntry(event.metadata)
       // Internal signals share the storage type but have no user-facing
@@ -481,6 +614,15 @@ export function normalizeTaskProcessRows(taskLogs: TaskLog[]): NormalizedTaskPro
       const isVisible =
         controlEntry.eventType !== '' && controlEntry.eventType !== 'control.queue.updated'
       if (isVisible) rows.push({ kind: 'control_event', event, controlEntry })
+    }
+  }
+
+  assignRoleOrdinals(agents, firstSeenIndex)
+  for (const row of rows) {
+    if (row.kind === 'control_event') continue
+    if (row.agent) Object.assign(row.agent, agents.get(row.agent.id) ?? {})
+    if (row.kind === 'tool_call' && row.subagent) {
+      Object.assign(row.subagent, agents.get(row.subagent.id) ?? {})
     }
   }
   return rows

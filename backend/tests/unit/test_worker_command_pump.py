@@ -1207,14 +1207,16 @@ async def test_pump_recovers_dispatching_as_outcome_unknown(maker):
 # ── product projection of control events (live-steering plan §6) ─────────────
 
 
-def _canonical_event(*, task_id: int, attempt_id: str, seq: int, event_type: str, payload: dict) -> dict:
+def _canonical_event(
+    *, task_id: int, attempt_id: str, seq: int, event_type: str, payload: dict, occurred_at: str | None = None
+) -> dict:
     return {
         "schema": CANONICAL_EVENT_SCHEMA_V2,
         "attempt_id": attempt_id,
         "event_id": f"{attempt_id}-event-{seq}",
         "task_id": task_id,
         "seq": seq,
-        "occurred_at": f"2026-09-11T00:44:{54 + seq:02d}Z",
+        "occurred_at": occurred_at or f"2026-09-11T00:44:{54 + seq:02d}Z",
         "type": event_type,
         "harness": {
             "key": "pi",
@@ -1464,3 +1466,191 @@ async def test_gate_journals_dispatching_command_as_unknown_with_facts(maker):
     assert entry["command_type"] == "steer"
     assert entry["text"] == "keep [GITLAB_TOKEN] out"
     assert entry["code"] == "delivery_outcome_unknown"
+
+
+# ── subagent attribution projection ─────────────────────────────────────────
+
+
+async def _task_log_metadata(db, task_id: int, log_type: str) -> list[dict]:
+    rows = (
+        await db.execute(
+            sa.text(
+                "SELECT log_metadata FROM task_logs "
+                "WHERE task_id = :t AND log_type = :k ORDER BY id"
+            ),
+            {"t": task_id, "k": log_type},
+        )
+    ).scalars().all()
+    return [json.loads(raw) for raw in rows]
+
+
+def _child(agent_id: str, role: str) -> dict:
+    return {"id": agent_id, "parent_id": "root", "role": role}
+
+
+async def test_projector_keeps_identical_native_tool_ids_in_separate_agent_buckets(maker):
+    """Two children reusing one native tool id must never cross-pair."""
+    task_id, attempt_id, _ = await _seed_task_with_commands(maker, count=0)
+    async with maker() as db:
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        for seq, (event_type, agent, extra) in enumerate(
+            [
+                ("tool.started", _child("child-a", "reviewer"), {"output": None}),
+                ("tool.started", _child("child-b", "explore"), {"output": None}),
+                ("tool.completed", _child("child-a", "reviewer"), {"output": "alpha-result"}),
+                ("tool.completed", _child("child-b", "explore"), {"output": "beta-result"}),
+            ],
+            start=2,
+        ):
+            await projector.ingest_event_record(
+                task_id=task_id,
+                db=db,
+                record=_canonical_event(
+                    task_id=task_id,
+                    attempt_id=attempt_id,
+                    seq=seq,
+                    event_type=event_type,
+                    payload={
+                        "tool_id": "native-shared-1",
+                        "name": "Read",
+                        "input": {"file_path": "/tmp/x"},
+                        "agent": agent,
+                        **extra,
+                    },
+                ),
+            )
+        await db.commit()
+        rows = await _task_log_metadata(db, task_id, "tool_call")
+
+    assert len(rows) == 2
+    assert [row["agent"]["id"] for row in rows] == ["child-a", "child-b"]
+    assert [row["output_char_count"] for row in rows] == [len("alpha-result"), len("beta-result")]
+    assert all(row["error"] is False for row in rows)
+
+
+async def test_projector_buckets_message_deltas_per_agent(maker):
+    """Child deltas never merge into the root message, even when interleaved."""
+    task_id, attempt_id, _ = await _seed_task_with_commands(maker, count=0)
+    async with maker() as db:
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        events = [
+            ("message.delta", {"text": "root-"}),
+            ("message.delta", {"text": "alpha", "agent": _child("child-a", "reviewer")}),
+            ("message.delta", {"text": "root", "agent": None}),
+            ("message.delta", {"text": "beta", "agent": _child("child-b", "explore")}),
+            ("message.completed", {"text": "", "agent": _child("child-a", "reviewer")}),
+            ("message.completed", {"text": ""}),
+            ("message.completed", {"text": "", "agent": _child("child-b", "explore")}),
+        ]
+        for seq, (event_type, payload) in enumerate(events, start=2):
+            await projector.ingest_event_record(
+                task_id=task_id,
+                db=db,
+                record=_canonical_event(
+                    task_id=task_id,
+                    attempt_id=attempt_id,
+                    seq=seq,
+                    event_type=event_type,
+                    payload={k: v for k, v in payload.items() if v is not None},
+                    occurred_at=f"2026-09-11T00:45:{seq:02d}Z",
+                ),
+            )
+        await db.commit()
+        rows = await _task_log_metadata(db, task_id, "assistant_text")
+
+    assert sorted(row["preview"] for row in rows) == ["alpha", "beta", "root-root"]
+    root_row = next(row for row in rows if row["preview"] == "root-root")
+    assert "agent" not in root_row
+    assert next(row for row in rows if row["preview"] == "alpha")["agent"]["id"] == "child-a"
+
+
+async def test_projector_isolates_reasoning_ids_per_agent(maker):
+    """Native reasoning ids may repeat across children without pairing across."""
+    task_id, attempt_id, _ = await _seed_task_with_commands(maker, count=0)
+    async with maker() as db:
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        for seq, (event_type, agent) in enumerate(
+            [
+                ("reasoning_summary.started", _child("child-a", "reviewer")),
+                ("reasoning_summary.started", _child("child-b", "explore")),
+                ("reasoning_summary.completed", _child("child-a", "reviewer")),
+                ("reasoning_summary.completed", _child("child-b", "explore")),
+            ],
+            start=2,
+        ):
+            await projector.ingest_event_record(
+                task_id=task_id,
+                db=db,
+                record=_canonical_event(
+                    task_id=task_id,
+                    attempt_id=attempt_id,
+                    seq=seq,
+                    event_type=event_type,
+                    payload={"reasoning_id": "native-reason-1", "agent": agent},
+                ),
+            )
+        await db.commit()
+        rows = await _task_log_metadata(db, task_id, "thinking")
+
+    assert len(rows) == 2
+    assert [row["agent"]["id"] for row in rows] == ["child-a", "child-b"]
+    assert all(row["status"] == "completed" for row in rows)
+
+
+async def test_projector_keeps_delegation_status_and_usage_on_one_row(maker):
+    """A delegation row ends in place with the child's status and detail usage."""
+    task_id, attempt_id, _ = await _seed_task_with_commands(maker, count=0)
+    subagent = _child("child-a", "reviewer")
+    async with maker() as db:
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=2,
+                event_type="tool.started",
+                payload={
+                    "tool_id": "delegation-1",
+                    "name": "Subagent",
+                    "input": {"role": "reviewer", "task": "review auth"},
+                    "subagent": subagent,
+                },
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=3,
+                event_type="tool.completed",
+                payload={
+                    "tool_id": "delegation-1",
+                    "name": "Subagent",
+                    "output": "auth entry is in app/auth.py",
+                    "error": False,
+                    "subagent": {
+                        **subagent,
+                        "status": "completed",
+                        "usage": {"input_tokens": 1200, "output_tokens": 300},
+                    },
+                },
+            ),
+        )
+        await db.commit()
+        rows = await _task_log_metadata(db, task_id, "tool_call")
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["tool_use_id"] == "delegation-1"
+    assert row["subagent"]["role"] == "reviewer"
+    assert row["subagent"]["status"] == "completed"
+    assert row["subagent"]["usage"] == {"input_tokens": 1200, "output_tokens": 300}
+    assert row["error"] is False

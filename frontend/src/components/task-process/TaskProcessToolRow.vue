@@ -6,11 +6,16 @@
       </div>
       <div class="event-info">
         <span class="event-name">
-          <span v-if="isExecuting" class="tool-spinner" aria-hidden="true"></span>{{ row.toolCall.name }}
+          <span v-if="isExecuting" class="tool-spinner" aria-hidden="true"></span>{{ displayName }}<TaskProcessAgentBadge v-if="row.agent && !row.subagent" :agent="row.agent" class="event-name__agent" />
         </span>
         <span v-if="summary" class="event-preview">{{ summary }}</span>
       </div>
-      <n-tag v-if="row.toolCall.error" type="error" size="small" round>Error</n-tag>
+      <n-tag v-if="subagentStatusTag" :type="subagentStatusTag.type" size="small" round>{{ subagentStatusTag.label }}</n-tag>
+      <n-tag v-else-if="row.toolCall.error" type="error" size="small" round>Error</n-tag>
+      <span
+        v-if="subagentTokenLabel"
+        class="event-duration subagent-tokens"
+      >{{ subagentTokenLabel }}</span>
       <span
         v-if="row.toolCall.duration_ms !== undefined"
         class="event-duration"
@@ -76,7 +81,8 @@ import { computed, ref, watch } from 'vue'
 import { NIcon, NTag } from 'naive-ui'
 import { ChevronForward } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
-import { formatEventDuration, formatInput, formatTimestamp, getInputSummary, getToolColor, getToolIcon, hasDetailedInput, type NormalizedToolEventRow } from './taskProcessUtils'
+import { agentDisplayName, formatEventDuration, formatInput, formatTimestamp, getInputSummary, getToolColor, getToolIcon, hasDetailedInput, type NormalizedToolEventRow } from './taskProcessUtils'
+import TaskProcessAgentBadge from './TaskProcessAgentBadge.vue'
 
 const props = withDefaults(defineProps<{
   row: NormalizedToolEventRow
@@ -123,6 +129,37 @@ function toggleOutput() {
 
 const summary = computed(() => getInputSummary(props.row.toolCall))
 const hasDetailedToolInput = computed(() => hasDetailedInput(props.row.toolCall))
+
+// A delegation row keeps the canonical tool name and appends the display role,
+// e.g. `Subagent · reviewer #1` (plan §7.2.2). Child tool rows keep their own
+// name and carry the shared agent badge instead.
+const displayName = computed(() => (
+  props.row.subagent
+    ? `${props.row.toolCall.name} · ${agentDisplayName(props.row.subagent)}`
+    : props.row.toolCall.name
+))
+
+const subagentStatusTag = computed<{ type: 'default' | 'error' | 'success'; label: string } | null>(() => {
+  const state = props.row.subagent
+  if (!state) return null
+  if (state.status === 'running') {
+    // A dangling delegation on a settled task must not read as still running.
+    return props.taskActive ? { type: 'default', label: t('taskView.subagentRunning') } : null
+  }
+  if (state.status === 'failed') return { type: 'error', label: t('taskView.subagentFailed') }
+  if (state.status === 'cancelled') return { type: 'default', label: t('taskView.subagentCancelled') }
+  return { type: 'default', label: t('taskView.subagentCompleted') }
+})
+
+// Detail-only token breakdown; usage.final stays the only authoritative total.
+const subagentTokenLabel = computed<string | null>(() => {
+  const state = props.row.subagent
+  if (!state) return null
+  const total = (state.inputTokens ?? 0) + (state.outputTokens ?? 0)
+  if (total <= 0) return null
+  const display = total >= 1000 ? `${(total / 1000).toFixed(1)}k` : String(total)
+  return t('taskView.subagentTokens', { count: display })
+})
 
 // When payload IDs become available on an already-open panel (e.g. after task
 // completes and the parent refreshes all logs), auto-trigger loading so the
@@ -246,6 +283,13 @@ const outputIsPlaceholder = computed(() => {
   font-weight: 500;
   font-size: 13px;
   flex-shrink: 0;
+}
+.event-name__agent {
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+.subagent-tokens {
+  white-space: nowrap;
 }
 .tool-spinner {
   display: inline-block;

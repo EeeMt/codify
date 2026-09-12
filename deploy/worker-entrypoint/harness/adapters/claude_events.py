@@ -55,63 +55,124 @@ def _session_id(record: dict) -> str | None:
 # Partial stream events identify every thinking block by its native message id
 # plus the content index; the full assistant records that follow must not
 # re-map the same block (plan §4.1).
-_PARTIAL_MESSAGE_ID: str = ""            # message id from the latest stream_event message_start
-_PARTIAL_THINKING_STARTED: bool = False  # a thinking content_block_start was seen for this message
-_OPEN_REASONING: dict = {}               # content index -> reasoning_id of open thinking blocks
+#
+# Subagent adaptation: Claude marks every child-native record with the
+# delegation's ``parent_tool_use_id``. All lifecycle state below is therefore
+# keyed by agent, so two concurrent children can never interrupt, close or
+# overwrite each other's message and thinking blocks
+# (open-harness-v2-subagent-adaptation.md §6.1).
+ROOT_AGENT_KEY = "root"
+# Mirrors harness_protocol.AGENT_ATTRIBUTED_EVENT_TYPES: delegation and the
+# review/tool lifecycle may carry an agent, terminals and usage may not.
+_AGENT_ATTRIBUTED_EVENT_TYPES = frozenset(
+    {
+        "message.delta",
+        "message.completed",
+        "reasoning_summary.started",
+        "reasoning_summary.delta",
+        "reasoning_summary.completed",
+        "reasoning_summary.interrupted",
+        "tool.started",
+        "tool.completed",
+        "context.compacted",
+        "diagnostic",
+    }
+)
+_PARTIAL_MESSAGE_ID: dict[str, str] = {}          # agent key -> latest message id
+_PARTIAL_THINKING_STARTED: set[str] = set()       # agents whose current message opened thinking
+_OPEN_REASONING: dict[str, dict] = {}             # agent key -> content index -> reasoning_id
+_AGENT_ROLES: dict[str, str] = {}                 # delegation tool id -> display role
+_AGENT_USAGE: dict[str, dict] = {}                # delegation tool id -> child detail usage
+_SETTLED_DELEGATIONS: set[str] = set()            # delegation tool ids that already ended
 
 
-def _interrupt_open_reasoning(reason: str, raw_line: int) -> None:
-    """Interrupt every open thinking block that never received its own end.
+def _agent_id(record: dict) -> str | None:
+    """Native delegation identity: the ``Agent`` tool_use id, or None for root."""
+    value = record.get("parent_tool_use_id")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _agent_key(agent_id: str | None) -> str:
+    return agent_id or ROOT_AGENT_KEY
+
+
+def _agent_ref(agent_id: str | None) -> dict | None:
+    """Canonical ``payload.agent`` for a child-native record (None for root)."""
+    if agent_id is None:
+        return None
+    return {"id": agent_id, "parent_id": "root", "role": _AGENT_ROLES.get(agent_id, "agent")}
+
+
+def _reasoning_id(agent_key: str, message_id: str, index: int) -> str:
+    """Agent-scoped reasoning identity: a child may reuse a native message id."""
+    if agent_key == ROOT_AGENT_KEY:
+        return f"claude-think-{message_id}-{index}"
+    return f"claude-think-{agent_key}-{message_id}-{index}"
+
+
+def _interrupt_open_reasoning(reason: str, raw_line: int, agent_key: str | None = None) -> None:
+    """Interrupt open thinking blocks that never received their own end.
 
     Only blocks whose started was observed are closed here; blocks that ended
-    normally are already gone from the set (plan §4.1.5).
+    normally are already gone from the set (plan §4.1.5). With an explicit
+    agent key only that agent's blocks are closed, so one child ending cannot
+    interrupt another agent's in-flight thinking.
     """
-    for reasoning_id in _OPEN_REASONING.values():
-        _emit(
-            "reasoning_summary.interrupted",
-            {"reasoning_id": reasoning_id, "reason": reason},
-            raw_line,
-        )
-    _OPEN_REASONING.clear()
+    agent_keys = [agent_key] if agent_key is not None else list(_OPEN_REASONING)
+    for key in agent_keys:
+        ref = _agent_ref(None if key == ROOT_AGENT_KEY else key)
+        for reasoning_id in _OPEN_REASONING.get(key, {}).values():
+            _emit(
+                "reasoning_summary.interrupted",
+                {"reasoning_id": reasoning_id, "reason": reason},
+                raw_line,
+                agent=ref,
+            )
+        _OPEN_REASONING.pop(key, None)
 
 
-def _handle_message_start(event: dict, raw_line: int) -> None:
-    """Begin a new native message: reset the per-message partial state.
+def _handle_message_start(event: dict, raw_line: int, agent_key: str) -> None:
+    """Begin a new native message: reset that agent's per-message state.
 
     Content indexes restart at 0 on message_start, and a new message means the
     previous one ended. Any thinking block the previous message left open
-    (stream truncated mid-block) is interrupted here.
+    (stream truncated mid-block) is interrupted here — for this agent only.
     """
-    global _PARTIAL_MESSAGE_ID, _PARTIAL_THINKING_STARTED
-    _interrupt_open_reasoning("message_ended", raw_line)
+    _interrupt_open_reasoning("message_ended", raw_line, agent_key=agent_key)
     message = event.get("message") if isinstance(event.get("message"), dict) else {}
     message_id = message.get("id")
-    _PARTIAL_MESSAGE_ID = message_id if isinstance(message_id, str) else ""
-    _PARTIAL_THINKING_STARTED = False
+    _PARTIAL_MESSAGE_ID[agent_key] = message_id if isinstance(message_id, str) else ""
+    _PARTIAL_THINKING_STARTED.discard(agent_key)
 
 
-def _handle_content_block_start(event: dict, raw_line: int) -> None:
+def _handle_content_block_start(event: dict, raw_line: int, agent_key: str) -> None:
     """Open the reasoning placeholder for a thinking content block."""
-    global _PARTIAL_THINKING_STARTED
     block = event.get("content_block") if isinstance(event.get("content_block"), dict) else {}
     if block.get("type") != "thinking":
         # tool_use/text blocks stay driven by the full assistant/user records;
         # their partial starts only feed console rendering, not canonical events.
         return
     index = event.get("index")
-    if not isinstance(index, int) or not _PARTIAL_MESSAGE_ID:
+    message_id = _PARTIAL_MESSAGE_ID.get(agent_key, "")
+    if not isinstance(index, int) or not message_id:
         # Without a native message identity there is no stable reasoning_id;
         # leave the full assistant record to its legacy diagnostic handling.
         return
-    _PARTIAL_THINKING_STARTED = True
-    if index in _OPEN_REASONING:
+    _PARTIAL_THINKING_STARTED.add(agent_key)
+    open_blocks = _OPEN_REASONING.setdefault(agent_key, {})
+    if index in open_blocks:
         return  # duplicate start for one block: keep the first placeholder
-    reasoning_id = f"claude-think-{_PARTIAL_MESSAGE_ID}-{index}"
-    _OPEN_REASONING[index] = reasoning_id
-    _emit("reasoning_summary.started", {"reasoning_id": reasoning_id}, raw_line)
+    reasoning_id = _reasoning_id(agent_key, message_id, index)
+    open_blocks[index] = reasoning_id
+    _emit(
+        "reasoning_summary.started",
+        {"reasoning_id": reasoning_id},
+        raw_line,
+        agent=_agent_ref(None if agent_key == ROOT_AGENT_KEY else agent_key),
+    )
 
 
-def _handle_content_block_stop(event: dict, raw_line: int) -> None:
+def _handle_content_block_stop(event: dict, raw_line: int, agent_key: str) -> None:
     """Close the reasoning placeholder for that block's content index.
 
     Thinking content is never projected (sanitize/redact boundaries), so the
@@ -121,18 +182,21 @@ def _handle_content_block_stop(event: dict, raw_line: int) -> None:
     index = event.get("index")
     if not isinstance(index, int):
         return
-    reasoning_id = _OPEN_REASONING.pop(index, None)
+    reasoning_id = _OPEN_REASONING.get(agent_key, {}).pop(index, None)
     if reasoning_id is None:
         return  # a stop for a text/tool_use block or an unknown index
     _emit(
         "reasoning_summary.completed",
         {"reasoning_id": reasoning_id, "client": "claude"},
         raw_line,
+        agent=_agent_ref(None if agent_key == ROOT_AGENT_KEY else agent_key),
     )
 
 
-def _emit(event_type: str, payload: dict, raw_line: int) -> None:
+def _emit(event_type: str, payload: dict, raw_line: int, agent: dict | None = None) -> None:
     writer = os.environ["CODIFY_CANONICAL_EVENT_WRITER"]
+    if agent is not None and event_type in _AGENT_ATTRIBUTED_EVENT_TYPES:
+        payload = {**payload, "agent": agent}
     subprocess.run(
         [
             sys.executable,
@@ -244,9 +308,75 @@ def _retry_failure_kind(record: dict) -> str:
     return "engine_error"
 
 
+def _settle_delegation(
+    delegation_id: str, *, status: str, output: object, raw_line: int
+) -> None:
+    """End one delegation row in place; the first native terminal wins.
+
+    Claude reports a child's end twice (the ``Agent`` tool result and a
+    ``system/task_notification``); emitting both would double-project the row.
+    """
+    if delegation_id in _SETTLED_DELEGATIONS:
+        return
+    _SETTLED_DELEGATIONS.add(delegation_id)
+    subagent = {
+        "id": delegation_id,
+        "parent_id": "root",
+        "role": _AGENT_ROLES.get(delegation_id, "agent"),
+        "status": status,
+    }
+    child_usage = _AGENT_USAGE.get(delegation_id)
+    if child_usage:
+        subagent["usage"] = child_usage
+    # Any block this child left open will never receive its own end.
+    _interrupt_open_reasoning("delegation_ended", raw_line, agent_key=delegation_id)
+    _emit(
+        "tool.completed",
+        {
+            "tool_id": delegation_id,
+            "name": "Subagent",
+            "output": output,
+            "error": status == "failed",
+            "subagent": subagent,
+        },
+        raw_line,
+    )
+
+
+def _delegation_role(block: dict) -> str:
+    """Display role from the native ``Agent`` tool input, never from text."""
+    source = block.get("input") if isinstance(block.get("input"), dict) else {}
+    for key in ("subagent_type", "agent_type", "agent"):
+        value = source.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "agent"
+
+
+def _accumulate_agent_usage(agent_id: str, message: dict) -> None:
+    """Keep the child's own native usage for the delegation row details.
+
+    Each child assistant record carries that child's usage for its own request
+    (the probe shows the same cumulative value repeated), so the value is kept
+    monotonic per key instead of summed — the attempt total stays the root
+    ``usage.final`` and is never derived from these numbers (plan §5.6).
+    """
+    usage = message.get("usage") if isinstance(message.get("usage"), dict) else {}
+    if not usage:
+        return
+    totals = _AGENT_USAGE.setdefault(agent_id, {})
+    for key in ("input_tokens", "output_tokens"):
+        value = usage.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            totals[key] = max(totals.get(key, 0), value)
+
+
 def translate(record: dict, raw_line: int) -> None:
     record_type = record.get("type")
     subtype = record.get("subtype")
+    agent_id = _agent_id(record)
+    agent_key = _agent_key(agent_id)
+    agent = _agent_ref(agent_id)
     if record_type == "system" and subtype == "init":
         _emit(
             "model.resolved",
@@ -255,6 +385,32 @@ def translate(record: dict, raw_line: int) -> None:
         )
     elif record_type == "system" and subtype == "compact_boundary":
         _emit("context.compacted", {"session_id": _session_id(record)}, raw_line)
+    elif record_type == "system" and subtype == "task_started":
+        # The native delegation start names the child's role; caching it here
+        # keeps the role available even when the Agent tool_use block itself
+        # was not observed in this stream.
+        tool_use_id = record.get("tool_use_id")
+        if isinstance(tool_use_id, str) and tool_use_id:
+            _AGENT_ROLES.setdefault(tool_use_id, _delegation_role(record))
+    elif record_type == "system" and subtype == "task_notification":
+        # Native child terminal (status + summary). The Agent tool result is
+        # the primary signal; this settles an aborted/never-returned child so
+        # its row cannot keep spinning.
+        tool_use_id = record.get("tool_use_id")
+        if isinstance(tool_use_id, str) and tool_use_id:
+            native_status = str(record.get("status") or "").lower()
+            if native_status == "completed":
+                status = "completed"
+            elif native_status in {"failed", "error"}:
+                status = "failed"
+            else:
+                status = "cancelled"
+            _settle_delegation(
+                tool_use_id,
+                status=status,
+                output=record.get("summary"),
+                raw_line=raw_line,
+            )
     elif record_type == "system" and subtype == "api_retry":
         _emit(
             "provider.retry",
@@ -271,18 +427,18 @@ def translate(record: dict, raw_line: int) -> None:
         event = record.get("event") if isinstance(record.get("event"), dict) else {}
         event_type = event.get("type")
         if event_type == "message_start":
-            _handle_message_start(event, raw_line)
+            _handle_message_start(event, raw_line, agent_key)
         elif event_type == "content_block_start":
-            _handle_content_block_start(event, raw_line)
+            _handle_content_block_start(event, raw_line, agent_key)
         elif event_type == "content_block_delta":
             delta = event.get("delta") if isinstance(event.get("delta"), dict) else {}
             if delta.get("type") == "text_delta":
-                _emit("message.delta", {"text": delta.get("text", "")}, raw_line)
+                _emit("message.delta", {"text": delta.get("text", "")}, raw_line, agent=agent)
             # thinking_delta/signature_delta are never projected as content and
             # must not drop the open block: the matching content_block_stop
             # still closes it.
         elif event_type == "content_block_stop":
-            _handle_content_block_stop(event, raw_line)
+            _handle_content_block_stop(event, raw_line, agent_key)
         elif event_type in {"error", "abort"}:
             # A native error/abort ends the current message without per-block
             # end signals: interrupt only the blocks that are still open.
@@ -294,10 +450,12 @@ def translate(record: dict, raw_line: int) -> None:
                 error_type = error.get("type")
                 if isinstance(error_type, str) and error_type:
                     reason = error_type[:200]
-            _interrupt_open_reasoning(reason, raw_line)
+            _interrupt_open_reasoning(reason, raw_line, agent_key=agent_key)
         # message_delta/message_stop/ping carry no canonical projection.
     elif record_type == "assistant":
         message = record.get("message") if isinstance(record.get("message"), dict) else {}
+        if agent_id is not None:
+            _accumulate_agent_usage(agent_id, message)
         for block in message.get("content") or []:
             if not isinstance(block, dict):
                 continue
@@ -307,8 +465,32 @@ def translate(record: dict, raw_line: int) -> None:
                     "message.completed",
                     {"message_id": message.get("id"), "text": block.get("text")},
                     raw_line,
+                    agent=agent,
                 )
             elif block_type == "tool_use":
+                if block.get("name") == "Agent":
+                    # A delegation: the tool_use id is also the child's
+                    # ``parent_tool_use_id``, so the same identity flows through
+                    # the delegation row and every child event (plan §6.1).
+                    delegation_id = block.get("id")
+                    if not isinstance(delegation_id, str) or not delegation_id:
+                        continue
+                    _AGENT_ROLES.setdefault(delegation_id, _delegation_role(block))
+                    _emit(
+                        "tool.started",
+                        {
+                            "tool_id": delegation_id,
+                            "name": "Subagent",
+                            "input": block.get("input") or {},
+                            "subagent": {
+                                "id": delegation_id,
+                                "parent_id": "root",
+                                "role": _AGENT_ROLES[delegation_id],
+                            },
+                        },
+                        raw_line,
+                    )
+                    continue
                 _emit(
                     "tool.started",
                     {
@@ -317,6 +499,7 @@ def translate(record: dict, raw_line: int) -> None:
                         "input": block.get("input") or {},
                     },
                     raw_line,
+                    agent=agent,
                 )
             elif block_type == "thinking":
                 # Partial-message mode already mapped this message's thinking
@@ -325,26 +508,42 @@ def translate(record: dict, raw_line: int) -> None:
                 # Without a partial lifecycle keep the legacy diagnostic-only
                 # behavior.
                 if not (
-                    _PARTIAL_THINKING_STARTED
-                    and message.get("id") == _PARTIAL_MESSAGE_ID
+                    agent_key in _PARTIAL_THINKING_STARTED
+                    and message.get("id") == _PARTIAL_MESSAGE_ID.get(agent_key)
                 ):
                     _emit(
                         "diagnostic",
                         {"code": "hidden_reasoning_omitted", "message": "AI thinking omitted"},
                         raw_line,
+                        agent=agent,
                     )
     elif record_type == "user":
         message = record.get("message") if isinstance(record.get("message"), dict) else {}
         for block in message.get("content") or []:
             if isinstance(block, dict) and block.get("type") == "tool_result":
+                tool_id = block.get("tool_use_id")
+                failed = bool(block.get("is_error", False))
+                if isinstance(tool_id, str) and tool_id in _AGENT_ROLES:
+                    # Delegation end: the row settles in place, exactly once,
+                    # with the child's status and its detail usage.
+                    # ``error=true`` ends the delegation only; the root decides
+                    # what happens next (plan §5.5).
+                    _settle_delegation(
+                        tool_id,
+                        status="failed" if failed else "completed",
+                        output=block.get("content"),
+                        raw_line=raw_line,
+                    )
+                    continue
                 _emit(
                     "tool.completed",
                     {
-                        "tool_id": block.get("tool_use_id"),
+                        "tool_id": tool_id,
                         "output": block.get("content"),
-                        "error": bool(block.get("is_error", False)),
+                        "error": failed,
                     },
                     raw_line,
+                    agent=agent,
                 )
     elif record_type == "result":
         usage = _usage(record)
@@ -380,6 +579,16 @@ def translate(record: dict, raw_line: int) -> None:
         )
 
 
+def _reset_stream_state() -> None:
+    """One process serves exactly one attempt; never inherit another's agent state."""
+    _PARTIAL_MESSAGE_ID.clear()
+    _PARTIAL_THINKING_STARTED.clear()
+    _OPEN_REASONING.clear()
+    _AGENT_ROLES.clear()
+    _AGENT_USAGE.clear()
+    _SETTLED_DELEGATIONS.clear()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--raw-file", required=True, type=Path)
@@ -387,6 +596,7 @@ def main() -> int:
     args.raw_file.parent.mkdir(parents=True, exist_ok=True)
 
     line_no = 0
+    _reset_stream_state()
     with args.raw_file.open("a", encoding="utf-8") as handle:
         for raw_input in sys.stdin:
             raw_input = raw_input.rstrip("\n")

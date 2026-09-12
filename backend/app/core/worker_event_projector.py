@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.harness_attempts import ingest_canonical_event
 from app.core.harness_protocol import (
     CONTROL_EVENT_TYPES,
+    ROOT_AGENT_ID,
     HarnessProtocolError,
     validate_event_by_schema,
 )
@@ -71,6 +72,16 @@ def _parse_canonical_time(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _row_agent_id(metadata: dict) -> str:
+    """Agent bucket of an already-projected row (legacy rows are root)."""
+    agent = metadata.get("agent")
+    if isinstance(agent, dict):
+        agent_id = agent.get("id")
+        if isinstance(agent_id, str) and agent_id.strip():
+            return agent_id
+    return ROOT_AGENT_ID
+
+
 def _duration_ms(started_at: str, ended_at: str) -> int | None:
     """Trusted elapsed time from two canonical occurred_at values.
 
@@ -95,9 +106,34 @@ class WorkerEventProjector:
         self.reset()
 
     def reset(self) -> None:
-        self._message_parts: list[str] = []
-        self._reasoning_parts: list[str] = []
-        self._pending_tool_log_by_id: dict[str, int] = {}
+        # Message/reasoning deltas and the pending tool map are attempt-scoped
+        # global state, so subagent support keys every bucket by agent identity
+        # (open-harness-v2-subagent-adaptation.md §5.4). ROOT_AGENT_ID is the
+        # bucket for an event that carries no ``payload.agent``.
+        self._message_parts: dict[str, list[str]] = {}
+        self._reasoning_parts: dict[str, list[str]] = {}
+        self._pending_tool_log_by_id: dict[tuple[str, str], int] = {}
+
+    @staticmethod
+    def _agent_key(payload: dict) -> str:
+        """Bucket key for one event's attribution (root when absent)."""
+        agent = payload.get("agent")
+        if isinstance(agent, dict):
+            agent_id = agent.get("id")
+            if isinstance(agent_id, str) and agent_id.strip():
+                return agent_id
+        return ROOT_AGENT_ID
+
+    @staticmethod
+    def _agent_metadata(payload: dict) -> dict | None:
+        """Copy the canonical agent ref into TaskLog metadata (never a guess)."""
+        agent = payload.get("agent")
+        return dict(agent) if isinstance(agent, dict) else None
+
+    @staticmethod
+    def _subagent_metadata(payload: dict) -> dict | None:
+        subagent = payload.get("subagent")
+        return dict(subagent) if isinstance(subagent, dict) else None
 
     async def load_resume_runtime_state(self, *, container: Any) -> None:
         """Compatibility no-op: attempts, not Claude init records, define replay state."""
@@ -114,6 +150,7 @@ class WorkerEventProjector:
         payload_kind: str,
         log_type: str,
         text: str,
+        agent: dict | None = None,
     ) -> None:
         sanitized = self._sanitize_sensitive_data(text)
         if not sanitized:
@@ -125,20 +162,21 @@ class WorkerEventProjector:
             text=sanitized,
         )
         preview, truncated = _preview(sanitized)
+        metadata: dict[str, Any] = {
+            "payload_id": payload.id,
+            "char_count": len(sanitized),
+            "preview": preview,
+            "truncated": truncated,
+        }
+        if agent is not None:
+            metadata["agent"] = agent
         db.add(
             TaskLog(
                 task_id=task_id,
                 log_level="INFO",
                 message="",
                 log_type=log_type,
-                log_metadata=_dumps(
-                    {
-                        "payload_id": payload.id,
-                        "char_count": len(sanitized),
-                        "preview": preview,
-                        "truncated": truncated,
-                    }
-                ),
+                log_metadata=_dumps(metadata),
             )
         )
 
@@ -166,15 +204,22 @@ class WorkerEventProjector:
         task_id: int,
         attempt_id: str,
         reasoning_id: str,
+        agent_id: str = ROOT_AGENT_ID,
     ) -> TaskLog | None:
-        """Recover the started placeholder across projector rebuilds."""
+        """Recover the started placeholder across projector rebuilds.
+
+        The bucket is (attempt, agent, reasoning_id): a child native reasoning
+        id may repeat a root id, and the rows must never pair across agents.
+        """
         for log in await self._thinking_logs(db=db, task_id=task_id):
             metadata = self._thinking_metadata(log)
-            if (
-                metadata.get("attempt_id") == attempt_id
-                and metadata.get("reasoning_id") == reasoning_id
-            ):
-                return log
+            if metadata.get("attempt_id") != attempt_id:
+                continue
+            if metadata.get("reasoning_id") != reasoning_id:
+                continue
+            if _row_agent_id(metadata) != agent_id:
+                continue
+            return log
         return None
 
     async def _interrupt_thinking_rows(
@@ -270,6 +315,9 @@ class WorkerEventProjector:
     ) -> None:
         tool_id = str(payload.get("tool_id") or "")
         name = str(payload.get("name") or "")
+        agent_key = self._agent_key(payload)
+        agent = self._agent_metadata(payload)
+        subagent = self._subagent_metadata(payload)
         input_text = self._sanitize_sensitive_data(_text(payload.get("input") or {}))
         body = await create_payload(
             db,
@@ -278,30 +326,39 @@ class WorkerEventProjector:
             text=input_text,
         )
         preview, truncated = _preview(input_text)
+        metadata: dict[str, Any] = {
+            "tool_use_id": tool_id,
+            "name": name,
+            "started_at": occurred_at,
+            "input": payload.get("input") or {},
+            "input_payload_id": body.id,
+            "input_preview": preview,
+            "input_truncated": truncated,
+        }
+        if agent is not None:
+            metadata["agent"] = agent
+        if subagent is not None:
+            metadata["subagent"] = subagent
         log = TaskLog(
             task_id=task_id,
             log_level="INFO",
             message=f"Tool call: {name}",
             log_type="tool_call",
-            log_metadata=_dumps(
-                {
-                    "tool_use_id": tool_id,
-                    "name": name,
-                    "started_at": occurred_at,
-                    "input": payload.get("input") or {},
-                    "input_payload_id": body.id,
-                    "input_preview": preview,
-                    "input_truncated": truncated,
-                }
-            ),
+            log_metadata=_dumps(metadata),
         )
         db.add(log)
         await db.flush()
         if tool_id and log.id:
-            self._pending_tool_log_by_id[tool_id] = log.id
+            self._pending_tool_log_by_id[(agent_key, tool_id)] = log.id
 
-    async def _find_tool_log(self, db: AsyncSession, task_id: int, tool_id: str) -> TaskLog | None:
-        pending = self._pending_tool_log_by_id.pop(tool_id, None)
+    async def _find_tool_log(
+        self,
+        db: AsyncSession,
+        task_id: int,
+        tool_id: str,
+        agent_id: str = ROOT_AGENT_ID,
+    ) -> TaskLog | None:
+        pending = self._pending_tool_log_by_id.pop((agent_id, tool_id), None)
         if pending is not None:
             return await db.get(TaskLog, pending)
         candidates = list(
@@ -319,8 +376,11 @@ class WorkerEventProjector:
                 metadata = json.loads(candidate.log_metadata or "{}")
             except json.JSONDecodeError:
                 continue
-            if metadata.get("tool_use_id") == tool_id:
-                return candidate
+            if metadata.get("tool_use_id") != tool_id:
+                continue
+            if _row_agent_id(metadata) != agent_id:
+                continue
+            return candidate
         return None
 
     async def _project_tool_completed(
@@ -332,15 +392,23 @@ class WorkerEventProjector:
         db: AsyncSession,
     ) -> None:
         tool_id = str(payload.get("tool_id") or "")
-        pending = await self._find_tool_log(db, task_id, tool_id)
+        agent_key = self._agent_key(payload)
+        pending = await self._find_tool_log(db, task_id, tool_id, agent_key)
         if pending is None:
+            missing_metadata: dict[str, Any] = {
+                "code": "tool_start_missing",
+                "tool_id": tool_id,
+            }
+            agent = self._agent_metadata(payload)
+            if agent is not None:
+                missing_metadata["agent"] = agent
             db.add(
                 TaskLog(
                     task_id=task_id,
                     log_level="WARNING",
                     message="Canonical tool completion has no matching start",
                     log_type="diagnostic",
-                    log_metadata=_dumps({"code": "tool_start_missing", "tool_id": tool_id}),
+                    log_metadata=_dumps(missing_metadata),
                 )
             )
             return
@@ -360,6 +428,12 @@ class WorkerEventProjector:
                 "error": bool(payload.get("error", False)),
             }
         )
+        # The delegation row ends in place with the child's final status and
+        # optional detail usage (plan §7.1.3). ``usage.final`` stays the only
+        # authoritative attempt total; this is display-only.
+        subagent = self._subagent_metadata(payload)
+        if subagent is not None:
+            metadata["subagent"] = subagent
         started_at = metadata.get("started_at")
         duration = (
             _duration_ms(started_at, occurred_at)
@@ -478,56 +552,69 @@ class WorkerEventProjector:
                 )
             )
         elif event_type == "message.delta":
-            self._message_parts.append(_text(payload.get("text")))
+            self._message_parts.setdefault(self._agent_key(payload), []).append(
+                _text(payload.get("text"))
+            )
         elif event_type == "message.completed":
-            text = _text(payload.get("text")) or "".join(self._message_parts)
-            self._message_parts.clear()
+            agent_key = self._agent_key(payload)
+            text = _text(payload.get("text")) or "".join(
+                self._message_parts.pop(agent_key, [])
+            )
             await self._payload_log(
                 db=db,
                 task_id=task_id,
                 payload_kind="assistant_text",
                 log_type="assistant_text",
                 text=text,
+                agent=self._agent_metadata(payload),
             )
         elif event_type == "reasoning_summary.delta":
-            self._reasoning_parts.append(_text(payload.get("text")))
+            self._reasoning_parts.setdefault(self._agent_key(payload), []).append(
+                _text(payload.get("text"))
+            )
         elif event_type == "reasoning_summary.started":
             # One placeholder row per (task, attempt, reasoning_id). Repeated
             # starts are idempotent: no second row, no started_at reset. Block
             # endings are the adapters' own signals; starting a new block never
             # infers the end of a different one.
             reasoning_id = str(payload.get("reasoning_id") or "")
+            agent_key = self._agent_key(payload)
+            agent = self._agent_metadata(payload)
             existing = await self._find_thinking_row(
                 db=db,
                 task_id=task_id,
                 attempt_id=ingest.attempt.attempt_id,
                 reasoning_id=reasoning_id,
+                agent_id=agent_key,
             )
             if existing is None:
+                thinking_metadata: dict[str, Any] = {
+                    "attempt_id": ingest.attempt.attempt_id,
+                    "reasoning_id": reasoning_id,
+                    "status": _THINKING_STATUS_IN_PROGRESS,
+                    "started_at": normalized["occurred_at"],
+                    "ended_at": None,
+                    "duration_ms": None,
+                    "payload_id": None,
+                    "preview": "",
+                    "char_count": 0,
+                    "truncated": False,
+                }
+                if agent is not None:
+                    thinking_metadata["agent"] = agent
                 db.add(
                     TaskLog(
                         task_id=task_id,
                         log_level="INFO",
                         message="",
                         log_type="thinking",
-                        log_metadata=_dumps(
-                            {
-                                "attempt_id": ingest.attempt.attempt_id,
-                                "reasoning_id": reasoning_id,
-                                "status": _THINKING_STATUS_IN_PROGRESS,
-                                "started_at": normalized["occurred_at"],
-                                "ended_at": None,
-                                "duration_ms": None,
-                                "payload_id": None,
-                                "preview": "",
-                                "char_count": 0,
-                                "truncated": False,
-                            }
-                        ),
+                        log_metadata=_dumps(thinking_metadata),
                     )
                 )
         elif event_type == "reasoning_summary.completed":
             reasoning_id = payload.get("reasoning_id")
+            agent_key = self._agent_key(payload)
+            agent = self._agent_metadata(payload)
             paired_row = None
             if isinstance(reasoning_id, str) and reasoning_id.strip():
                 paired_row = await self._find_thinking_row(
@@ -535,6 +622,7 @@ class WorkerEventProjector:
                     task_id=task_id,
                     attempt_id=ingest.attempt.attempt_id,
                     reasoning_id=reasoning_id,
+                    agent_id=agent_key,
                 )
             if paired_row is not None:
                 # Idempotent: an already-completed block is never finalized
@@ -553,23 +641,25 @@ class WorkerEventProjector:
                 # saw the start): static content row, no lifecycle fields, and
                 # no fabricated duration. Empty orphan completions record only
                 # a diagnostic, never an activity row.
-                text = _text(payload.get("text")) or "".join(self._reasoning_parts)
-                self._reasoning_parts.clear()
+                text = _text(payload.get("text")) or "".join(
+                    self._reasoning_parts.pop(agent_key, [])
+                )
                 if not text:
+                    orphan_metadata: dict[str, Any] = {
+                        "code": "reasoning_start_missing",
+                        "reasoning_id": reasoning_id
+                        if isinstance(reasoning_id, str)
+                        else None,
+                    }
+                    if agent is not None:
+                        orphan_metadata["agent"] = agent
                     db.add(
                         TaskLog(
                             task_id=task_id,
                             log_level="WARNING",
                             message="Canonical reasoning completion has no matching start",
                             log_type="diagnostic",
-                            log_metadata=_dumps(
-                                {
-                                    "code": "reasoning_start_missing",
-                                    "reasoning_id": reasoning_id
-                                    if isinstance(reasoning_id, str)
-                                    else None,
-                                }
-                            ),
+                            log_metadata=_dumps(orphan_metadata),
                         )
                     )
                 else:
@@ -579,6 +669,7 @@ class WorkerEventProjector:
                         payload_kind="thinking",
                         log_type="thinking",
                         text=text,
+                        agent=agent,
                     )
         elif event_type == "reasoning_summary.interrupted":
             # Close exactly the addressed open block. Other blocks and rows
@@ -591,6 +682,7 @@ class WorkerEventProjector:
                     task_id=task_id,
                     attempt_id=ingest.attempt.attempt_id,
                     reasoning_id=reasoning_id,
+                    agent_id=self._agent_key(payload),
                 )
                 if row is not None:
                     metadata = self._thinking_metadata(row)
@@ -634,6 +726,9 @@ class WorkerEventProjector:
                 )
                 if payload.get(key) is not None
             }
+            agent = self._agent_metadata(payload)
+            if agent is not None:
+                compact_metadata["agent"] = agent
             db.add(
                 TaskLog(
                     task_id=task_id,

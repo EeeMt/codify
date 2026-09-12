@@ -128,6 +128,20 @@ Pi 原生 `queue_update`（`steering[]` / `followUp[]`）**只携带队列内容
 - **禁止按消息文本猜测** command_id；
 - `control.queue.updated` 是 attempt 级审计事件，`command_id` 可为 null；command API/数据库仍是 UI 恢复的唯一事实源。
 
+### 3.5 Subagent 归属（2026-09-12 增量，冻结）
+
+见 [open-harness-v2-subagent-adaptation.md](./open-harness-v2-subagent-adaptation.md) §5.2–§5.3。**不新增 Event type**：delegation 继续使用 `tool.started` / `tool.completed`，child 归属是 payload 上的可选公共字段。
+
+- 开始：`tool.started.payload.subagent = {id, parent_id, role}`，`name="Subagent"`，`input` 携带委派任务。
+- 结束：`tool.completed.payload.subagent = {id, parent_id, role, status, usage?}`，
+  `status ∈ {completed, failed, cancelled}`；`error=true` 只表示本次 delegation 失败，不是 Task terminal。
+- Child 的 `message.*` / `reasoning_summary.*` / `tool.*` / `context.compacted` / `diagnostic`
+  在 `payload.agent = {id, parent_id, role}` 上归属；root 事件省略 `payload.agent`。
+- `agent.id` 只要求 attempt 内稳定唯一（优先原生 child session/thread/agent ID）。
+- 结构校验在 `harness_protocol.py` 集中实现：未知键、空标识、非法 `status`、超范围 usage
+  以及**在不可归属类型上出现 `agent`/`subagent`** 都 fail closed，Adapter 不得自定义字段。
+- Projector 状态按 `(agent_id | "root", native_id)` 分桶，因此并发 child 复用同一原生 tool/message id 也不会串线。
+
 ---
 
 ## 4. `codify.worker.command/v2` — Harness Command
@@ -271,7 +285,7 @@ dispatching --(cross-send result unknown/recovery)--> outcome_unknown
       "control_transport": { "kind": "rpc_stdio", "protocol": "pi-rpc" },
       "model_protocols": ["anthropic_messages", "openai_responses", "openai_chat_completions"],
       "capabilities": { "resume": true, "task_skills": true, "usage_tokens": true,
-                        "steering": true, "follow_up": true },
+                        "steering": true, "follow_up": true, "subagents": true },
       "options_schema": "pi/v1"
     }
   },
@@ -281,6 +295,7 @@ dispatching --(cross-send result unknown/recovery)--> outcome_unknown
 
 **冻结要点**
 - `model_protocols` 与事件/结果/矩阵一致；矩阵由 manifest 能力与 Endpoint 求交集，Task 创建与 verify-runtime 都验证，未知组合 **fail closed**。
+- `subagents`（2026-09-12 增量，见 [open-harness-v2-subagent-adaptation.md](./open-harness-v2-subagent-adaptation.md) §5.1）是 `HARNESS_CAPABILITY_KEYS` 的第六个布尔能力。四家 Harness 的**系统上界均为 `true`**，但冻结 manifest 只有在对应 Runtime Bundle 通过 §10 真实验收后才能声明 `true`；`false` 或缺失表示该 Harness 不得被描述为 subagent-compatible。
 - OpenCode 能力：`steering=false`、`follow_up=false`；当前不启动可投递 command 的 control endpoint，也不产生 `control.command.delivered`。
 - 每个 Adapter 有独立 digest，共享库变更会改变所有引用它的 Adapter digest；Runtime Bundle digest 从 manifest `files` 递归计算。
 - `verify-runtime.sh` 不再写死 claude/codex case；逐 manifest Adapter 验证官方制品、版本、摘要与 Bridge self-check。

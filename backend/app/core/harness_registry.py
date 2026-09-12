@@ -82,9 +82,13 @@ SYSTEM_CAPABILITIES: dict[str, dict[str, Any]] = {
 }
 
 # V2 capability upper bound, keyed by HARNESS_CAPABILITY_KEYS
-# (resume/task_skills/usage_tokens/steering/follow_up). The system upper bound
-# stays in code; a manifest may only tighten it. Per the frozen schema: pi
-# declares all four; opencode/claude/codex declare steering/follow_up=false.
+# (resume/task_skills/usage_tokens/steering/follow_up/subagents). The system
+# upper bound stays in code; a manifest may only tighten it. Per the frozen
+# schema: pi declares all four (plus subagents after Phase 4 acceptance);
+# opencode/claude/codex declare steering/follow_up=false. ``subagents`` is a
+# system-allowed capability for all four harnesses, but every frozen manifest
+# must still prove it with a real Runtime Bundle before declaring ``true``
+# (open-harness-v2-subagent-adaptation.md §5.1).
 V2_SYSTEM_CAPABILITY_UPPER_BOUND: dict[str, dict[str, bool]] = {
     "pi": {
         "resume": True,
@@ -92,6 +96,7 @@ V2_SYSTEM_CAPABILITY_UPPER_BOUND: dict[str, dict[str, bool]] = {
         "usage_tokens": True,
         "steering": True,
         "follow_up": True,
+        "subagents": True,
     },
     "opencode": {
         "resume": True,
@@ -99,6 +104,7 @@ V2_SYSTEM_CAPABILITY_UPPER_BOUND: dict[str, dict[str, bool]] = {
         "usage_tokens": True,
         "steering": False,
         "follow_up": False,
+        "subagents": True,
     },
     "claude": {
         "resume": True,
@@ -106,6 +112,7 @@ V2_SYSTEM_CAPABILITY_UPPER_BOUND: dict[str, dict[str, bool]] = {
         "usage_tokens": True,
         "steering": False,
         "follow_up": False,
+        "subagents": True,
     },
     "codex": {
         "resume": True,
@@ -113,6 +120,7 @@ V2_SYSTEM_CAPABILITY_UPPER_BOUND: dict[str, dict[str, bool]] = {
         "usage_tokens": True,
         "steering": False,
         "follow_up": False,
+        "subagents": True,
     },
 }
 

@@ -202,15 +202,74 @@ def _record_session_id(record: dict) -> str | None:
     return None
 
 
-def _belongs_to_task_session(record: dict, session_id: str) -> bool:
-    """Allow only this task's records plus explicit server-level markers."""
-    record_session_id = _record_session_id(record)
-    if record_session_id is not None:
-        return record_session_id == session_id
-    # A global stream can contain an un-attributed session.error. Treating it
-    # as this task's failure is unsafe. The only known id-less service records
-    # are subscription liveness markers; all other ambiguous records drop.
-    return record.get("type") in {"server.connected", "server.heartbeat"}
+def _record_session_identity(record: dict) -> tuple[str | None, str | None]:
+    """Extract ``(session_id, parent_id)`` from a session lifecycle record.
+
+    Only ``session.created/updated/deleted`` carry the native ``parentID`` that
+    proves a session belongs to this task's parent chain; message and part
+    records identify a session but never its ancestry.
+    """
+    record_type = record.get("type")
+    if record_type not in {"session.created", "session.updated", "session.deleted"}:
+        return None, None
+    for container_name in ("properties", "data"):
+        container = record.get(container_name)
+        if not isinstance(container, dict):
+            continue
+        info = container.get("info") if isinstance(container.get("info"), dict) else container
+        session_id = info.get("id") or info.get("sessionID") or info.get("sessionId")
+        parent_id = info.get("parentID") or info.get("parentId")
+        if isinstance(session_id, str) and session_id.strip():
+            return (
+                session_id.strip(),
+                parent_id.strip() if isinstance(parent_id, str) and parent_id.strip() else None,
+            )
+    return None, None
+
+
+class _SessionAdmission:
+    """Admit the task's root session and only its known descendants.
+
+    ``GET /event`` is server-global, so isolation cannot be dropped: a session
+    enters the allow-list when its native ``parentID`` is already admitted, and
+    every stateful operation (active-tool tracking, idle probe, terminal
+    recovery, translator) filters before acting. Unrelated sessions that share
+    the Server stay dropped exactly as before.
+    """
+
+    def __init__(self, root_session_id: str, on_admit=None):
+        self._parents: dict[str, str | None] = {root_session_id: None}
+        self._on_admit = on_admit
+
+    @property
+    def root_session_id(self) -> str:
+        return next(iter(self._parents))
+
+    def admits(self, record: dict) -> bool:
+        record_session_id = _record_session_id(record)
+        if record_session_id is not None:
+            return record_session_id in self._parents
+        # A global stream can contain an un-attributed session.error. Treating it
+        # as this task's failure is unsafe. The only known id-less service records
+        # are subscription liveness markers; all other ambiguous records drop.
+        return record.get("type") in {"server.connected", "server.heartbeat"}
+
+    def register(self, record: dict) -> str | None:
+        """Admit a newly observed descendant; return the id when newly admitted."""
+        session_id, parent_id = _record_session_identity(record)
+        if not session_id or session_id in self._parents:
+            return None
+        # A root-created child declares the task's own session as its parent.
+        if parent_id is None or parent_id not in self._parents:
+            return None
+        self._parents[session_id] = parent_id
+        if self._on_admit is not None:
+            self._on_admit(session_id)
+        return session_id
+
+    def descendants(self) -> list[str]:
+        """Known child session ids, deepest parent chain last."""
+        return [sid for sid in self._parents if sid != self.root_session_id]
 
 
 def _safe_http_failure_message(value: object, default: str) -> str:
@@ -702,12 +761,51 @@ def _persist_session_id(session_id: str) -> None:
         print(f"OpenCode session marker unavailable: {exc}", file=sys.stderr)
 
 
+def _descendants_file(session_file: str) -> str:
+    return f"{session_file}.descendants"
+
+
+def _persist_descendant_session(session_id: str) -> None:
+    """Append a discovered child session id to the task-local abort marker.
+
+    Cancellation runs in a separate process, so the in-memory admission set is
+    gone by then. The sidecar carries ids only (never credentials) and lets the
+    abort path stop children before the root session (plan §6.3.7).
+    """
+    session_file = os.environ.get(SESSION_FILE_ENV, "").strip()
+    if not session_file:
+        return
+    try:
+        path = Path(_descendants_file(session_file))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(session_id + "\n")
+        os.chmod(path, 0o644)
+    except OSError as exc:
+        print(f"OpenCode descendant marker unavailable: {exc}", file=sys.stderr)
+
+
 def _abort_session(session_id: str | None = None) -> int:
-    """Request native OpenCode abort for one Task-local session."""
+    """Request native OpenCode abort for one Task-local session and its children.
+
+    Children are aborted first so no delegated turn keeps issuing Provider
+    requests after the root session has been stopped.
+    """
     session_id = (session_id or "").strip()
     if not session_id:
         print("OpenCode abort skipped: session id is unavailable", file=sys.stderr)
         return 0
+    session_file = os.environ.get(SESSION_FILE_ENV, "").strip()
+    descendant_ids: list[str] = []
+    if session_file:
+        try:
+            descendant_ids = [
+                line.strip()
+                for line in Path(_descendants_file(session_file)).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        except OSError:
+            descendant_ids = []
     try:
         port = int(os.environ["OPENCODE_PORT"])
         client = OpenCodeServerClient(
@@ -716,6 +814,13 @@ def _abort_session(session_id: str | None = None) -> int:
             username=os.environ.get("OPENCODE_SERVER_USERNAME", "opencode"),
             timeout=float(os.environ.get("OPENCODE_ABORT_TIMEOUT", "2")),
         )
+        for descendant_id in dict.fromkeys(descendant_ids):
+            if descendant_id == session_id:
+                continue
+            try:
+                client.abort(descendant_id)
+            except (ValueError, OSError, ConnectionError) as exc:
+                print(f"OpenCode descendant abort failed: {exc}", file=sys.stderr)
         status, _ = client.abort(session_id)
     except (KeyError, ValueError, OSError, ConnectionError) as exc:
         print(f"OpenCode native abort failed: {exc}", file=sys.stderr)
@@ -1008,6 +1113,17 @@ def _run_attempt() -> int:
             )
             return 1
         _persist_session_id(session_id)
+        # Tell the translator which session is the root *before* any event
+        # flows. Without this it could only infer the root from the first
+        # session-bearing record, which is unsafe once children are admitted.
+        _forward(
+            {
+                "id": None,
+                "type": "codify.root_session",
+                "properties": {"sessionID": session_id},
+            },
+            proc,
+        )
 
         prompt_file = Path(os.environ["PROMPT_FILE"])
         prompt_text = prompt_file.read_text(encoding="utf-8")
@@ -1029,9 +1145,11 @@ def _run_attempt() -> int:
         #    is idempotent here; the translator drops server.connected itself.
         stream = client.event_stream()
         subscribed = False
+        admission = _SessionAdmission(session_id, on_admit=_persist_descendant_session)
         try:
             for record in stream:
-                if not _belongs_to_task_session(record, session_id):
+                admission.register(record)
+                if not admission.admits(record):
                     continue
                 _forward(record, proc)
                 if record.get("type") == "server.connected":
@@ -1177,10 +1295,13 @@ def _run_attempt() -> int:
         try:
             for record in stream:
                 # GET /event is global to this OpenCode Server. Filter before
-                # every stateful operation: a child/foreign session must not
-                # affect active-tool tracking, the legacy idle probe, terminal
-                # recovery, or the task translator.
-                if not _belongs_to_task_session(record, session_id):
+                # every stateful operation: a foreign session must not affect
+                # active-tool tracking, the legacy idle probe, terminal
+                # recovery, or the task translator. The task's own descendant
+                # sessions ARE admitted, so delegation stays observable while
+                # isolation is preserved.
+                admission.register(record)
+                if not admission.admits(record):
                     continue
                 _update_active_tool_ids(record, active_tool_ids)
                 if (
@@ -1218,7 +1339,12 @@ def _run_attempt() -> int:
                             f"OpenCode legacy summarize probe failed: HTTP {summarize_status}",
                             file=sys.stderr,
                         )
-                if record.get("type") in {"session.idle", "session.error"}:
+                if (
+                    record.get("type") in {"session.idle", "session.error"}
+                    and _record_session_id(record) == admission.root_session_id
+                ):
+                    # Only the root session drives Harness settled: a child
+                    # idle/error ends its delegation, never the Task (plan §5.5).
                     saw_terminal_signal = True
                 if not _forward(record, proc) or proc.poll() is not None:
                     stream.close()

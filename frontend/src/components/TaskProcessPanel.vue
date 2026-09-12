@@ -49,7 +49,10 @@
           >
             <div class="event-stream">
               <template v-for="(row, index) in processRows" :key="row.event.id">
-                <div :ref="(el) => { collapseRefs[index] = el as HTMLElement }">
+                <div
+                  :ref="(el) => { collapseRefs[index] = el as HTMLElement }"
+                  :class="{ 'event-row--child': isChildRow(row) }"
+                >
                   <TaskProcessTextRow
                     v-if="isTextRow(row)"
                     :row="asTextRow(row)"
@@ -211,6 +214,11 @@ const processRows = computed(() => normalizeTaskProcessRows(props.taskLogs))
 function asTextRow(row: NormalizedTaskProcessRow): NormalizedTextEventRow { return row as NormalizedTextEventRow }
 function asToolRow(row: NormalizedTaskProcessRow): NormalizedToolEventRow { return row as NormalizedToolEventRow }
 function asControlEventRow(row: NormalizedTaskProcessRow): NormalizedControlEventRow { return row as NormalizedControlEventRow }
+// Child (subagent-attributed) rows get one indent level and a guide line. Root
+// rows and the delegation row itself stay flat.
+function isChildRow(row: NormalizedTaskProcessRow): boolean {
+  return row.kind !== 'control_event' && row.agent !== null
+}
 const systemInitEntry = computed(() => parseSystemInitEntry(props.taskLogs))
 const runtimeInfoEntry = computed(() => {
   if (systemInitEntry.value) return systemInitEntry.value
@@ -530,6 +538,20 @@ defineExpose({
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+/* One indent level plus a light guide line for subagent-attributed rows; the
+   DOM stays identical on desktop and mobile, only the indent tightens. */
+.event-row--child {
+  margin-left: 20px;
+  padding-left: 8px;
+  border-left: 2px solid var(--n-border-color, rgba(128, 128, 128, 0.2));
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .event-row--child {
+    margin-left: 12px;
+    padding-left: 6px;
+  }
 }
 .event-item {
   border-bottom: 1px solid var(--n-border-color, rgba(128, 128, 128, 0.1));

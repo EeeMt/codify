@@ -176,6 +176,14 @@ model_provider = "codify"
 sandbox_mode = "${sandbox_mode}"
 approval_policy = "never"
 
+# Multi-agent is a stable 0.146.0 feature that is on by default; freeze it
+# explicitly so a future default change cannot silently disable delegation.
+# Nested delegation is refused by the event adapter (subagent_depth_unsupported)
+# and the child inherits this thread's model/provider, so no subagent model
+# override is written here (open-harness-v2-subagent-adaptation.md §6.2).
+[features]
+multi_agent = true
+
 [model_providers.codify]
 name = "Codify endpoint"
 base_url = "${base_url}"

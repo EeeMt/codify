@@ -6,7 +6,7 @@
       </div>
       <div class="event-info">
         <span class="event-name">
-          <span v-if="showThinkingSpinner" class="thinking-spinner" aria-hidden="true"></span>{{ nameLabel }}
+          <span v-if="showThinkingSpinner" class="thinking-spinner" aria-hidden="true"></span>{{ nameLabel }}<TaskProcessAgentBadge v-if="row.agent" :agent="row.agent" class="event-name__agent" />
         </span>
         <span v-if="showPreview" class="event-preview">{{ preview }}</span>
       </div>
@@ -59,6 +59,7 @@ import { BulbOutline, ChatboxOutline, ChevronForward } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { formatEventDuration, formatTimestamp, renderMarkdown, type NormalizedTextEventRow } from './taskProcessUtils'
 import { formatDurationSec } from '../../utils/format'
+import TaskProcessAgentBadge from './TaskProcessAgentBadge.vue'
 
 const props = withDefaults(defineProps<{
   row: NormalizedTextEventRow
@@ -236,6 +237,10 @@ onBeforeUnmount(() => {
   min-width: 0;
   /* Status + live timer text wraps on narrow screens instead of clipping. */
   overflow-wrap: anywhere;
+}
+.event-name__agent {
+  margin-left: 6px;
+  vertical-align: 1px;
 }
 .thinking-spinner {
   display: inline-block;

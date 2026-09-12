@@ -89,6 +89,7 @@ vi.mock('@vicons/ionicons5', () => {
     PencilOutline: icon,
     SearchOutline: icon,
     ExtensionPuzzleOutline: icon,
+    GitBranchOutline: icon,
     ServerOutline: icon,
     ChevronForward: icon,
   }
@@ -603,5 +604,108 @@ describe('TaskProcessPanel raw pane wiring', () => {
     expect(wrapper.find('.system-init-banner').text()).toContain('worker-292')
     expect(wrapper.find('.empty-state').attributes('description')).toBe('taskView.noLogsAvailable')
     expect(wrapper.find('.event-stream .event-item--container').exists()).toBe(false)
+  })
+})
+
+describe('subagent attribution', () => {
+  const childAgent = (id: string, role: string) => JSON.stringify({ id, parent_id: 'root', role })
+
+  it('orders rows by TaskLog.id so concurrent children sharing a timestamp cannot reorder', () => {
+    const logs = [
+      createTaskLog({ id: 7, log_type: 'assistant_text', created_at: '2026-05-04T10:00:05Z', metadata: JSON.stringify({ text: 'first' }) }),
+      createTaskLog({ id: 4, log_type: 'assistant_text', created_at: '2026-05-04T10:00:05Z', metadata: JSON.stringify({ text: 'second' }) }),
+    ]
+
+    expect(normalizeTaskProcessRows(logs).map((row) => row.event.id)).toEqual([4, 7])
+  })
+
+  it('carries the agent ref on child rows and leaves root rows null', () => {
+    const logs = [
+      createTaskLog({ id: 1, log_type: 'assistant_text', metadata: { text: 'root' } }),
+      createTaskLog({
+        id: 2,
+        log_type: 'thinking',
+        metadata: { reasoning_id: 'r1', agent: JSON.parse(childAgent('child-a', 'reviewer')) },
+      }),
+    ]
+
+    const rows = normalizeTaskProcessRows(logs)
+
+    expect(rows[0].kind === 'control_event' ? null : rows[0].agent).toBeNull()
+    const childRow = rows[1]
+    expect(childRow.kind).toBe('thinking')
+    expect(childRow.kind !== 'control_event' && childRow.agent).toEqual({
+      id: 'child-a',
+      parentId: 'root',
+      role: 'reviewer',
+      ordinal: null,
+    })
+  })
+
+  it('numbers same-role children by first appearance and leaves unique roles unnumbered', () => {
+    const logs = [
+      createTaskLog({ id: 1, log_type: 'assistant_text', metadata: { agent: { id: 'child-b', parent_id: 'root', role: 'reviewer' } } }),
+      createTaskLog({ id: 2, log_type: 'assistant_text', metadata: { agent: { id: 'child-a', parent_id: 'root', role: 'reviewer' } } }),
+      createTaskLog({ id: 3, log_type: 'assistant_text', metadata: { agent: { id: 'child-c', parent_id: 'root', role: 'explore' } } }),
+      createTaskLog({ id: 4, log_type: 'assistant_text', metadata: { agent: { id: 'child-b', parent_id: 'root', role: 'reviewer' } } }),
+    ]
+
+    expect(normalizeTaskProcessRows(logs).map((row) => (
+      row.kind === 'control_event' ? null : [row.agent?.id, row.agent?.ordinal]
+    ))).toEqual([
+      ['child-b', 1],
+      ['child-a', 2],
+      ['child-c', null],
+      ['child-b', 1],
+    ])
+  })
+
+  it('exposes delegation status and detail usage without treating them as tool output', () => {
+    const logs = [
+      createTaskLog({
+        id: 1,
+        log_type: 'tool_call',
+        metadata: {
+          tool_use_id: 'tu-1',
+          name: 'Subagent',
+          input: { role: 'reviewer', task: 'review auth' },
+          subagent: { id: 'child-a', parent_id: 'root', role: 'reviewer' },
+        },
+      }),
+      createTaskLog({
+        id: 2,
+        log_type: 'tool_call',
+        metadata: {
+          tool_use_id: 'tu-2',
+          name: 'Subagent',
+          input: { role: 'explore', task: 'locate auth entry' },
+          output_payload_id: 12,
+          output_char_count: 40,
+          error: false,
+          subagent: {
+            id: 'child-b',
+            parent_id: 'root',
+            role: 'explore',
+            status: 'completed',
+            usage: { input_tokens: 1200, output_tokens: 300 },
+          },
+        },
+      }),
+    ]
+
+    const rows = normalizeTaskProcessRows(logs)
+    expect(rows).toHaveLength(2)
+    expect(rows[0].kind === 'tool_call' && rows[0].subagent?.status).toBe('running')
+    expect(rows[0].kind === 'tool_call' && rows[0].subagent?.inputTokens).toBeUndefined()
+    const completed = rows[1]
+    expect(completed.kind === 'tool_call' && completed.subagent).toEqual({
+      id: 'child-b',
+      parentId: 'root',
+      role: 'explore',
+      ordinal: null,
+      status: 'completed',
+      inputTokens: 1200,
+      outputTokens: 300,
+    })
   })
 })

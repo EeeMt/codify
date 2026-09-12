@@ -871,3 +871,244 @@ def test_codex_translator_emits_multi_megabyte_message_text(tmp_path):
     completed = [event for event in _events(tmp_path) if event["type"] == "message.completed"]
     assert len(completed) == 1
     assert completed[0]["payload"]["text"] == text
+
+
+def test_codex_app_server_collaboration_items_project_delegations(tmp_path):
+    """Real 0.146.0 App Server shapes: child threads + collabAgentToolCall.
+
+    The native stream was captured in the target Worker image (Phase 0 probe);
+    only ids are rewritten. Child items arrive on the root subscription tagged
+    with ``params.threadId``.
+    """
+    _emit_v2(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    root = "01a09490-7f51-7001-8700-8e6710b12cc4"
+    child_a = "01a09490-8657-7393-959b-bd439a996711"
+    child_b = "01a09490-86c6-7123-881d-2c284d3b6a7b"
+
+    def item(method: str, thread: str, payload: dict) -> dict:
+        return {"method": method, "params": {"threadId": thread, "item": payload}}
+
+    _translate_raw_stream_v2(
+        tmp_path,
+        [
+            {"method": "thread/started", "params": {"thread": {"id": root}}},
+            {"method": "turn/started", "params": {"threadId": root, "turn": {"id": "turn-root"}}},
+            item("item/completed", root, {"type": "agentMessage", "id": "m-root-1", "text": "spawning"}),
+            item(
+                "item/completed",
+                root,
+                {
+                    "type": "collabAgentToolCall",
+                    "id": "call_spawn_a",
+                    "tool": "spawnAgent",
+                    "status": "completed",
+                    "senderThreadId": root,
+                    "receiverThreadIds": [child_a],
+                    "prompt": "run echo marker-alpha",
+                    "model": "deepseek-flash",
+                    "reasoningEffort": "medium",
+                    "agentsStates": {child_a: {"status": "pendingInit", "message": None}},
+                },
+            ),
+            item(
+                "item/completed",
+                root,
+                {
+                    "type": "collabAgentToolCall",
+                    "id": "call_spawn_b",
+                    "tool": "spawnAgent",
+                    "status": "completed",
+                    "senderThreadId": root,
+                    "receiverThreadIds": [child_b],
+                    "prompt": "run echo marker-beta",
+                    "model": "deepseek-flash",
+                    "reasoningEffort": "medium",
+                    "agentsStates": {child_b: {"status": "pendingInit", "message": None}},
+                },
+            ),
+            # Child-native items: each carries its own thread id.
+            item("item/started", child_a, {"type": "reasoning", "id": "r-1", "summary": [], "content": []}),
+            item(
+                "item/completed",
+                child_a,
+                {"type": "reasoning", "id": "r-1", "summary": ["plan"], "content": []},
+            ),
+            item(
+                "item/started",
+                child_a,
+                {"type": "commandExecution", "id": "c-1", "command": "echo marker-alpha"},
+            ),
+            item(
+                "item/completed",
+                child_a,
+                {"type": "commandExecution", "id": "c-1", "command": "echo marker-alpha", "aggregatedOutput": "marker-alpha", "exitCode": 0},
+            ),
+            item("item/completed", child_a, {"type": "agentMessage", "id": "m-a", "text": "`marker-alpha`"}),
+            # The same native item id from the second child must not cross-pair.
+            item("item/started", child_b, {"type": "reasoning", "id": "r-1", "summary": [], "content": []}),
+            item(
+                "item/completed",
+                child_b,
+                {"type": "commandExecution", "id": "c-1", "command": "echo marker-beta", "aggregatedOutput": "marker-beta", "exitCode": 0},
+            ),
+            item("item/completed", child_b, {"type": "agentMessage", "id": "m-b", "text": "`marker-beta`"}),
+            # Child turns end before the root's: they must not settle the task.
+            {"method": "turn/completed", "params": {"threadId": child_a, "turn": {"id": "turn-a", "status": "completed"}}},
+            {"method": "turn/completed", "params": {"threadId": child_b, "turn": {"id": "turn-b", "status": "completed"}}},
+            item(
+                "item/completed",
+                root,
+                {
+                    "type": "collabAgentToolCall",
+                    "id": "call_wait",
+                    "tool": "wait",
+                    "status": "completed",
+                    "senderThreadId": root,
+                    "receiverThreadIds": [child_a, child_b],
+                    "agentsStates": {
+                        child_a: {"status": "completed", "message": "`marker-alpha`"},
+                        child_b: {"status": "completed", "message": "`marker-beta`"},
+                    },
+                },
+            ),
+            item("item/completed", root, {"type": "agentMessage", "id": "m-root-2", "text": "both done"}),
+            {"method": "turn/completed", "params": {"threadId": root, "turn": {"id": "turn-root", "status": "completed"}}},
+        ],
+    )
+
+    events = _events(tmp_path)
+
+    # Every child identity is the sanitizer's stable pseudonym for the native
+    # child thread id; correlate the three surfaces by that id to prove the two
+    # concurrent children never cross-pair.
+    started_payloads = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.started" and "subagent" in event["payload"]
+    ]
+    started = [payload["subagent"] for payload in started_payloads]
+    assert len(started) == 2
+    assert len({item["id"] for item in started}) == 2
+    assert all(item["parent_id"] == "root" for item in started)
+    assert all(item["role"] == "agent" for item in started)
+    assert {payload["input"]["task"] for payload in started_payloads} == {
+        "run echo marker-alpha",
+        "run echo marker-beta",
+    }
+
+    completed = {
+        event["payload"]["subagent"]["id"]: event["payload"]
+        for event in events
+        if event["type"] == "tool.completed" and "subagent" in event["payload"]
+    }
+    assert {payload["subagent"]["status"] for payload in completed.values()} == {"completed"}
+    # Both children deliberately reuse the native tool id "c-1" and item id
+    # "r-1": the bucket key must be the child thread, never the native id.
+    shell_rows = [
+        (
+            event["payload"]["agent"]["id"],
+            event["payload"]["tool_id"],
+            event["payload"]["output"],
+        )
+        for event in events
+        if event["type"] == "tool.completed"
+        and "agent" in event["payload"]
+        and event["payload"].get("output") in {"marker-alpha", "marker-beta"}
+    ]
+    assert {row[1] for row in shell_rows} == {"c-1"}
+    shell_by_marker = {row[2]: row[0] for row in shell_rows}
+    messages = {
+        event["payload"]["text"]: event["payload"]["agent"]["id"]
+        for event in events
+        if event["type"] == "message.completed" and "agent" in event["payload"]
+    }
+    assert set(shell_by_marker) == {"marker-alpha", "marker-beta"}
+    assert len(messages) == 2
+    assert len(set(messages.values())) == 2
+    assert shell_by_marker["marker-alpha"] != shell_by_marker["marker-beta"]
+    for output, child_id in shell_by_marker.items():
+        assert messages[f"`{output}`"] == child_id
+        assert completed[child_id]["subagent"]["id"] == child_id
+        assert "alpha" in completed[child_id]["output"] or "beta" in completed[child_id]["output"]
+
+    alpha_id = shell_by_marker["marker-alpha"]
+    child_reasoning = [
+        (event["type"], event["payload"]["reasoning_id"])
+        for event in events
+        if event["payload"].get("agent", {}).get("id") == alpha_id
+        and event["type"].startswith("reasoning_summary")
+    ]
+    assert child_reasoning == [
+        ("reasoning_summary.started", f"codex-reason-{alpha_id}-r-1"),
+        ("reasoning_summary.completed", f"codex-reason-{alpha_id}-r-1"),
+    ]
+
+    # Child turn completions do not terminate; the root's does, once.
+    assert sum(event["type"] in {"harness.completed", "harness.failed"} for event in events) == 1
+    result = json.loads((tmp_path / "harness-result.json").read_text(encoding="utf-8"))
+    assert result["status"] == "completed"
+    assert result["result"] == "both done"
+
+
+def test_codex_child_thread_delegation_is_refused_as_nested(tmp_path):
+    """A child spawning its own child keeps raw evidence but no product row."""
+    _emit_v2(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    root = "01a09490-7f51-7001-8700-8e6710b12cc4"
+    child = "01a09490-8657-7393-959b-bd439a996711"
+    grandchild = "01a09490-86c6-7123-881d-2c284d3b6a7b"
+
+    def item(method: str, thread: str, payload: dict) -> dict:
+        return {"method": method, "params": {"threadId": thread, "item": payload}}
+
+    _translate_raw_stream_v2(
+        tmp_path,
+        [
+            {"method": "thread/started", "params": {"thread": {"id": root}}},
+            item(
+                "item/completed",
+                root,
+                {
+                    "type": "collabAgentToolCall",
+                    "id": "call_spawn_a",
+                    "tool": "spawnAgent",
+                    "status": "completed",
+                    "receiverThreadIds": [child],
+                    "prompt": "do a thing",
+                    "agentsStates": {child: {"status": "pendingInit", "message": None}},
+                },
+            ),
+            item(
+                "item/completed",
+                child,
+                {
+                    "type": "collabAgentToolCall",
+                    "id": "call_nested",
+                    "tool": "spawnAgent",
+                    "status": "completed",
+                    "receiverThreadIds": [grandchild],
+                    "prompt": "delegate again",
+                    "agentsStates": {grandchild: {"status": "pendingInit", "message": None}},
+                },
+            ),
+            {"method": "turn/completed", "params": {"threadId": root, "turn": {"id": "turn-root", "status": "completed"}}},
+        ],
+    )
+
+    events = _events(tmp_path)
+    nested = [
+        event["payload"]
+        for event in events
+        if event["type"] == "diagnostic"
+        and event["payload"].get("code") == "subagent_depth_unsupported"
+    ]
+    root_delegation = next(
+        event["payload"]["subagent"]["id"]
+        for event in events
+        if event["type"] == "tool.started" and "subagent" in event["payload"]
+    )
+    assert nested and nested[0]["agent"]["id"] == root_delegation
+    # Only the root's own delegation is a product row; the nested attempt is
+    # raw evidence plus one diagnostic.
+    assert len(
+        [event for event in events if event["type"] == "tool.started" and "subagent" in event["payload"]]
+    ) == 1

@@ -239,10 +239,18 @@ class AppServerBridge:
                 if method == "thread/started":
                     thread = params.get("thread")
                     if isinstance(thread, dict):
-                        self.thread_id = thread.get("id") or self.thread_id
+                        # Only the task's own thread may become the bridge's
+                        # root identity; a child thread must never replace it.
+                        self.thread_id = self.thread_id or thread.get("id")
                 elif method == "turn/started":
                     turn = params.get("turn")
-                    if isinstance(turn, dict):
+                    # A spawned child thread starts its own turn; only the root
+                    # turn id may be interrupted, otherwise cancel would target
+                    # a child (open-harness-v2-subagent-adaptation.md §6.2).
+                    if (
+                        isinstance(turn, dict)
+                        and params.get("threadId") == self.thread_id
+                    ):
                         self.turn_id = turn.get("id") or self.turn_id
                 elif method == "turn/completed":
                     completed_thread_id = params.get("threadId")

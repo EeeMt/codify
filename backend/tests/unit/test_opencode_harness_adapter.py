@@ -2121,10 +2121,31 @@ def test_opencode_bridge_extracts_frozen_session_locations():
     assert bridge._record_session_id(
         {"type": "server.heartbeat", "properties": {}}
     ) is None
-    assert bridge._belongs_to_task_session(
-        {"type": "session.error", "properties": {"error": {"message": "foreign"}}},
-        "ses-parent",
+    admission = bridge._SessionAdmission("ses-parent")
+    assert admission.admits(
+        {"type": "session.error", "properties": {"error": {"message": "foreign"}}}
     ) is False
+    assert admission.admits(
+        {"type": "session.idle", "properties": {"sessionID": "ses-parent"}}
+    ) is True
+    # A child enters the whitelist only through its native parentID, and a
+    # session that never declares this task's chain stays dropped.
+    assert admission.admits(
+        {"type": "session.idle", "properties": {"sessionID": "ses-child"}}
+    ) is False
+    assert admission.register(
+        {"type": "session.created", "properties": {"info": {"id": "ses-child", "parentID": "ses-parent"}}}
+    ) == "ses-child"
+    assert admission.admits(
+        {"type": "session.idle", "properties": {"sessionID": "ses-child"}}
+    ) is True
+    assert admission.register(
+        {"type": "session.created", "properties": {"info": {"id": "ses-orphan", "parentID": "ses-other"}}}
+    ) is None
+    assert admission.admits(
+        {"type": "session.idle", "properties": {"sessionID": "ses-orphan"}}
+    ) is False
+    assert admission.descendants() == ["ses-child"]
 
 
 def test_opencode_bridge_filters_foreign_session_before_translator_and_terminal(tmp_path, monkeypatch):
@@ -2209,6 +2230,282 @@ def test_opencode_bridge_filters_foreign_session_before_translator_and_terminal(
     assert "ses-child" not in raw
     assert "unattributed foreign error" not in raw
     assert json.loads((tmp_path / "harness-result.json").read_text(encoding="utf-8"))["status"] == "completed"
+
+
+def test_opencode_task_tool_maps_to_delegation_rows(tmp_path, monkeypatch):
+    """Frozen 1.18.19 shape: the root ``task`` tool part names its child session."""
+    bridge = _load_bridge()
+    root = "ses_root_probe"
+    child_a = "ses_child_alpha"
+    child_b = "ses_child_beta"
+
+    class _DelegatingClient:
+        def create_session(self, model_id: str, provider_id: str):
+            return 200, {"info": {"id": root}}
+
+        def event_stream(self):
+            yield {"id": "e1", "type": "server.connected", "properties": {}}
+            for index, (child, marker) in enumerate(((child_a, "alpha"), (child_b, "beta"))):
+                yield {
+                    "id": f"c{index}",
+                    "type": "session.created",
+                    "properties": {
+                        "sessionID": child,
+                        "info": {"id": child, "parentID": root, "agent": "general"},
+                    },
+                }
+                yield {
+                    "id": f"t{index}",
+                    "type": "message.part.updated",
+                    "properties": {
+                        "sessionID": root,
+                        "part": {
+                            "id": f"prt_{index}",
+                            "messageID": "msg_root",
+                            "sessionID": root,
+                            "type": "tool",
+                            "tool": "task",
+                            "callID": f"call_00_{index}",
+                            "state": {
+                                "status": "running",
+                                "title": f"Run echo marker-{marker}",
+                                "input": {
+                                    "description": f"Run echo marker-{marker}",
+                                    "prompt": f"Run exactly: echo marker-{marker}",
+                                    "subagent_type": "general",
+                                },
+                                "metadata": {"parentSessionId": root, "sessionId": child},
+                            },
+                        },
+                    },
+                }
+                yield {
+                    "id": f"f{index}",
+                    "type": "message.part.updated",
+                    "properties": {
+                        "sessionID": root,
+                        "part": {
+                            "id": f"prt_{index}",
+                            "messageID": "msg_root",
+                            "sessionID": root,
+                            "type": "tool",
+                            "tool": "task",
+                            "callID": f"call_00_{index}",
+                            "state": {
+                                "status": "completed",
+                                "output": (
+                                    f'<task id="{child}" state="completed">\n'
+                                    f"<task_result>\nmarker-{marker}\n</task_result>\n</task>"
+                                ),
+                                "metadata": {
+                                    "parentSessionId": root,
+                                    "sessionId": child,
+                                    "truncated": False,
+                                },
+                            },
+                        },
+                    },
+                }
+            yield {
+                "id": "p1",
+                "type": "message.updated",
+                "properties": {"info": {"id": "msg_root", "role": "assistant", "sessionID": root}},
+            }
+            yield {
+                "id": "p2",
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": root,
+                    "part": {
+                        "type": "text",
+                        "id": "text_root",
+                        "messageID": "msg_root",
+                        "sessionID": root,
+                        "text": "both markers reported",
+                    },
+                },
+            }
+            yield {"id": "z", "type": "session.idle", "properties": {"sessionID": root}}
+
+        def prompt_async(self, session_id: str, text: str):
+            return 204, {}
+
+    monkeypatch.setattr(bridge, "OpenCodeServerClient", lambda **_kwargs: _DelegatingClient())
+    for key, value in _run_attempt_env(tmp_path).items():
+        monkeypatch.setenv(key, value)
+    _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+
+    assert bridge._run_attempt() == 0
+    events = _events(tmp_path)
+
+    started = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.started" and "subagent" in event["payload"]
+    ]
+    assert [payload["subagent"]["id"] for payload in started] == [child_a, child_b]
+    assert {payload["subagent"]["role"] for payload in started} == {"general"}
+    assert all(payload["name"] == "Subagent" for payload in started)
+    assert [payload["input"]["description"] for payload in started] == [
+        "Run echo marker-alpha",
+        "Run echo marker-beta",
+    ]
+
+    completed = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.completed" and "subagent" in event["payload"]
+    ]
+    assert [payload["subagent"]["status"] for payload in completed] == ["completed", "completed"]
+    assert [payload["subagent"]["id"] for payload in completed] == [child_a, child_b]
+    assert "marker-alpha" in completed[0]["output"]
+    assert "marker-beta" in completed[1]["output"]
+
+    # Exactly one harness terminal, from the root idle.
+    assert sum(event["type"] in {"harness.completed", "harness.failed"} for event in events) == 1
+    result = json.loads((tmp_path / "harness-result.json").read_text(encoding="utf-8"))
+    assert result["status"] == "completed"
+    assert result["result"] == "both markers reported"
+
+
+def test_opencode_descendant_session_is_attributed_without_settling_the_task(tmp_path, monkeypatch):
+    """A root's own child session projects with attribution and never settles."""
+    bridge = _load_bridge()
+
+    class _DelegatingClient:
+        def create_session(self, model_id: str, provider_id: str):
+            return 200, {"info": {"id": "ses-parent"}}
+
+        def event_stream(self):
+            yield {"id": "e1", "type": "server.connected", "properties": {}}
+            yield {
+                "id": "e2",
+                "type": "session.created",
+                "properties": {"info": {"id": "ses-child", "parentID": "ses-parent", "agent": "explore"}},
+            }
+            yield {
+                "id": "e3",
+                "type": "message.updated",
+                "properties": {
+                    "info": {
+                        "id": "msg-child",
+                        "role": "assistant",
+                        "sessionID": "ses-child",
+                        "time": {"completed": 5},
+                    }
+                },
+            }
+            yield {
+                "id": "e4",
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses-child",
+                    "part": {
+                        "type": "text",
+                        "id": "text-child",
+                        "messageID": "msg-child",
+                        "sessionID": "ses-child",
+                        "text": "child located the auth entry",
+                    },
+                },
+            }
+            yield {
+                "id": "e5",
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses-child",
+                    "part": {
+                        "type": "reasoning",
+                        "id": "reason-child",
+                        "messageID": "msg-child",
+                        "sessionID": "ses-child",
+                        "time": {"start": 1},
+                    },
+                },
+            }
+            yield {
+                "id": "e5b",
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses-child",
+                    "part": {
+                        "type": "reasoning",
+                        "id": "reason-child",
+                        "messageID": "msg-child",
+                        "sessionID": "ses-child",
+                        "time": {"start": 1, "end": 2},
+                    },
+                },
+            }
+            # The child idles first: its delegation ended, the Task did not.
+            yield {"id": "e6", "type": "session.idle", "properties": {"sessionID": "ses-child"}}
+            yield {
+                "id": "e7",
+                "type": "message.updated",
+                "properties": {
+                    "info": {"id": "msg-parent", "role": "assistant", "sessionID": "ses-parent"}
+                },
+            }
+            yield {
+                "id": "e8",
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses-parent",
+                    "part": {
+                        "type": "text",
+                        "id": "text-parent",
+                        "messageID": "msg-parent",
+                        "sessionID": "ses-parent",
+                        "text": "root summary",
+                    },
+                },
+            }
+            yield {"id": "e9", "type": "session.idle", "properties": {"sessionID": "ses-parent"}}
+
+        def prompt_async(self, session_id: str, text: str):
+            return 204, {}
+
+    monkeypatch.setattr(bridge, "OpenCodeServerClient", lambda **_kwargs: _DelegatingClient())
+    for key, value in _run_attempt_env(tmp_path).items():
+        monkeypatch.setenv(key, value)
+    _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+
+    assert bridge._run_attempt() == 0
+    events = _events(tmp_path)
+
+    child_messages = [
+        event
+        for event in events
+        if event["type"] == "message.completed"
+        and event["payload"].get("agent", {}).get("id") == "ses-child"
+    ]
+    assert [event["payload"]["text"] for event in child_messages] == [
+        "child located the auth entry"
+    ]
+    assert child_messages[0]["payload"]["agent"]["role"] == "explore"
+    # ``parent_id`` is the canonical root identity, not the native session id.
+    assert child_messages[0]["payload"]["agent"]["parent_id"] == "root"
+
+    root_messages = [
+        event for event in events if event["type"] == "message.completed" and "agent" not in event["payload"]
+    ]
+    assert [event["payload"]["text"] for event in root_messages] == ["root summary"]
+
+    # Child idle is advisory only: exactly one harness terminal, produced by
+    # the root idle, and the task result carries root text alone.
+    assert sum(event["type"] in {"harness.completed", "harness.failed"} for event in events) == 1
+    assert any(event["type"] == "harness.completed" for event in events)
+    child_reasoning = [
+        event["type"]
+        for event in events
+        if event["payload"].get("agent", {}).get("id") == "ses-child"
+        and event["type"].startswith("reasoning_summary.")
+    ]
+    assert child_reasoning == ["reasoning_summary.started", "reasoning_summary.completed"]
+    assert json.loads((tmp_path / "harness-result.json").read_text(encoding="utf-8"))["status"] == "completed"
+    # Admitted descendant evidence stays in the sanitized raw archive.
+    raw = (tmp_path / "harness-events/opencode.jsonl").read_text(encoding="utf-8")
+    assert "ses-child" in raw
 
 
 def test_opencode_legacy_summarize_marker_requires_exact_value(tmp_path, monkeypatch):

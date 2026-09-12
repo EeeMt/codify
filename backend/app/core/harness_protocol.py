@@ -103,6 +103,39 @@ NON_TERMINAL_TYPES = frozenset(
 HIDDEN_REASONING_KEYS = frozenset(
     {"thinking", "chain_of_thought", "hidden_reasoning", "encrypted_content"}
 )
+# Subagent adaptation (open-harness-v2-subagent-adaptation.md §5.2–§5.3).
+# Delegation reuses the tool lifecycle; only the attribution vocabulary is new.
+# The root Harness emits no ``payload.agent``; every child-native event carries
+# one. ``agent.id`` is attempt-scoped and stable, never a parent/child guess.
+ROOT_AGENT_ID = "root"
+AGENT_ATTRIBUTED_EVENT_TYPES = frozenset(
+    {
+        "message.delta",
+        "message.completed",
+        "reasoning_summary.started",
+        "reasoning_summary.delta",
+        "reasoning_summary.completed",
+        "reasoning_summary.interrupted",
+        "tool.started",
+        "tool.completed",
+        "context.compacted",
+        "diagnostic",
+    }
+)
+DELEGATION_EVENT_TYPES = frozenset({"tool.started", "tool.completed"})
+AGENT_REF_KEYS = frozenset({"id", "parent_id", "role"})
+SUBAGENT_REF_KEYS = frozenset({"id", "parent_id", "role", "status", "usage"})
+SUBAGENT_STATUSES = frozenset({"completed", "failed", "cancelled"})
+SUBAGENT_USAGE_KEYS = frozenset(
+    {
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "cost",
+        "currency",
+    }
+)
 
 
 class HarnessProtocolError(ValueError):
@@ -111,6 +144,90 @@ class HarnessProtocolError(ValueError):
     def __init__(self, message: str, *, code: str = "protocol_error") -> None:
         super().__init__(message)
         self.code = code
+
+
+def _validate_identity_text(value: Any, *, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise HarnessProtocolError(f"{field} must be a non-empty string")
+    return value
+
+
+def _validate_agent_ref(value: Any, *, field: str) -> dict[str, Any]:  # noqa: D401
+    """Validate the shared ``payload.agent`` shape exactly once."""
+    if not isinstance(value, Mapping):
+        raise HarnessProtocolError(f"{field} must be an object")
+    unknown = sorted(set(value) - AGENT_REF_KEYS)
+    if unknown:
+        raise HarnessProtocolError(f"{field} has unsupported keys: {', '.join(unknown)}")
+    missing = sorted(AGENT_REF_KEYS - set(value))
+    if missing:
+        raise HarnessProtocolError(f"{field} is missing: {', '.join(missing)}")
+    for key in ("id", "parent_id", "role"):
+        _validate_identity_text(value.get(key), field=f"{field}.{key}")
+    if value["id"] == ROOT_AGENT_ID:
+        raise HarnessProtocolError(
+            f"{field}.id must identify a child agent, not {ROOT_AGENT_ID!r}"
+        )
+    return dict(value)
+
+
+def _validate_subagent_usage(value: Any, *, field: str) -> None:
+    if not isinstance(value, Mapping):
+        raise HarnessProtocolError(f"{field} must be an object")
+    unknown = sorted(set(value) - SUBAGENT_USAGE_KEYS)
+    if unknown:
+        raise HarnessProtocolError(f"{field} has unsupported keys: {', '.join(unknown)}")
+    for key in ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_tokens"):
+        count = value.get(key)
+        if count is None:
+            continue
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise HarnessProtocolError(
+                f"{field}.{key} must be a non-negative integer or null"
+            )
+    cost = value.get("cost")
+    if cost is not None and (
+        not isinstance(cost, (int, float)) or isinstance(cost, bool) or cost < 0
+    ):
+        raise HarnessProtocolError(f"{field}.cost must be a non-negative number or null")
+    if value.get("currency") is not None and not isinstance(value["currency"], str):
+        raise HarnessProtocolError(f"{field}.currency must be a string or null")
+
+
+def _validate_delegation_subagent(value: Any, *, field: str) -> None:
+    """Validate the ``payload.subagent`` detail carried by a delegation tool row."""
+    if not isinstance(value, Mapping):
+        raise HarnessProtocolError(f"{field} must be an object")
+    unknown = sorted(set(value) - SUBAGENT_REF_KEYS)
+    if unknown:
+        raise HarnessProtocolError(f"{field} has unsupported keys: {', '.join(unknown)}")
+    for key in ("id", "parent_id", "role"):
+        _validate_identity_text(value.get(key), field=f"{field}.{key}")
+    status = value.get("status")
+    if status is not None and status not in SUBAGENT_STATUSES:
+        raise HarnessProtocolError(
+            f"{field}.status must be one of {sorted(SUBAGENT_STATUSES)}"
+        )
+    if value.get("usage") is not None:
+        _validate_subagent_usage(value["usage"], field=f"{field}.usage")
+
+
+def _validate_agent_attribution(event_type: str, payload: Mapping[str, Any]) -> None:
+    """Reject attribution on non-attributable types and validate its shape."""
+    agent = payload.get("agent")
+    if agent is not None:
+        if event_type not in AGENT_ATTRIBUTED_EVENT_TYPES:
+            raise HarnessProtocolError(
+                f"{event_type} must not carry payload.agent"
+            )
+        _validate_agent_ref(agent, field="payload.agent")
+    subagent = payload.get("subagent")
+    if subagent is not None:
+        if event_type not in DELEGATION_EVENT_TYPES:
+            raise HarnessProtocolError(
+                f"{event_type} must not carry payload.subagent"
+            )
+        _validate_delegation_subagent(subagent, field="payload.subagent")
 
 
 def _parse_timestamp(value: Any) -> datetime:
@@ -311,6 +428,7 @@ def _validate_event_core(
         normalized_payload["usage"] = normalize_usage(normalized_payload.get("usage"))
     if require_v2_harness and event_type in CONTROL_EVENT_TYPES:
         _validate_control_event(event_type, normalized_payload)
+    _validate_agent_attribution(event_type, normalized_payload)
     _validate_event_payload(event_type, normalized_payload)
     normalized = dict(event)
     normalized["type"] = event_type
@@ -645,7 +763,7 @@ HARNESS_PROTOCOL_MATRIX = {
     "codex": (("rpc_stdio", "codex-app-server-v2"), frozenset({"openai_responses"})),
 }
 HARNESS_CAPABILITY_KEYS = frozenset(
-    {"resume", "task_skills", "usage_tokens", "steering", "follow_up"}
+    {"resume", "task_skills", "usage_tokens", "steering", "follow_up", "subagents"}
 )
 # Command IDs and payload.text are part of the frozen command envelope.  Keep
 # their validation here so the REST endpoint, DB writer, and Worker-side

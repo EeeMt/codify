@@ -39,7 +39,91 @@ _STATE: dict = {
     "terminal_type": None,      # "completed" | "failed"
     "terminal_line": None,
     "terminal_failure": None,   # {"kind": ..., "message": ...}
+    # Subagent adaptation (open-harness-v2-subagent-adaptation.md §6.2). The
+    # frozen 0.146.0 App Server streams child-thread items on the root
+    # subscription (each tagged with params.threadId) and reports delegation
+    # state through ``collabAgentToolCall`` items, so no rollout/session file
+    # is ever read. Probe evidence: docs/harness-probes/v2/codex/.
+    "agents": {},                    # child thread id -> {id, parent_id, role}
+    "delegation_tool_by_child": {},  # child thread id -> delegation tool id
+    "closed_delegations": set(),     # child thread ids already settled
+    "pending_spawn_prompt": {},      # spawn item id -> native prompt
 }
+
+ROOT_AGENT_KEY = "root"
+# Frozen collaboration tool vocabulary (probe: codex 0.146.0 app server uses
+# camelCase; the exec stream uses snake_case).
+_COLLAB_TOOL_ALIASES = {
+    "spawnAgent": "spawn_agent",
+    "closeAgent": "close_agent",
+    "resumeAgent": "resume_agent",
+    "sendMessage": "send_message",
+}
+# Canonical event types that may carry `payload.agent` (mirrors the frozen
+# backend vocabulary in harness_protocol.AGENT_ATTRIBUTED_EVENT_TYPES).
+_AGENT_ATTRIBUTED_EVENT_TYPES = frozenset(
+    {
+        "message.delta",
+        "message.completed",
+        "reasoning_summary.started",
+        "reasoning_summary.delta",
+        "reasoning_summary.completed",
+        "reasoning_summary.interrupted",
+        "tool.started",
+        "tool.completed",
+        "context.compacted",
+        "diagnostic",
+    }
+)
+# Native child states that mean the delegation is over. Unknown states (e.g.
+# pendingInit) stay running; the root Harness decides what happens next.
+_TERMINAL_CHILD_STATUSES = {
+    "completed": "completed",
+    "failed": "failed",
+    "errored": "failed",
+    "error": "failed",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+}
+_CURRENT_AGENT: dict | None = None
+
+
+def _current_agent_id() -> str | None:
+    agent = _CURRENT_AGENT
+    return agent.get("id") if isinstance(agent, dict) else None
+
+
+def _agent_ref(thread_id: object) -> dict | None:
+    """Canonical ``payload.agent`` for a child thread (None for the root)."""
+    if not isinstance(thread_id, str) or not thread_id:
+        return None
+    agent = _STATE["agents"].get(thread_id)
+    return dict(agent) if isinstance(agent, dict) else None
+
+
+def _register_child_thread(thread_id: object) -> dict | None:
+    """Record a child thread identity; the root thread is never a child."""
+    if not isinstance(thread_id, str) or not thread_id:
+        return None
+    if thread_id == _STATE["thread_id"]:
+        return None
+    agent = _STATE["agents"].get(thread_id)
+    if agent is None:
+        # Codex exposes no native role for a child thread, so the display role
+        # stays the neutral "agent" instead of a guessed one.
+        agent = {"id": thread_id, "parent_id": "root", "role": "agent"}
+        _STATE["agents"][thread_id] = agent
+    return agent
+
+
+def _set_current_agent(record: dict) -> None:
+    """Attribute every event of this record to the thread that produced it."""
+    global _CURRENT_AGENT
+    thread_id = record.get("thread_id")
+    if isinstance(thread_id, str) and thread_id and thread_id != _STATE["thread_id"]:
+        _CURRENT_AGENT = _register_child_thread(thread_id)
+    else:
+        _CURRENT_AGENT = None
 
 
 def _configured_model() -> str | None:
@@ -95,10 +179,14 @@ def _session_id() -> str | None:
 
 
 def _reasoning_id(item_id: str) -> str:
-    """Stable per-block identity: thread + item. item ids like ``item_0`` are
-    per-thread, so thread alone is not enough; contentIndex-like fields are
-    never used alone (plan §3.2)."""
-    return f"codex-reason-{_STATE['thread_id'] or 'thread'}-{item_id}"
+    """Stable per-block identity: owning thread + item.
+
+    item ids like ``item_0`` are per-thread, so thread alone is not enough;
+    contentIndex-like fields are never used alone (plan §3.2). A child thread
+    reusing a root item id still yields a distinct reasoning_id.
+    """
+    owner = _current_agent_id() or _STATE["thread_id"] or "thread"
+    return f"codex-reason-{owner}-{item_id}"
 
 
 def _reasoning_summary_text(item: dict) -> str:
@@ -148,6 +236,10 @@ def _failure_kind(message: str) -> str:
 
 def _emit(event_type: str, payload: dict, raw_line: int) -> None:
     writer = os.environ["CODIFY_CANONICAL_EVENT_WRITER"]
+    # Child attribution is applied here, once: root events omit `agent`
+    # entirely (open-harness-v2-subagent-adaptation.md §5.3).
+    if _CURRENT_AGENT is not None and event_type in _AGENT_ATTRIBUTED_EVENT_TYPES:
+        payload = {**payload, "agent": dict(_CURRENT_AGENT)}
     subprocess.run(
         [
             sys.executable,
@@ -280,7 +372,22 @@ def _app_server_item(item: dict) -> dict:
     normalized["type"] = {
         "agentMessage": "agent_message",
         "commandExecution": "command_execution",
+        "collabAgentToolCall": "collab_agent_tool_call",
     }.get(item_type, item_type)
+    for camel, snake in (
+        ("receiverThreadIds", "receiver_thread_ids"),
+        ("senderThreadId", "sender_thread_id"),
+        ("agentsStates", "agents_states"),
+    ):
+        if camel in normalized and snake not in normalized:
+            normalized[snake] = normalized[camel]
+    if normalized["type"] == "collab_agent_tool_call":
+        # The App Server spells the collaboration tool names in camelCase while
+        # the legacy exec path uses snake_case; the translator only ever sees
+        # the frozen snake_case vocabulary.
+        normalized["tool"] = _COLLAB_TOOL_ALIASES.get(
+            str(normalized.get("tool") or ""), normalized.get("tool")
+        )
     if "aggregatedOutput" in normalized and "aggregated_output" not in normalized:
         normalized["aggregated_output"] = normalized["aggregatedOutput"]
     if "exitCode" in normalized and "exit_code" not in normalized:
@@ -328,6 +435,9 @@ def _translate_app_server(record: dict, raw_line: int) -> bool:
             {
                 "type": method.replace("/", "."),
                 "item": _app_server_item(item),
+                # Items carry no thread field of their own; params.threadId is
+                # the only native statement of which thread produced them.
+                "thread_id": params.get("threadId"),
             },
             raw_line,
         )
@@ -348,10 +458,16 @@ def _translate_app_server(record: dict, raw_line: int) -> bool:
         return True
     if method == "thread/tokenUsage/updated":
         token_usage = params.get("tokenUsage")
-        if isinstance(token_usage, dict):
+        if isinstance(token_usage, dict) and params.get("threadId") == _STATE["thread_id"]:
+            # Child token usage is detail-only; the attempt total stays the
+            # root thread's native usage (plan §5.6).
             _STATE["usage"] = token_usage.get("last") or token_usage.get("total") or {}
         return True
     if method == "turn/completed":
+        if params.get("threadId") != _STATE["thread_id"]:
+            # A child turn ending is not the root Harness settling: it only
+            # ends that delegation (plan §5.5).
+            return True
         turn = params.get("turn") if isinstance(params.get("turn"), dict) else {}
         status = turn.get("status")
         if status == "completed":
@@ -394,10 +510,116 @@ def _translate_app_server(record: dict, raw_line: int) -> bool:
     return True
 
 
+def _delegation_detail(child_id: str) -> dict | None:
+    """Canonical ``payload.subagent`` for a delegation row, if one exists."""
+    tool_id = _STATE["delegation_tool_by_child"].get(child_id)
+    agent = _STATE["agents"].get(child_id)
+    if not tool_id or not agent:
+        return None
+    return {
+        "tool_id": tool_id,
+        "id": agent["id"],
+        "parent_id": agent["parent_id"],
+        "role": agent["role"],
+    }
+
+
+def _close_delegation(child_id: str, status: str, message: object, raw_line: int) -> None:
+    """Settle one delegation row in place, at most once."""
+    detail = _delegation_detail(child_id)
+    if detail is None or child_id in _STATE["closed_delegations"]:
+        return
+    _STATE["closed_delegations"].add(child_id)
+    subagent = {
+        "id": detail["id"],
+        "parent_id": detail["parent_id"],
+        "role": detail["role"],
+        "status": status,
+    }
+    output = message if isinstance(message, str) else ""
+    _emit(
+        "tool.completed",
+        {
+            "tool_id": detail["tool_id"],
+            "name": "Subagent",
+            "output": clean_message(output),
+            "error": status == "failed",
+            "subagent": subagent,
+        },
+        raw_line,
+    )
+
+
+def _apply_child_states(states: object, raw_line: int) -> None:
+    """Project ``agentsStates`` into delegation completions."""
+    if not isinstance(states, dict):
+        return
+    for child_id, child_state in states.items():
+        if not isinstance(child_state, dict):
+            continue
+        status = _TERMINAL_CHILD_STATUSES.get(str(child_state.get("status") or "").lower())
+        if status is None:
+            continue
+        _close_delegation(str(child_id), status, child_state.get("message"), raw_line)
+
+
+def _handle_collab_item(item: dict, raw_line: int) -> None:
+    """Map a ``collabAgentToolCall`` item onto the delegation tool lifecycle."""
+    tool_id = item.get("id")
+    tool = str(item.get("tool") or "")
+    if _CURRENT_AGENT is not None:
+        # A child thread trying to delegate again is a nested subagent: keep
+        # the redacted raw evidence, project an explicit diagnostic, and never
+        # promote it to a second product-level delegation (plan §5.5).
+        _emit(
+            "diagnostic",
+            {
+                "code": "subagent_depth_unsupported",
+                "parent_id": _CURRENT_AGENT.get("id"),
+                "tool": tool,
+            },
+            raw_line,
+        )
+        return
+    if not isinstance(tool_id, str) or not tool_id:
+        _emit("diagnostic", {"code": "collab_item_missing_id", "tool": tool}, raw_line)
+        return
+    if tool == "spawn_agent":
+        prompt = item.get("prompt")
+        if isinstance(prompt, str) and prompt:
+            _STATE["pending_spawn_prompt"][tool_id] = prompt
+        for child_id in item.get("receiver_thread_ids") or []:
+            agent = _register_child_thread(child_id)
+            if agent is None:
+                continue
+            if _STATE["delegation_tool_by_child"].get(agent["id"]) == tool_id:
+                continue
+            _STATE["delegation_tool_by_child"][agent["id"]] = tool_id
+            _emit(
+                "tool.started",
+                {
+                    "tool_id": tool_id,
+                    "name": "Subagent",
+                    "input": {
+                        "role": agent["role"],
+                        "task": clean_message(_STATE["pending_spawn_prompt"].get(tool_id, "")),
+                    },
+                    "subagent": {
+                        "id": agent["id"],
+                        "parent_id": agent["parent_id"],
+                        "role": agent["role"],
+                    },
+                },
+                raw_line,
+            )
+    _apply_child_states(item.get("agents_states"), raw_line)
+
+
 def translate(record: dict, raw_line: int) -> None:
     if "method" in record or ("error" in record and "id" in record):
         if _translate_app_server(record, raw_line):
             return
+    _set_current_agent(record)
     record_type = record.get("type")
     if record_type == "thread.started":
         thread_id = record.get("thread_id")
@@ -455,6 +677,12 @@ def translate(record: dict, raw_line: int) -> None:
                 },
                 raw_line,
             )
+        elif item_type == "collab_agent_tool_call":
+            # Delegation structure is only complete on item.completed (the
+            # child thread id arrives there); the started snapshot is kept as
+            # raw evidence and reused for the display task text.
+            if item.get("prompt") and isinstance(item.get("id"), str):
+                _STATE["pending_spawn_prompt"][item["id"]] = item["prompt"]
     elif record_type == "item.completed":
         item = record.get("item") if isinstance(record.get("item"), dict) else {}
         item_type = item.get("type")
@@ -497,12 +725,17 @@ def translate(record: dict, raw_line: int) -> None:
             )
         elif item_type == "agent_message":
             text = item.get("text") or _STATE["message_text"].get(item.get("id"), "")
-            _STATE["last_assistant_text"] = text
+            if _CURRENT_AGENT is None:
+                # Only the root's final message becomes the task result; a
+                # child message is its own timeline row (plan §5.4).
+                _STATE["last_assistant_text"] = text
             _emit(
                 "message.completed",
                 {"message_id": item.get("id"), "text": text},
                 raw_line,
             )
+        elif item_type == "collab_agent_tool_call":
+            _handle_collab_item(item, raw_line)
         elif item_type == "error":
             message = clean_message(str(item.get("message") or ""))
             if "compaction" in message.lower():
@@ -521,6 +754,10 @@ def translate(record: dict, raw_line: int) -> None:
         # Blocks still open when the turn closes cleanly never saw their own
         # end; close them as interrupted, never as completed (plan §4.3).
         _close_open_reasoning("turn_completed_without_block_end", raw_line)
+        # A delegation the root never observed settling cannot outlive the
+        # attempt: settle it as cancelled so no row keeps spinning.
+        for child_id in list(_STATE["delegation_tool_by_child"]):
+            _close_delegation(child_id, "cancelled", None, raw_line)
         usage = _usage(record)
         _emit("usage.final", {"usage": usage}, raw_line)
         _STATE["terminal_type"] = "completed"

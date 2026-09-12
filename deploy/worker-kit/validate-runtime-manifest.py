@@ -14,7 +14,7 @@ APPROVED = {"pi", "opencode", "claude", "codex"}
 LINUX_PLATFORM_RE = re.compile(r"^linux/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 IMAGE_REFERENCE_RE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
-CAPABILITIES = {"resume", "task_skills", "usage_tokens", "steering", "follow_up"}
+CAPABILITIES = {"resume", "task_skills", "usage_tokens", "steering", "follow_up", "subagents"}
 PROTOCOL_MATRIX = {
     "pi": (
         ("rpc_stdio", "pi-rpc"),
@@ -28,10 +28,10 @@ PROTOCOL_MATRIX = {
     "codex": (("rpc_stdio", "codex-app-server-v2"), {"openai_responses"}),
 }
 UPPER = {
-    "pi": {"resume": True, "task_skills": True, "usage_tokens": True, "steering": True, "follow_up": True},
-    "opencode": {"resume": True, "task_skills": True, "usage_tokens": True, "steering": False, "follow_up": False},
-    "claude": {"resume": True, "task_skills": True, "usage_tokens": True, "steering": False, "follow_up": False},
-    "codex": {"resume": True, "task_skills": True, "usage_tokens": True, "steering": False, "follow_up": False},
+    "pi": {"resume": True, "task_skills": True, "usage_tokens": True, "steering": True, "follow_up": True, "subagents": True},
+    "opencode": {"resume": True, "task_skills": True, "usage_tokens": True, "steering": False, "follow_up": False, "subagents": True},
+    "claude": {"resume": True, "task_skills": True, "usage_tokens": True, "steering": False, "follow_up": False, "subagents": True},
+    "codex": {"resume": True, "task_skills": True, "usage_tokens": True, "steering": False, "follow_up": False, "subagents": True},
 }
 _CURRENT_ADAPTERS: dict = {}
 

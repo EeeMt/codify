@@ -31,7 +31,8 @@
         "task_skills": true,
         "usage_tokens": true,
         "steering": false,
-        "follow_up": false
+        "follow_up": false,
+        "subagents": false
       },
       "options_schema": "claude/v1"
     },
@@ -60,7 +61,8 @@
         "task_skills": true,
         "usage_tokens": true,
         "steering": false,
-        "follow_up": false
+        "follow_up": false,
+        "subagents": false
       },
       "options_schema": "codex/v1"
     },
@@ -92,7 +94,8 @@
         "task_skills": true,
         "usage_tokens": true,
         "steering": true,
-        "follow_up": true
+        "follow_up": true,
+        "subagents": false
       },
       "options_schema": "pi/v1"
     },
@@ -124,7 +127,8 @@
         "task_skills": true,
         "usage_tokens": true,
         "steering": false,
-        "follow_up": false
+        "follow_up": false,
+        "subagents": false
       },
       "options_schema": "opencode/v1"
     }
