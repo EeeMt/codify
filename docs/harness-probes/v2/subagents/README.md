@@ -92,17 +92,20 @@ validates the tree (`findings=0`).
 
 ## Live acceptance on the development Host (2026-09-12)
 
-Kit `0.6.17-linux-amd64-8140c93eb09a` (built from this branch, all four harness
-CLIs, `subagents: false` in every manifest entry), Profile
-`v2-canary-four-harness` re-verified against it, Tasks created through the real
-API. Three results, all reproducible:
+Each result below was taken on a Kit built from this branch (all four harness
+CLIs), with Profile `v2-canary-four-harness` re-verified against that Kit and
+Tasks created through the real API. The first passes ran while the manifest
+still declared `subagents: false`; the capability was flipped to `true` only
+after every §10 combination had passed, and the final artifact set
+(Kit `b5427d36336f`, Runtime Bundle 258) re-ran the two Pi ceiling cases
+(Tasks 644 and 645). Results, all reproducible:
 
-### Claude `2.1.153` — blocked by the runner's `--bare`
+### Claude `2.1.153` — resolved: `--bare` replaced by explicit isolation
 
-The frozen runner always passes `--bare`. On `2.1.153`, `--bare` removes the
-delegation tool entirely, so a Codify Claude Task can never call `Agent`
-(Task 616: the model answered *"There is no `Agent` tool in my available
-toolset — I only have `Bash`, `Edit`, and `Read`"*).
+The frozen runner used to pass `--bare`. On `2.1.153`, `--bare` sets
+`CLAUDE_CODE_SIMPLE=1`, which removes the `Agent` tool entirely, so a Codify
+Claude Task could never delegate (Task 616: the model answered *"There is no
+`Agent` tool in my available toolset — I only have `Bash`, `Edit`, and `Read`"*).
 
 Isolated on the Kit's own binary, same prompt, three flag combinations:
 
@@ -112,11 +115,30 @@ Isolated on the Kit's own binary, same prompt, three flag combinations:
 | `--allowedTools "Bash,Read,Edit,Write,Agent"` (no `--bare`) | **`Agent`, `Bash`** |
 | `--bare --dangerously-skip-permissions` | `Bash` |
 
-`Agent` was added to the runner's default allow-list, but that alone cannot
-enable delegation: **dropping `--bare` is required**, and `--bare` is what keeps
-user/project config, hooks and auto-discovery out of the worker. That
-substitution (explicit `--setting-sources`/`--strict-mcp-config` and friends)
-has not been designed or verified, so Claude `subagents` stays `false`.
+The main run path now expresses the same boundary with explicit flags instead of
+`--bare` (`runners/claude-run.sh`): `--setting-sources ""`,
+`--strict-mcp-config`, `--disable-slash-commands`. `Agent` is appended to the
+allow-list, because a Profile that pins its own `ALLOWED_TOOLS` would otherwise
+drop delegation again.
+
+What the flags keep, and what they do not:
+
+- no user/project/local settings load, so repository hooks and permissions stay
+  inert — the planted-hook control fired in **none** of the three combinations
+  above, including the unisolated one, because an untrusted workspace never
+  loads project settings;
+- no MCP servers beyond an explicit `--mcp-config`, which Codify never passes;
+- no skills from discovery; task Skills still resolve through the materialized
+  snapshot;
+- residual difference from `--bare`: `CLAUDE_CODE_SIMPLE=1` additionally skipped
+  LSP, plugin sync, attribution, auto-memory, background prefetches and
+  CLAUDE.md auto-discovery. Probes showed no extra workspace files and no
+  CLAUDE.md context in either mode, and the worker authenticates with
+  `ANTHROPIC_API_KEY` against a task-local HOME, so there is no keychain to read.
+
+Live evidence: Task 623 (`harness=claude`, `anthropic_messages`) produced two
+delegation rows plus child rows. This substitution changes **every** Claude Task,
+not only delegation-capable ones.
 
 ### OpenCode `1.18.19` — PASSED on the development Host
 
@@ -171,9 +193,14 @@ without `subagent`/`agent` metadata:
    `verify-runtime` fail with `worker_kit_invalid`.
 
 
-### Pi `0.84.2` + `pi-subagents 0.67.0` — blocked by detached workflow runs
+### Pi `0.84.2` + `pi-subagents 0.67.0` — resolved: three background routes closed
 
-See [../../../../deploy/worker-cli/pi-subagents/README.md](../../../../deploy/worker-cli/pi-subagents/README.md).
+The plugin offered three ways to leave the foreground path, each of which loses
+the child inventory; all three are closed by the vendor patch. The routes, the
+patch and the final live evidence are in the
+[ceiling enforcement](#ceiling-enforcement-on-the-pinned-plugin) section below
+and in
+[deploy/worker-cli/pi-subagents/README.md](../../../../deploy/worker-cli/pi-subagents/README.md).
 
 ### Codex `0.146.0` — PASSED on the development Host
 
@@ -231,8 +258,13 @@ same equality between `usage.final` and the Task's stored token totals
 | Pi | foreground child shares the parent process group; `SIGTERM` to the group reaps parent (exit 143) and child within 5 s, no leftovers |
 | OpenCode | Task 628 cancelled mid-delegation: one `harness.failed kind=cancelled`, then `worker_finalization`, then exactly one `run.failed status=cancelled`; the container is gone and no `opencode serve` / `sleep` process survives on the Host |
 
-Claude and Codex cancellation were not re-probed in this pass; both keep the
-public Runner's process-group termination.
+Claude and Codex cancellation were **not** re-probed with a live Task; both keep
+the public Runner's process-group termination, which is the same mechanism Pi
+was probed on, but that is an inference, not evidence. Criterion 6 is therefore
+verified live for Pi and OpenCode only.
+
+Additionally, the Pi family runs its child in the parent process group (probed
+with `SIGTERM`, above), and the OpenCode evidence is a cancelled live Task.
 
 ### Net result
 
@@ -242,7 +274,7 @@ model protocol each (Claude `anthropic_messages`, Codex `openai_responses`,
 OpenCode `anthropic_messages`, Pi `anthropic_messages`).
 
 The Runtime Manifest now declares `subagents: true` for all four harnesses, on
-this evidence:
+this evidence (all eight §10 combinations):
 
 | Harness / protocol | Task | Result |
 |---|---|---|
@@ -256,9 +288,11 @@ this evidence:
 | OpenCode `openai_chat_completions` | 632 | 2 delegation rows + child rows |
 
 Plus, per criterion: §10.5 usage authority (Pi verified byte-for-byte, and the
-backend never re-sums child detail), §10.6 cancellation (all four harnesses:
-single `harness.failed kind=cancelled` → finalization → single
-`run.failed status=cancelled`, container gone, no surviving child process),
+backend never re-sums child detail), §10.6 cancellation (live for Pi and
+OpenCode: single `harness.failed kind=cancelled` → finalization → single
+`run.failed status=cancelled`, container gone, no surviving child process;
+Claude and Codex inherit the Runner's process-group termination without a
+dedicated live probe),
 §10.9/10/11 by DOM inspection of the served pages.
 
 Two items remain outside this evidence set and are **not** claimed:
