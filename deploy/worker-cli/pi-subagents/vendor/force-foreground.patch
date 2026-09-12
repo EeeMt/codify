@@ -1,6 +1,6 @@
-diff -r w2/pkg/src/runs/background/top-level-async.ts w/pkg/src/runs/background/top-level-async.ts
---- w2/pkg/src/runs/background/top-level-async.ts	2026-09-12 19:52:24.505969693 +0800
-+++ w/pkg/src/runs/background/top-level-async.ts	2026-09-12 19:52:24.762902260 +0800
+diff -r closure/node_modules/pi-subagents/src/runs/background/top-level-async.ts w4/pkg/src/runs/background/top-level-async.ts
+--- closure/node_modules/pi-subagents/src/runs/background/top-level-async.ts	2026-09-12 15:57:54.231719466 +0800
++++ w4/pkg/src/runs/background/top-level-async.ts	2026-09-12 21:42:05.306526818 +0800
 @@ -12,3 +12,18 @@
  	if (params.foregroundOnly || !(depth === 0 && forceTopLevelAsync)) return params;
  	return { ...params, async: true, clarify: false };
@@ -9,9 +9,9 @@ diff -r w2/pkg/src/runs/background/top-level-async.ts w/pkg/src/runs/background/
 +// Codify vendor patch (open-harness-v2-subagent-adaptation.md §6.4).
 +//
 +// The parent Harness only sees a child's identity, usage and final output in
-+// the launch's structured result, and an async/detached launch returns an empty
-+// child inventory. The ceiling therefore pins depth-0 launches to the
-+// foreground path; the model can no longer opt into background work.
++// the launch's structured result, and a detached launch returns an empty child
++// inventory. The ceiling therefore pins depth-0 launches to the foreground
++// path; the model can no longer opt into background work.
 +export function applyForceTopLevelForegroundOverride<T extends AsyncOverrideParams>(
 +	params: T,
 +	depth: number,
@@ -20,9 +20,9 @@ diff -r w2/pkg/src/runs/background/top-level-async.ts w/pkg/src/runs/background/
 +	if (!(depth === 0 && forceTopLevelForeground)) return params;
 +	return { ...params, async: false };
 +}
-diff -r w2/pkg/src/runs/foreground/subagent-executor.ts w/pkg/src/runs/foreground/subagent-executor.ts
---- w2/pkg/src/runs/foreground/subagent-executor.ts	2026-09-12 19:52:24.525062869 +0800
-+++ w/pkg/src/runs/foreground/subagent-executor.ts	2026-09-12 19:52:24.764348507 +0800
+diff -r closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.ts w4/pkg/src/runs/foreground/subagent-executor.ts
+--- closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.ts	2026-09-12 15:57:54.215899924 +0800
++++ w4/pkg/src/runs/foreground/subagent-executor.ts	2026-09-12 21:42:05.308670486 +0800
 @@ -106,7 +106,7 @@
  import { getExternalJobProvider } from "../../api/external-job-provider.ts";
  import { externalJobFollowUpRequestDigest, externalJobFollowUpRequestId, externalJobFollowUpRunId, externalJobPromptDigest, externalJobStableJson } from "../shared/external-job-runner.ts";
@@ -32,7 +32,25 @@ diff -r w2/pkg/src/runs/foreground/subagent-executor.ts w/pkg/src/runs/foregroun
  import { handleMissionAction, MISSION_ACTIONS } from "../../missions/actions.ts";
  import { attachMissionToLaunchResult, prepareMissionLaunch, writeMissionAsyncBinding, type MissionLaunchBinding } from "../../missions/lifecycle.ts";
  import { MissionNotFoundError, updateMission } from "../../missions/store.ts";
-@@ -6677,10 +6677,14 @@
+@@ -4901,7 +4901,16 @@
+ 		deps.state.lastForegroundControlId ??= null;
+ 		const normalizedGate = normalizeGateParams(params);
+ 		if (!normalizedGate.ok) return buildRequestedModeError(params, normalizedGate.error);
+-		let requestParams = normalizedGate.params;
++		// Codify vendor patch: the workflow branch below treats a missing `async`
++		// as async (`requestParams.async !== false`) and detaches the run to a
++		// background runner, whose child inventory, usage and output never reach
++		// the parent stream. Every other override site runs after that decision,
++		// so the depth-0 foreground pin is applied here, at the entry of execute().
++		let requestParams = applyForceTopLevelForegroundOverride(
++			normalizedGate.params,
++			checkSubagentDepth(deps.config.maxSubagentDepth, deps.childRuntime).depth,
++			deps.config.forceTopLevelForeground === true,
++		);
+ 		const capacityOverrideError = validateWorkflowCapacityOverrides(requestParams);
+ 		if (capacityOverrideError) return buildRequestedModeError(requestParams, capacityOverrideError);
+ 		let workflowPreflight: import("../../shared/types.ts").WorkflowPreflight | undefined;
+@@ -6677,10 +6686,14 @@
  		if (normalized.error) return normalized.error;
  		const normalizedParams = normalized.params!;
  
@@ -50,7 +68,7 @@ diff -r w2/pkg/src/runs/foreground/subagent-executor.ts w/pkg/src/runs/foregroun
  		);
  		const runToolBudget = resolveToolBudget(
  			effectiveParams.toolBudget,
-@@ -7227,7 +7231,11 @@
+@@ -7227,7 +7240,11 @@
  		const requestParams = normalizedAction ? { ...params, action: normalizedAction } : params;
  		if (normalizedAction) return execute(id, requestParams, signal, onUpdate, ctx).then(withAggregatedToolUsage);
  		const { depth } = checkSubagentDepth(deps.config.maxSubagentDepth, deps.childRuntime);
@@ -63,7 +81,7 @@ diff -r w2/pkg/src/runs/foreground/subagent-executor.ts w/pkg/src/runs/foregroun
  		const runsForeground = dispatchParams.clarify === true || (dispatchParams.async ?? deps.asyncByDefault) !== true;
  		if (!runsForeground) return execute(id, requestParams, signal, onUpdate, ctx).then(withAggregatedToolUsage);
  		if (deps.state.subagentInProgress === true) return duplicateSubagentCallResult(requestParams);
-@@ -7262,6 +7270,22 @@
+@@ -7262,6 +7279,22 @@
  		if (loaded.error) {
  			return Promise.resolve({ content: [{ type: "text", text: loaded.error }], isError: true, details: { mode: publicParams.action ? "management" : "workflow", results: [] } });
  		}
@@ -86,9 +104,9 @@ diff -r w2/pkg/src/runs/foreground/subagent-executor.ts w/pkg/src/runs/foregroun
  		publicExecutions.add(loaded.params!);
  		return executeWithSingleDispatchGuard(id, loaded.params!, signal, onUpdate, ctx);
  	};
-diff -r w2/pkg/src/shared/types.ts w/pkg/src/shared/types.ts
---- w2/pkg/src/shared/types.ts	2026-09-12 19:52:24.469678046 +0800
-+++ w/pkg/src/shared/types.ts	2026-09-12 19:52:24.764824673 +0800
+diff -r closure/node_modules/pi-subagents/src/shared/types.ts w4/pkg/src/shared/types.ts
+--- closure/node_modules/pi-subagents/src/shared/types.ts	2026-09-12 15:57:54.234476008 +0800
++++ w4/pkg/src/shared/types.ts	2026-09-12 21:42:05.307045058 +0800
 @@ -2585,6 +2585,8 @@
  	/** Experimental observer: mirror each native subagent's progress into a new Orca tab. */
  	orcaProgressTabs?: OrcaProgressTabsConfig;
