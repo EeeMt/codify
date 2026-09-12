@@ -423,10 +423,12 @@ def test_opencode_tool_snapshots_map_to_one_canonical_lifecycle(tmp_path):
     assert tool_completed[1]["payload"] == {
         "tool_id": "call-fail",
         "name": "Bash",
-        "output": "",
         "error": True,
         "exit_code": 7,
     }
+    # A tool that produced no output publishes no `output` field at all: the
+    # served panel would otherwise offer an expander with nothing inside.
+    assert "output" not in tool_completed[1]["payload"]
     assert tool_started[2]["payload"]["name"] == "Write"
     assert tool_started[2]["payload"]["input"] == {
         "content": "done",
@@ -2334,6 +2336,9 @@ def test_opencode_task_tool_maps_to_delegation_rows(tmp_path, monkeypatch):
     for key, value in _run_attempt_env(tmp_path).items():
         monkeypatch.setenv(key, value)
     _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+
+    for event in _events(tmp_path):
+        validate_event_v2(event)
 
     assert bridge._run_attempt() == 0
     events = _events(tmp_path)

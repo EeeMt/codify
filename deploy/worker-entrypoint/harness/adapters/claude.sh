@@ -141,9 +141,7 @@ claude_adapter_prepare_config() {
     # (open-harness-v2-subagent-adaptation.md §6.1). The manifest capability is
     # the *claim* that this Bundle passed real-Task acceptance, so it stays
     # false until then and only controls what the catalog advertises.
-    CODIFY_CLAUDE_SUBAGENTS="$(claude_adapter_subagents_enabled)"
-    export CODIFY_CLAUDE_SUBAGENTS
-    if [ "${CODIFY_CLAUDE_SUBAGENTS}" = "1" ]; then
+    if [ "$(claude_adapter_subagents_enabled)" = "1" ]; then
         echo "Claude manifest declares subagents: true"
     fi
 

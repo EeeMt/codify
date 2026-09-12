@@ -1313,9 +1313,14 @@ def _handle_tool_part(properties: dict, raw_line: int) -> None:
         payload = {
             "tool_id": tool_id,
             "name": name,
-            "output": _tool_output(part),
             "error": error,
         }
+        # An empty output would give the served panel an expander with nothing
+        # in it; the field is optional, so it is published only when there is
+        # something to read.
+        output_text = _tool_output(part)
+        if output_text:
+            payload["output"] = output_text
         if error_message:
             payload["error_message"] = error_message
         if isinstance(exit_code, int) and not isinstance(exit_code, bool):
@@ -1370,6 +1375,45 @@ def _write_result(
         _emit("usage.final", {"usage": usage}, terminal_line)
 
 
+def _settle_open_delegations(raw_line: int) -> None:
+    """End every delegation row this attempt left open (plan §10.10).
+
+    Cancel and failure stop the server's child sessions, so a delegation part
+    that never reached a terminal state would keep offering a spinner in the
+    served timeline forever. Only rows that already carry a child identity are
+    settled: a root tool row is not a delegation.
+    """
+    for tool_id, lifecycle in list((_STATE.get("tools") or {}).items()):
+        if lifecycle.get("completed"):
+            continue
+        subagent = lifecycle.get("subagent")
+        if not isinstance(subagent, dict):
+            continue
+        if not lifecycle.get("started"):
+            _emit(
+                "tool.started",
+                {
+                    "tool_id": tool_id,
+                    "name": lifecycle.get("name") or "Subagent",
+                    "input": redact_hidden_reasoning(lifecycle.get("input") or {}),
+                    "subagent": dict(subagent),
+                },
+                raw_line,
+            )
+            lifecycle["started"] = True
+        lifecycle["completed"] = True
+        _emit(
+            "tool.completed",
+            {
+                "tool_id": tool_id,
+                "name": lifecycle.get("name") or "Subagent",
+                "error": False,
+                "subagent": {**subagent, "status": "cancelled"},
+            },
+            raw_line,
+        )
+
+
 def _finalize_terminal() -> None:
     """Emit the single harness terminal once settled / error / abort is reached.
 
@@ -1385,6 +1429,7 @@ def _finalize_terminal() -> None:
         # blocks, ...) must be interrupted, never left spinning. The source
         # failure events already interrupt with specific reasons, so this is
         # a no-op once they ran.
+        _settle_open_delegations(terminal_line)
         _interrupt_open_reasoning(
             "aborted"
             if _STATE["aborted"]

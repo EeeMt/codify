@@ -36,6 +36,19 @@ cp "${source_dir}/LICENSE.pi-subagents" "${target_dir}/pi-subagents/LICENSE"
 mkdir -p "${target_dir}/pi-subagents/agents"
 cp "${source_dir}/agents/"*.md "${target_dir}/pi-subagents/agents/"
 
+# Apply Codify's audited vendor patch. The Kit build applies it in
+# deploy/worker-kit/default.nix; this helper does the same so a payload staged
+# by hand can never ship an unpatched plugin (an unpatched plugin detaches a
+# workflow launch and loses the child inventory, and it discovers project
+# agents from the untrusted workspace).
+patch_file="${source_dir}/vendor/force-foreground.patch"
+if [ ! -f "${patch_file}" ]; then
+    echo "vendor patch is missing: ${patch_file}" >&2
+    exit 1
+fi
+patch -p2 -d "${target_dir}/pi-subagents" --dry-run < "${patch_file}" >/dev/null
+patch -p2 -d "${target_dir}/pi-subagents" < "${patch_file}"
+
 # The extension entry is index.ts and must not be swapped for a mutable
 # dist/ build; record the upstream tarball digest alongside the extracted tree.
-echo "pi-subagents ${installed_version} staged at ${target_dir}/pi-subagents (tarball sha256 ${PI_SUBAGENTS_EXPECTED_SHA256})"
+echo "pi-subagents ${installed_version} staged at ${target_dir}/pi-subagents (tarball sha256 ${PI_SUBAGENTS_EXPECTED_SHA256}, vendor patch applied)"

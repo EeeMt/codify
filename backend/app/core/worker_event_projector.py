@@ -383,6 +383,20 @@ class WorkerEventProjector:
         subagent_id: str = "",
     ) -> TaskLog | None:
         pending = self._pending_tool_log_by_id.pop((agent_id, tool_id, subagent_id), None)
+        if pending is None:
+            # A child identity can be enriched between start and completion —
+            # Pi only learns a child's native run id once that child finishes —
+            # so the exact key may miss a row that was queued under the earlier
+            # identity. Accept the (agent, tool_id) row when it is unique; a
+            # fan-out that shares one tool id keeps two candidates and still
+            # requires the exact child match.
+            candidates = [
+                key
+                for key in self._pending_tool_log_by_id
+                if key[0] == agent_id and key[1] == tool_id
+            ]
+            if len(candidates) == 1:
+                pending = self._pending_tool_log_by_id.pop(candidates[0], None)
         if pending is not None:
             return await db.get(TaskLog, pending)
         candidates = list(
@@ -395,6 +409,7 @@ class WorkerEventProjector:
                 )
             ).scalars()
         )
+        matches: list[TaskLog] = []
         for candidate in candidates:
             try:
                 metadata = json.loads(candidate.log_metadata or "{}")
@@ -406,10 +421,12 @@ class WorkerEventProjector:
                 continue
             stored_subagent = metadata.get("subagent")
             stored_id = stored_subagent.get("id") if isinstance(stored_subagent, dict) else ""
-            if (stored_id or "") != subagent_id:
-                continue
-            return candidate
-        return None
+            if (stored_id or "") == subagent_id:
+                return candidate
+            matches.append(candidate)
+        # Same enrichment rule as above: a unique (agent, tool_id) row is the
+        # only possible target, while a shared tool id needs an exact child.
+        return matches[0] if len(matches) == 1 else None
 
     async def _project_tool_completed(
         self,

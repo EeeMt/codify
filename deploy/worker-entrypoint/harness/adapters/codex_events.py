@@ -574,17 +574,15 @@ def _close_delegation(child_id: str, status: str, message: object, raw_line: int
         "status": status,
     }
     output = message if isinstance(message, str) else ""
-    _emit(
-        "tool.completed",
-        {
-            "tool_id": detail["tool_id"],
-            "name": "Subagent",
-            "output": clean_message(output),
-            "error": status == "failed",
-            "subagent": subagent,
-        },
-        raw_line,
-    )
+    completed: dict = {
+        "tool_id": detail["tool_id"],
+        "name": "Subagent",
+        "error": status == "failed",
+        "subagent": subagent,
+    }
+    if output:
+        completed["output"] = clean_message(output)
+    _emit("tool.completed", completed, raw_line)
 
 
 def _apply_child_states(states: object, raw_line: int) -> None:

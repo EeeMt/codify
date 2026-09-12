@@ -5,7 +5,7 @@
   "maxSubagentSpawnsPerSession": 4,
   "maxSubagentSpawnsPerRun": 4,
   "globalConcurrencyLimit": 4,
-  "maxActiveAsyncRunsPerSession": 0,
+  "maxActiveAsyncRunsPerSession": 1,
   "scheduledRuns": {
     "enabled": false
   },
@@ -22,7 +22,9 @@
     "spawnBudgetGrant": "forbid",
     "scheduleCreate": "forbid",
     "discardWorktree": "forbid",
-    "destructiveCleanup": "forbid"
+    "destructiveCleanup": "forbid",
+    "steerRun": "forbid",
+    "stopRun": "forbid"
   },
   "forceTopLevelForeground": true
 }

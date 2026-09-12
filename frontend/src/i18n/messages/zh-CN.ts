@@ -999,7 +999,7 @@ const zhCN = {
     subagentCompleted: '已完成',
     subagentFailed: '失败',
     subagentCancelled: '已取消',
-    subagentTokens: '{count} tokens',
+    subagentTokens: '{count} Token',
     assistantLabel: 'AI',
     fullText: '完整内容',
     aiDeliverySummary: 'AI 交付摘要',

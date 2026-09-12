@@ -345,17 +345,15 @@ def _settle_delegation(
         subagent["usage"] = child_usage
     # Any block this child left open will never receive its own end.
     _interrupt_open_reasoning("delegation_ended", raw_line, agent_key=delegation_id)
-    _emit(
-        "tool.completed",
-        {
-            "tool_id": delegation_id,
-            "name": "Subagent",
-            "output": output,
-            "error": status == "failed",
-            "subagent": subagent,
-        },
-        raw_line,
-    )
+    completed: dict = {
+        "tool_id": delegation_id,
+        "name": "Subagent",
+        "error": status == "failed",
+        "subagent": subagent,
+    }
+    if isinstance(output, str) and output:
+        completed["output"] = output
+    _emit("tool.completed", completed, raw_line)
 
 
 def _delegation_role(block: dict) -> str:
@@ -447,6 +445,11 @@ def translate(record: dict, raw_line: int) -> None:
                 output=record.get("summary"),
                 raw_line=raw_line,
             )
+    elif record_type == "system" and subtype == "task_progress":
+        # The child's own progress tick. Its facts (tool count, tokens,
+        # duration) arrive again with the child's terminal, so the canonical
+        # stream carries the delegation row instead of one diagnostic per tick.
+        return
     elif record_type == "system" and subtype == "api_retry":
         _emit(
             "provider.retry",
@@ -510,6 +513,21 @@ def translate(record: dict, raw_line: int) -> None:
                     # the delegation row and every child event (plan §6.1).
                     delegation_id = block.get("id")
                     if not isinstance(delegation_id, str) or not delegation_id:
+                        continue
+                    if agent_id is not None:
+                        # A child asked for its own subagent. The first version
+                        # supports root-level delegation only, so the fact is
+                        # kept in the raw archive plus one diagnostic and never
+                        # becomes a second delegation layer (plan §5.5).
+                        _emit(
+                            "diagnostic",
+                            {
+                                "code": "subagent_depth_unsupported",
+                                "tool_id": delegation_id,
+                            },
+                            raw_line,
+                            agent=agent,
+                        )
                         continue
                     _AGENT_ROLES.setdefault(delegation_id, _delegation_role(block))
                     _emit(

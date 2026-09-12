@@ -1600,6 +1600,64 @@ async def test_projector_isolates_reasoning_ids_per_agent(maker):
     assert all(row["status"] == "completed" for row in rows)
 
 
+async def test_projector_settles_a_delegation_whose_child_id_is_enriched_later(maker):
+    """Pi learns a child's native run id only when the child finishes.
+
+    The start therefore carries the row's scoped id while the completion
+    carries the native run id, and an exact-key lookup would leave the row
+    unsettled (Task 649 showed two delegation rows with no status).
+    """
+    task_id, attempt_id, _ = await _seed_task_with_commands(maker, count=0)
+    async with maker() as db:
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=2,
+                event_type="tool.started",
+                payload={
+                    "tool_id": "call_00_wf:alpha",
+                    "name": "Subagent",
+                    "input": {"role": "delegate"},
+                    "subagent": {"id": "call_00_wf:alpha", "parent_id": "root", "role": "delegate"},
+                },
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=3,
+                event_type="tool.completed",
+                payload={
+                    "tool_id": "call_00_wf:alpha",
+                    "name": "Subagent",
+                    "output": "marker-alpha",
+                    "error": False,
+                    "subagent": {
+                        "id": "11111111-1111-4111-8111-111111111111",
+                        "parent_id": "root",
+                        "role": "delegate",
+                        "status": "completed",
+                        "usage": {"input_tokens": 421, "output_tokens": 248},
+                    },
+                },
+            ),
+        )
+        await db.commit()
+        rows = await _task_log_metadata(db, task_id, "tool_call")
+
+    assert len(rows) == 1
+    assert rows[0]["subagent"]["status"] == "completed"
+    assert rows[0]["subagent"]["usage"] == {"input_tokens": 421, "output_tokens": 248}
+
+
 async def test_projector_keeps_one_delegation_row_per_child_sharing_a_tool_id(maker):
     """One native call that fans out to several children settles every child.
 

@@ -987,6 +987,9 @@ def test_codex_app_server_collaboration_items_project_delegations(tmp_path):
         if event["type"] == "tool.started" and "subagent" in event["payload"]
     ]
     started = [payload["subagent"] for payload in started_payloads]
+    for event in _events(tmp_path):
+        validate_event_v2(event)
+
     assert len(started) == 2
     assert len({item["id"] for item in started}) == 2
     assert all(item["parent_id"] == "root" for item in started)

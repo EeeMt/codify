@@ -2002,11 +2002,13 @@ def test_pi_subagent_tool_fans_out_to_one_delegation_row_per_child(tmp_path):
         if event["type"] == "tool.started" and "subagent" in event["payload"]
     ]
     assert [payload["name"] for payload in started] == ["Subagent", "Subagent"]
-    # Native child run ids pass through the existing stable sanitizer, so only
-    # their distinctness is asserted here (plan §5.3).
+    # The child identity is the plugin's own inventory key, which exists from
+    # the first frame: a native run id only arrives when the child finishes, so
+    # using it would make the delegation row and that child's own rows disagree
+    # and render one child twice (plan §5.4 requires one stable id per child).
     child_ids = [payload["subagent"]["id"] for payload in started]
     assert len(set(child_ids)) == 2
-    assert all(child_id.startswith("<UUID:") for child_id in child_ids)
+    assert child_ids == ["call_00_wf:alpha", "call_00_wf:beta"]
     assert [payload["subagent"]["role"] for payload in started] == ["delegate", "reviewer"]
     assert all(payload["subagent"]["parent_id"] == "root" for payload in started)
     # Row ids stay unique per child even though one parent call fanned out, and
@@ -2047,6 +2049,11 @@ def test_pi_subagent_tool_fans_out_to_one_delegation_row_per_child(tmp_path):
         "$ echo marker-alpha",
         "$ echo marker-beta",
     ]
+    # The delegation row and its own child rows carry the identical id, which is
+    # what the served timeline groups by.
+    assert {payload["subagent"]["id"] for payload in completed} == set(child_ids)
+    assert {child for child, _command in child_tools} == set(child_ids)
+
     # Every surface of one child shares that child's identity: the delegation
     # row, its final message and its tool rows never cross-pair.
     for delegation in completed:

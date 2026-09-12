@@ -1035,20 +1035,27 @@ def _merged_children(details: dict) -> list[dict]:
 def _delegation_identity(tool_call_id: str, child: dict, result: dict) -> tuple[str, str]:
     """Return ``(tool_id, agent_id)`` for one child.
 
-    The delegation row id must be unique per child even when one ``subagent``
-    call fans out to several children, so it is scoped by the plugin's own
-    ``childId`` (or the result index). The agent id prefers the native child run
-    id and only falls back to the derived row id when the plugin reports none
-    (plan §6.4).
+    One ``subagent`` call may fan out to several children, so both ids are
+    scoped by the plugin's own inventory key (``childId``/``key``), which is
+    present from the first frame and never changes.
+
+    The native ``runId`` is deliberately NOT the agent id: a child only reports
+    it once that child finishes, so the delegation row (opened while the child
+    ran) and that child's own message/tool rows would carry different ids. The
+    served timeline then showed one child twice — Task 649 rendered delegates
+    #1/#2 next to their own rows labelled #3/#4. §5.4 only requires an
+    ``agent.id`` that is stable and unique within the attempt, which the
+    inventory key satisfies; the native run id stays in the raw archive.
     """
     scope = child.get("childId") or child.get("key")
     if not isinstance(scope, str) or not scope.strip():
+        run_id = child.get("runId") or result.get("runId")
+        scope = run_id if isinstance(run_id, str) and run_id.strip() else None
+    if not scope:
         index = result.get("index")
         scope = str(index) if isinstance(index, int) else "0"
     tool_id = f"{tool_call_id}:{scope.strip()}"
-    run_id = child.get("runId") or result.get("runId")
-    agent_id = run_id.strip() if isinstance(run_id, str) and run_id.strip() else tool_id
-    return tool_id, agent_id
+    return tool_id, tool_id
 
 
 def _child_usage(result: dict) -> dict | None:
@@ -1103,7 +1110,6 @@ def _settle_open_delegations(raw_line: int) -> None:
                 {
                     "tool_id": tool_id,
                     "name": "Subagent",
-                    "output": "",
                     "error": False,
                     "subagent": {**subagent, "status": "cancelled"},
                 },
@@ -1134,16 +1140,15 @@ def _settle_childless_call(record: dict, delegation: dict, raw_line: int) -> Non
         {"tool_id": tool_id, "name": "Subagent", "input": input_payload},
         raw_line,
     )
-    _emit(
-        "tool.completed",
-        {
-            "tool_id": tool_id,
-            "name": "Subagent",
-            "output": _tool_output(record),
-            "error": bool(record.get("isError")),
-        },
-        raw_line,
-    )
+    completed: dict = {
+        "tool_id": tool_id,
+        "name": "Subagent",
+        "error": bool(record.get("isError")),
+    }
+    output_text = _tool_output(record)
+    if output_text:
+        completed["output"] = output_text
+    _emit("tool.completed", completed, raw_line)
 
 
 def _handle_subagent_tool(record: dict, raw_line: int) -> None:
@@ -1236,17 +1241,15 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
             # The same numbers also feed the attempt total: this child made its
             # own provider requests, which the root's records do not contain.
             _record_child_usage(agent_id, usage)
-        _emit(
-            "tool.completed",
-            {
-                "tool_id": tool_id,
-                "name": "Subagent",
-                "output": output if isinstance(output, str) else "",
-                "error": status == "failed",
-                "subagent": subagent,
-            },
-            raw_line,
-        )
+        completed_payload: dict = {
+            "tool_id": tool_id,
+            "name": "Subagent",
+            "error": status == "failed",
+            "subagent": subagent,
+        }
+        if isinstance(output, str) and output:
+            completed_payload["output"] = output
+        _emit("tool.completed", completed_payload, raw_line)
         agent_ref = {"id": agent_id, "parent_id": "root", "role": role}
         if isinstance(output, str) and output.strip():
             # The child's final answer is its own row; it must never be folded
@@ -1267,7 +1270,7 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
             )
             _emit(
                 "tool.completed",
-                {"tool_id": command_id, "name": "Bash", "output": "", "error": False},
+                {"tool_id": command_id, "name": "Bash", "error": False},
                 raw_line,
                 agent=agent_ref,
             )

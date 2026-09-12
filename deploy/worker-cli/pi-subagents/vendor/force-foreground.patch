@@ -1,6 +1,52 @@
-diff -r closure/node_modules/pi-subagents/src/runs/background/top-level-async.ts w4/pkg/src/runs/background/top-level-async.ts
+diff -r closure/node_modules/pi-subagents/src/agents/agents.ts w7/pkg/src/agents/agents.ts
+--- closure/node_modules/pi-subagents/src/agents/agents.ts	2026-09-12 15:57:53.953711951 +0800
++++ w7/pkg/src/agents/agents.ts	2026-09-13 00:14:32.543594898 +0800
+@@ -602,6 +602,7 @@
+ }
+ 
+ function collectPackageSubagentPaths(cwd: string, options: { includeUser: boolean; includeProject: boolean } = { includeUser: true, includeProject: true }): PackageSubagentPaths {
++	if (codifySubagentDiscoveryIsolated()) return { agents: [], chains: [], watchPaths: [], settingsErrors: {} };
+ 	const agentDir = getAgentDir();
+ 	const projectRoot = findConfiguredProjectRoot(cwd) ?? cwd;
+ 	const packageRoots: Array<{ root: string; scope: PackageScope }> = [
+@@ -892,7 +893,18 @@
+ 	return path.join(getAgentDir(), "settings.json");
+ }
+ 
++// Codify vendor patch: the cloned repository is untrusted. Project agent
++// definitions, project settings (provider/model/thinking overrides,
++// disableBuiltins, agentScanDirs, defaultExtensions) and package-provided
++// subagents all live inside that workspace, so under the ceiling they are
++// hidden and only the definitions Codify writes into the task-local Pi home
++// remain visible (open-harness-v2-subagent-adaptation.md §6.4).
++function codifySubagentDiscoveryIsolated(): boolean {
++	return process.env.CODIFY_PI_SUBAGENT_ISOLATED === "1";
++}
++
+ function getProjectAgentSettingsPath(cwd: string): string | null {
++	if (codifySubagentDiscoveryIsolated()) return null;
+ 	const projectRoot = findConfiguredProjectRoot(cwd);
+ 	return projectRoot ? path.join(getProjectConfigDir(projectRoot), "settings.json") : null;
+ }
+@@ -2219,6 +2231,7 @@
+ }
+ 
+ function resolveNearestProjectAgentDirs(cwd: string): { readDirs: string[]; candidateDirs: string[]; preferredDir: string | null } {
++	if (codifySubagentDiscoveryIsolated()) return { readDirs: [], candidateDirs: [], preferredDir: null };
+ 	const projectRoot = findConfiguredProjectRoot(cwd);
+ 	if (!projectRoot) return { readDirs: [], candidateDirs: [], preferredDir: null };
+ 
+@@ -2233,6 +2246,7 @@
+ }
+ 
+ function resolveNearestProjectChainDirs(cwd: string): { readDirs: string[]; preferredDir: string | null } {
++	if (codifySubagentDiscoveryIsolated()) return { readDirs: [], preferredDir: null };
+ 	const projectRoot = findConfiguredProjectRoot(cwd);
+ 	if (!projectRoot) return { readDirs: [], preferredDir: null };
+ 
+diff -r closure/node_modules/pi-subagents/src/runs/background/top-level-async.ts w7/pkg/src/runs/background/top-level-async.ts
 --- closure/node_modules/pi-subagents/src/runs/background/top-level-async.ts	2026-09-12 15:57:54.231719466 +0800
-+++ w4/pkg/src/runs/background/top-level-async.ts	2026-09-12 21:42:05.306526818 +0800
++++ w7/pkg/src/runs/background/top-level-async.ts	2026-09-13 00:14:22.327007987 +0800
 @@ -12,3 +12,18 @@
  	if (params.foregroundOnly || !(depth === 0 && forceTopLevelAsync)) return params;
  	return { ...params, async: true, clarify: false };
@@ -20,9 +66,9 @@ diff -r closure/node_modules/pi-subagents/src/runs/background/top-level-async.ts
 +	if (!(depth === 0 && forceTopLevelForeground)) return params;
 +	return { ...params, async: false };
 +}
-diff -r closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.ts w4/pkg/src/runs/foreground/subagent-executor.ts
+diff -r closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.ts w7/pkg/src/runs/foreground/subagent-executor.ts
 --- closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.ts	2026-09-12 15:57:54.215899924 +0800
-+++ w4/pkg/src/runs/foreground/subagent-executor.ts	2026-09-12 21:42:05.308670486 +0800
++++ w7/pkg/src/runs/foreground/subagent-executor.ts	2026-09-13 00:14:22.346861455 +0800
 @@ -106,7 +106,7 @@
  import { getExternalJobProvider } from "../../api/external-job-provider.ts";
  import { externalJobFollowUpRequestDigest, externalJobFollowUpRequestId, externalJobFollowUpRunId, externalJobPromptDigest, externalJobStableJson } from "../shared/external-job-runner.ts";
@@ -104,9 +150,9 @@ diff -r closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.
  		publicExecutions.add(loaded.params!);
  		return executeWithSingleDispatchGuard(id, loaded.params!, signal, onUpdate, ctx);
  	};
-diff -r closure/node_modules/pi-subagents/src/shared/types.ts w4/pkg/src/shared/types.ts
+diff -r closure/node_modules/pi-subagents/src/shared/types.ts w7/pkg/src/shared/types.ts
 --- closure/node_modules/pi-subagents/src/shared/types.ts	2026-09-12 15:57:54.234476008 +0800
-+++ w4/pkg/src/shared/types.ts	2026-09-12 21:42:05.307045058 +0800
++++ w7/pkg/src/shared/types.ts	2026-09-13 00:14:22.296495097 +0800
 @@ -2585,6 +2585,8 @@
  	/** Experimental observer: mirror each native subagent's progress into a new Orca tab. */
  	orcaProgressTabs?: OrcaProgressTabsConfig;

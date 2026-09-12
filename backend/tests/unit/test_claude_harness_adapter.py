@@ -1544,6 +1544,9 @@ def test_claude_two_children_keep_message_thinking_and_tool_state_separate(tmp_p
         for event in events
         if event["type"] == "message.completed" and event["payload"].get("agent")
     }
+    for event in _events(tmp_path):
+        validate_event_v2(event)
+
     assert deltas == {("delegate-a", "alpha done"), ("delegate-b", "beta done")}
 
     # Child A's own new message ends its own open block; child B's block is
@@ -1680,3 +1683,48 @@ def test_claude_child_usage_is_monotonic_and_added_to_the_attempt_total():
     finally:
         events_module._AGENT_USAGE.clear()
         events_module._AGENT_USAGE.update(saved)
+
+
+def test_claude_nested_delegation_is_refused_and_progress_is_not_noise(tmp_path):
+    """Only root-level delegation is supported (plan §5.5).
+
+    A child that asks for its own subagent must not become a second delegation
+    layer, and the child's progress ticks must not surface as unattributed
+    ``unknown_raw_event`` diagnostics on the event page.
+    """
+    _emit_v2(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate_stream_v2(
+        tmp_path,
+        [
+            {
+                "type": "system",
+                "subtype": "task_progress",
+                "tool_use_id": "call_root_child",
+                "usage": {"total_tokens": 120, "tool_uses": 1, "duration_ms": 800},
+            },
+            {
+                "type": "assistant",
+                "session_id": "session-1",
+                "parent_tool_use_id": "call_root_child",
+                "message": {
+                    "id": "msg-child",
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call_nested", "name": "Agent", "input": {"subagent_type": "general-purpose"}}],
+                },
+            },
+        ],
+    )
+
+    events = _events(tmp_path)
+    codes = [
+        event["payload"]["code"]
+        for event in events
+        if event["type"] == "diagnostic"
+    ]
+    assert "unknown_raw_event" not in codes
+    assert "subagent_depth_unsupported" in codes
+    assert not [
+        event
+        for event in events
+        if event["type"] == "tool.started" and event["payload"].get("tool_id") == "call_nested"
+    ]
