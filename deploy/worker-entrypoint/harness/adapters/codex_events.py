@@ -31,6 +31,11 @@ _STATE: dict = {
     "message_text": {},
     "reasoning_summary_text": {},
     "usage": {},
+    # Per child thread leaf usage for the attempt total. A child thread is its
+    # own Codex conversation and makes its own provider requests, so the root
+    # thread's usage does not contain them (plan §5.6). Monotonic per key
+    # because the app server re-reports cumulative token usage.
+    "child_usage": {},
     # Open reasoning blocks keyed by canonical reasoning_id (plan §4.3 exec
     # path). Only blocks whose started was observed are ever completed here;
     # closed_reasoning remembers duplicates so replays stay silent.
@@ -294,6 +299,29 @@ def _usage(record: dict) -> dict:
     }
 
 
+def _record_child_usage(thread_id: str, usage: dict) -> None:
+    """Keep one child thread's cumulative usage monotonic per key (plan §5.6)."""
+    totals = _STATE.setdefault("child_usage", {}).setdefault(thread_id, {})
+    for key, value in usage.items():
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            totals[key] = max(int(totals.get(key, 0) or 0), value)
+
+
+def _attempt_usage(root_usage: dict) -> dict:
+    """Root thread usage plus every child thread's usage (plan §5.6)."""
+    if not root_usage:
+        return root_usage
+    combined = dict(root_usage)
+    for usage in (_STATE.get("child_usage") or {}).values():
+        for key, value in usage.items():
+            current = combined.get(key)
+            if isinstance(current, int) and not isinstance(current, bool):
+                combined[key] = current + value
+            else:
+                combined[key] = value
+    return combined
+
+
 def _write_result(
     *,
     success: bool,
@@ -302,6 +330,7 @@ def _write_result(
     failure_message: str | None = None,
 ) -> None:
     result_path = Path(os.environ["CODIFY_HARNESS_RESULT_FILE"])
+    usage = _attempt_usage(usage)
     failure = None
     if not success:
         message = failure_message or result or "Codex execution failed"
@@ -458,10 +487,18 @@ def _translate_app_server(record: dict, raw_line: int) -> bool:
         return True
     if method == "thread/tokenUsage/updated":
         token_usage = params.get("tokenUsage")
-        if isinstance(token_usage, dict) and params.get("threadId") == _STATE["thread_id"]:
-            # Child token usage is detail-only; the attempt total stays the
-            # root thread's native usage (plan §5.6).
-            _STATE["usage"] = token_usage.get("last") or token_usage.get("total") or {}
+        if isinstance(token_usage, dict):
+            if params.get("threadId") == _STATE["thread_id"]:
+                _STATE["usage"] = token_usage.get("last") or token_usage.get("total") or {}
+            else:
+                thread_id = params.get("threadId")
+                child_source = token_usage.get("total") or token_usage.get("last")
+                if isinstance(thread_id, str) and thread_id and isinstance(child_source, dict) and child_source:
+                    # A child thread is its own conversation; its usage is the
+                    # child's leaf usage and belongs in the attempt total
+                    # (plan §5.6). ``total`` is that thread's cumulative value,
+                    # so the per-key max never double counts an update.
+                    _record_child_usage(thread_id, _usage({"usage": child_source}))
         return True
     if method == "turn/completed":
         if params.get("threadId") != _STATE["thread_id"]:

@@ -1871,17 +1871,17 @@ def test_pi_failed_eof_with_open_block_emits_interrupted_before_harness_terminal
     assert writer.events[-1][0] == "harness.failed"
 
 
-def _turn_lifecycle() -> list[dict]:
+def _turn_lifecycle(root_usage: dict | None = None) -> list[dict]:
     """The minimal ordered turn Pi needs to settle successfully at EOF."""
+    message = {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "done"}],
+        "stopReason": "stop",
+    }
+    if root_usage is not None:
+        message["usage"] = root_usage
     return [
-        {
-            "type": "message_end",
-            "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": "done"}],
-                "stopReason": "stop",
-            },
-        },
+        {"type": "message_end", "message": message},
         {"type": "agent_end", "messages": []},
         {"type": "agent_settled"},
     ]
@@ -2063,6 +2063,47 @@ def test_pi_subagent_tool_fans_out_to_one_delegation_row_per_child(tmp_path):
     ) == 2
 
 
+def test_pi_attempt_usage_adds_every_child_leaf_usage(tmp_path):
+    """The attempt total includes children, which the root records never do.
+
+    Task 627: the root reported 3241 input while the two children alone
+    reported 1934 + 1902, so an attempt total that ignores children under-counts
+    the Task (plan §5.6). Child detail stays on the delegation rows.
+    """
+    details = _subagent_details()
+    _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    records = [
+        {
+            "type": "tool_execution_end",
+            "toolCallId": "call_00_wf",
+            "toolName": "subagent",
+            "result": {"content": [{"type": "text", "text": "done"}], "details": details},
+            "isError": False,
+        },
+    ] + _turn_lifecycle(root_usage={"input": 1000, "output": 100, "cacheRead": 500})
+    _translate(tmp_path, records)
+
+    events = _events(tmp_path)
+    final = [event["payload"]["usage"] for event in events if event["type"] == "usage.final"]
+    assert len(final) == 1
+    usage = final[0]
+    # Fixture children: (421 in / 248 out / 3712 cached) and (400 in / 200 out).
+    assert usage["input_tokens"] == 1000 + 421 + 400
+    assert usage["output_tokens"] == 100 + 248 + 200
+    assert usage["cached_input_tokens"] == 500 + 3712
+
+    # The result file carries the same total as usage.final.
+    result = json.loads((tmp_path / "harness-result.json").read_text())
+    assert result["usage"]["input_tokens"] == usage["input_tokens"]
+    # Child detail is still per child and never folded into the root rows.
+    child_rows = [
+        event["payload"]["subagent"]
+        for event in events
+        if event["type"] == "tool.completed" and "subagent" in event["payload"]
+    ]
+    assert [row["usage"]["input_tokens"] for row in child_rows] == [421, 400]
+
+
 def test_pi_subagent_tool_without_child_inventory_emits_one_bare_row(tmp_path):
     """A childless call is one plain tool row, never a fabricated delegation.
 
@@ -2134,3 +2175,43 @@ def test_pi_subagent_tool_without_child_inventory_emits_one_bare_row(tmp_path):
     assert completed[0]["output"] == "Spawn budget: 0/4 used"
     assert completed[1]["output"] == "Background delegation is disabled for this workspace."
     import sys; print("STARTED1:", started[1], file=sys.stderr)
+
+
+def test_pi_cancelled_attempt_settles_open_delegations(tmp_path):
+    """A child that never reports a terminal still ends its row (plan §10.10).
+
+    Cancel kills the child processes, so no native terminal can arrive; without
+    this the delegation row would spin forever in the served event stream.
+    """
+    details = _subagent_details()
+    # Both children are still running when the attempt is cancelled: no native
+    # terminal ever arrives for them.
+    details["workflowChildren"]["workflowState"] = "running"
+    for child in details["workflowChildren"]["children"]:
+        child["state"] = "running"
+    details["results"] = []
+    _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate(
+        tmp_path,
+        [
+            {
+                "type": "tool_execution_update",
+                "toolCallId": "call_00_wf",
+                "toolName": "subagent",
+                "partialResult": {"content": [], "details": details},
+            },
+            {"type": "message_end", "message": {"role": "assistant", "content": [], "stopReason": "aborted"}},
+        ],
+    )
+
+    events = _events(tmp_path)
+    payloads = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.completed" and "subagent" in event["payload"]
+    ]
+    assert [payload["subagent"]["status"] for payload in payloads] == ["cancelled", "cancelled"]
+    assert all(payload["error"] is False for payload in payloads)
+    assert len({payload["tool_id"] for payload in payloads}) == 2
+    for event in events:
+        validate_event_v2(event)

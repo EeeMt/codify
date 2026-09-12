@@ -1112,3 +1112,42 @@ def test_codex_child_thread_delegation_is_refused_as_nested(tmp_path):
     assert len(
         [event for event in events if event["type"] == "tool.started" and "subagent" in event["payload"]]
     ) == 1
+
+
+def test_codex_child_thread_usage_is_monotonic_and_added_to_the_attempt_total():
+    """A child thread is its own conversation with its own provider requests.
+
+    The root thread's native usage does not contain them (plan §5.6), while the
+    app server re-reports a thread's cumulative usage, so only the per-key
+    maximum may be added.
+    """
+    import importlib
+    import sys
+
+    adapters_dir = str(HARNESS_DIR / "adapters")
+    if adapters_dir not in sys.path:
+        sys.path.insert(0, adapters_dir)
+    events_module = importlib.import_module("codex_events")
+
+    saved = events_module._STATE.get("child_usage")
+    try:
+        events_module._STATE["child_usage"] = {}
+        events_module._record_child_usage("thread-child-1", {"input_tokens": 400, "output_tokens": 30})
+        events_module._record_child_usage("thread-child-1", {"input_tokens": 900, "output_tokens": 70})
+        events_module._record_child_usage("thread-child-2", {"input_tokens": 100, "output_tokens": 5})
+
+        assert events_module._STATE["child_usage"]["thread-child-1"] == {
+            "input_tokens": 900,
+            "output_tokens": 70,
+        }
+        combined = events_module._attempt_usage(
+            {"input_tokens": 10812, "output_tokens": 36, "cached_input_tokens": 10624}
+        )
+        assert combined["input_tokens"] == 10812 + 900 + 100
+        assert combined["output_tokens"] == 36 + 70 + 5
+        assert combined["cached_input_tokens"] == 10624
+    finally:
+        if saved is None:
+            events_module._STATE.pop("child_usage", None)
+        else:
+            events_module._STATE["child_usage"] = saved

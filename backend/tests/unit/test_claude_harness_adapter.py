@@ -1630,3 +1630,53 @@ def test_claude_two_children_keep_message_thinking_and_tool_state_separate(tmp_p
     assert sum(event["type"] == "harness.completed" for event in events) == 1
     assert sum(event["type"] == "harness.failed" for event in events) == 0
     assert json.loads((tmp_path / "harness-result.json").read_text(encoding="utf-8"))["status"] == "completed"
+
+
+def test_claude_child_usage_is_monotonic_and_added_to_the_attempt_total():
+    """Each child record repeats the child's cumulative usage for its request.
+
+    Task 623's root result reported 23501 input while each of the two children
+    reported 12574, so the children are not inside the root's native usage and
+    must be added once (plan §5.6). Repeats of the same cumulative value must
+    not be summed.
+    """
+    import importlib
+    import sys
+
+    adapters_dir = str(HARNESS_DIR / "adapters")
+    if adapters_dir not in sys.path:
+        sys.path.insert(0, adapters_dir)
+    events_module = importlib.import_module("claude_events")
+
+    saved = dict(events_module._AGENT_USAGE)
+    try:
+        events_module._AGENT_USAGE.clear()
+        events_module._accumulate_agent_usage(
+            "child-a", {"usage": {"input_tokens": 100, "output_tokens": 0}}
+        )
+        events_module._accumulate_agent_usage(
+            "child-a",
+            {
+                "usage": {
+                    "input_tokens": 12574,
+                    "output_tokens": 40,
+                    "cache_read_input_tokens": 900,
+                }
+            },
+        )
+        events_module._accumulate_agent_usage("child-b", {"usage": {"input_tokens": 12574}})
+        assert events_module._AGENT_USAGE["child-a"] == {
+            "input_tokens": 12574,
+            "output_tokens": 40,
+            "cached_input_tokens": 900,
+        }
+
+        combined = events_module._attempt_usage(
+            {"input_tokens": 23501, "output_tokens": 281, "cached_input_tokens": 23424}
+        )
+        assert combined["input_tokens"] == 23501 + 12574 + 12574
+        assert combined["output_tokens"] == 281 + 40
+        assert combined["cached_input_tokens"] == 23424 + 900
+    finally:
+        events_module._AGENT_USAGE.clear()
+        events_module._AGENT_USAGE.update(saved)

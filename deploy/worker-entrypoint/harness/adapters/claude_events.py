@@ -233,6 +233,7 @@ def _usage(record: dict) -> dict:
 
 def _write_result(record: dict, *, success: bool, usage: dict) -> None:
     result_path = Path(os.environ["CODIFY_HARNESS_RESULT_FILE"])
+    usage = _attempt_usage(usage)
     failure = None
     if not success:
         kind = _failure_kind(record)
@@ -308,6 +309,20 @@ def _retry_failure_kind(record: dict) -> str:
     return "engine_error"
 
 
+def _settle_open_delegations(raw_line: int) -> None:
+    """End every delegation that never reported its own terminal.
+
+    A cancelled or failed attempt stops the CLI, so an in-flight child can no
+    longer report anything. Leaving its row open would show a permanent spinner
+    and contradict the delegation contract (§10.10): the row ends in place as
+    completed/failed/cancelled.
+    """
+    for delegation_id in list(_AGENT_ROLES):
+        if delegation_id in _SETTLED_DELEGATIONS:
+            continue
+        _settle_delegation(delegation_id, status="cancelled", output="", raw_line=raw_line)
+
+
 def _settle_delegation(
     delegation_id: str, *, status: str, output: object, raw_line: int
 ) -> None:
@@ -354,21 +369,42 @@ def _delegation_role(block: dict) -> str:
 
 
 def _accumulate_agent_usage(agent_id: str, message: dict) -> None:
-    """Keep the child's own native usage for the delegation row details.
+    """Keep the child's own native usage for its delegation row.
 
-    Each child assistant record carries that child's usage for its own request
-    (the probe shows the same cumulative value repeated), so the value is kept
-    monotonic per key instead of summed — the attempt total stays the root
-    ``usage.final`` and is never derived from these numbers (plan §5.6).
+    Each child assistant record carries that child's cumulative usage for its
+    own request, and the probe shows the same value repeated, so each key is
+    kept monotonic instead of summed. The same record is the child's leaf
+    usage, which the attempt total must add: a child runs its own provider
+    requests and the root's ``result`` usage does not contain them (Task 623:
+    root 23501 input while the two children alone reported 12574 each).
     """
     usage = message.get("usage") if isinstance(message.get("usage"), dict) else {}
     if not usage:
         return
     totals = _AGENT_USAGE.setdefault(agent_id, {})
-    for key in ("input_tokens", "output_tokens"):
-        value = usage.get(key)
+    for source_key, target_key in (
+        ("input_tokens", "input_tokens"),
+        ("output_tokens", "output_tokens"),
+        ("cache_read_input_tokens", "cached_input_tokens"),
+    ):
+        value = usage.get(source_key)
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-            totals[key] = max(totals.get(key, 0), value)
+            totals[target_key] = max(totals.get(target_key, 0), value)
+
+
+def _attempt_usage(root_usage: dict) -> dict:
+    """Root terminal usage plus every child's leaf usage (plan §5.6)."""
+    if not root_usage:
+        return root_usage
+    combined = dict(root_usage)
+    for usage in _AGENT_USAGE.values():
+        for key, value in usage.items():
+            current = combined.get(key)
+            if isinstance(current, int) and not isinstance(current, bool):
+                combined[key] = current + value
+            else:
+                combined[key] = value
+    return combined
 
 
 def translate(record: dict, raw_line: int) -> None:
@@ -546,7 +582,7 @@ def translate(record: dict, raw_line: int) -> None:
                     agent=agent,
                 )
     elif record_type == "result":
-        usage = _usage(record)
+        usage = _attempt_usage(_usage(record))
         _emit("usage.final", {"usage": usage}, raw_line)
         success = subtype == "success" and record.get("is_error") is not True
         payload = {
@@ -554,6 +590,7 @@ def translate(record: dict, raw_line: int) -> None:
             "session_id": _session_id(record),
         }
         if success:
+            _settle_open_delegations(raw_line)
             _emit("harness.completed", payload, raw_line)
         else:
             # A failed turn never delivers the remaining block-end signals:
@@ -564,6 +601,7 @@ def translate(record: dict, raw_line: int) -> None:
                 if isinstance(subtype, str) and subtype and subtype != "success"
                 else "harness_failed"
             )
+            _settle_open_delegations(raw_line)
             _interrupt_open_reasoning(reason, raw_line)
             payload["failure"] = {
                 "kind": _failure_kind(record),

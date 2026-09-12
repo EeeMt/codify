@@ -1600,6 +1600,115 @@ async def test_projector_isolates_reasoning_ids_per_agent(maker):
     assert all(row["status"] == "completed" for row in rows)
 
 
+async def test_projector_keeps_one_delegation_row_per_child_sharing_a_tool_id(maker):
+    """One native call that fans out to several children settles every child.
+
+    Codex reports every receiver under one collaboration item id, so the
+    delegation payloads share ``tool_id`` and carry no ``payload.agent``: keyed
+    only by (agent, tool_id) the second start would overwrite the first row's
+    pointer and each completion would settle the other child's row.
+    """
+    task_id, attempt_id, _ = await _seed_task_with_commands(maker, count=0)
+    children = [_child("child-a", "agent"), _child("child-b", "agent")]
+    async with maker() as db:
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        for seq, child in enumerate(children, start=2):
+            await projector.ingest_event_record(
+                task_id=task_id,
+                db=db,
+                record=_canonical_event(
+                    task_id=task_id,
+                    attempt_id=attempt_id,
+                    seq=seq,
+                    event_type="tool.started",
+                    payload={
+                        "tool_id": "spawn-1",
+                        "name": "Subagent",
+                        "input": {"role": "agent"},
+                        "subagent": child,
+                    },
+                ),
+            )
+        for seq, (child, marker) in enumerate(zip(children, ("alpha", "beta")), start=4):
+            await projector.ingest_event_record(
+                task_id=task_id,
+                db=db,
+                record=_canonical_event(
+                    task_id=task_id,
+                    attempt_id=attempt_id,
+                    seq=seq,
+                    event_type="tool.completed",
+                    payload={
+                        "tool_id": "spawn-1",
+                        "name": "Subagent",
+                        "output": marker,
+                        "error": False,
+                        "subagent": {**child, "status": "completed"},
+                    },
+                ),
+            )
+        await db.commit()
+        rows = await _task_log_metadata(db, task_id, "tool_call")
+
+    assert len(rows) == 2
+    settled = {row["subagent"]["id"]: row for row in rows}
+    assert set(settled) == {"child-a", "child-b"}
+    # Each child's own completion settled its own row: no cross-pairing and no
+    # child left running with an empty output.
+    for row in settled.values():
+        assert row["subagent"]["status"] == "completed"
+        assert row["output_payload_id"]
+    assert [settled["child-a"]["error"], settled["child-b"]["error"]] == [False, False]
+
+
+async def test_projector_discards_buffered_deltas_on_every_completion(maker):
+    """A later text-less completion must not re-emit an earlier message."""
+    task_id, attempt_id, _ = await _seed_task_with_commands(maker, count=0)
+    async with maker() as db:
+        projector = WorkerEventProjector(sanitize_sensitive_data)
+        await _start_attempt(projector, db, task_id=task_id, attempt_id=attempt_id)
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=2,
+                event_type="message.delta",
+                payload={"text": "first answer"},
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=3,
+                event_type="message.completed",
+                payload={"text": "first answer"},
+            ),
+        )
+        await projector.ingest_event_record(
+            task_id=task_id,
+            db=db,
+            record=_canonical_event(
+                task_id=task_id,
+                attempt_id=attempt_id,
+                seq=4,
+                event_type="message.completed",
+                payload={"text": ""},
+            ),
+        )
+        await db.commit()
+        rows = await _task_log_metadata(db, task_id, "assistant_text")
+
+    assert [row["preview"] if "preview" in row else row for row in rows] != []
+    texts = [row.get("preview", "") for row in rows]
+    assert texts.count("first answer") <= 1
+
+
 async def test_projector_keeps_delegation_status_and_usage_on_one_row(maker):
     """A delegation row ends in place with the child's status and detail usage."""
     task_id, attempt_id, _ = await _seed_task_with_commands(maker, count=0)

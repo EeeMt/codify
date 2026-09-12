@@ -112,7 +112,30 @@ class WorkerEventProjector:
         # bucket for an event that carries no ``payload.agent``.
         self._message_parts: dict[str, list[str]] = {}
         self._reasoning_parts: dict[str, list[str]] = {}
-        self._pending_tool_log_by_id: dict[tuple[str, str], int] = {}
+        self._pending_tool_log_by_id: dict[tuple[str, str, str], int] = {}
+
+    @staticmethod
+    def _subagent_key(payload: dict) -> str:
+        """Child identity carried by a delegation payload (empty when root)."""
+        subagent = payload.get("subagent")
+        if isinstance(subagent, dict):
+            value = subagent.get("id")
+            if isinstance(value, str):
+                return value
+        return ""
+
+    @classmethod
+    def _tool_row_key(cls, payload: dict, tool_id: str) -> tuple[str, str, str]:
+        """Pending-row key for one tool row.
+
+        One native delegation call can fan out to several children that share
+        its tool id (Codex reports every receiver under one item id), and the
+        children carry no ``payload.agent``. Keying only by (agent, tool id)
+        makes the second start overwrite the first row's pointer, after which
+        each child's completion settles the other child's row. The child
+        identity is therefore part of the key whenever the payload has one.
+        """
+        return (cls._agent_key(payload), tool_id, cls._subagent_key(payload))
 
     @staticmethod
     def _agent_key(payload: dict) -> str:
@@ -349,7 +372,7 @@ class WorkerEventProjector:
         db.add(log)
         await db.flush()
         if tool_id and log.id:
-            self._pending_tool_log_by_id[(agent_key, tool_id)] = log.id
+            self._pending_tool_log_by_id[self._tool_row_key(payload, tool_id)] = log.id
 
     async def _find_tool_log(
         self,
@@ -357,8 +380,9 @@ class WorkerEventProjector:
         task_id: int,
         tool_id: str,
         agent_id: str = ROOT_AGENT_ID,
+        subagent_id: str = "",
     ) -> TaskLog | None:
-        pending = self._pending_tool_log_by_id.pop((agent_id, tool_id), None)
+        pending = self._pending_tool_log_by_id.pop((agent_id, tool_id, subagent_id), None)
         if pending is not None:
             return await db.get(TaskLog, pending)
         candidates = list(
@@ -380,6 +404,10 @@ class WorkerEventProjector:
                 continue
             if _row_agent_id(metadata) != agent_id:
                 continue
+            stored_subagent = metadata.get("subagent")
+            stored_id = stored_subagent.get("id") if isinstance(stored_subagent, dict) else ""
+            if (stored_id or "") != subagent_id:
+                continue
             return candidate
         return None
 
@@ -393,7 +421,9 @@ class WorkerEventProjector:
     ) -> None:
         tool_id = str(payload.get("tool_id") or "")
         agent_key = self._agent_key(payload)
-        pending = await self._find_tool_log(db, task_id, tool_id, agent_key)
+        pending = await self._find_tool_log(
+            db, task_id, tool_id, agent_key, self._subagent_key(payload)
+        )
         if pending is None:
             missing_metadata: dict[str, Any] = {
                 "code": "tool_start_missing",
@@ -557,9 +587,12 @@ class WorkerEventProjector:
             )
         elif event_type == "message.completed":
             agent_key = self._agent_key(payload)
-            text = _text(payload.get("text")) or "".join(
-                self._message_parts.pop(agent_key, [])
-            )
+            # The agent's buffered deltas are discarded on every completion,
+            # whether or not the completion repeats the text: a text-less
+            # completion later in the attempt must not re-emit an earlier
+            # message's text as an extra row (plan §5.4).
+            buffered = self._message_parts.pop(agent_key, [])
+            text = _text(payload.get("text")) or "".join(buffered)
             await self._payload_log(
                 db=db,
                 task_id=task_id,

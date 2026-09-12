@@ -123,6 +123,12 @@ pi_adapter_materialize_subagents() {
     extension_dir="${payload_dir}/node_modules/pi-subagents"
     export CODIFY_PI_SUBAGENT_EXTENSION="${extension_dir}"
     export CODIFY_PI_SUBAGENTS=1
+    # The cloned repository is untrusted: the ceiling hides project agent
+    # definitions, project settings and package-provided subagents from the
+    # plugin's discovery, so only the four definitions written below can exist
+    # (open-harness-v2-subagent-adaptation.md §6.4). Children inherit this
+    # variable, and the vendor patch reads it.
+    export CODIFY_PI_SUBAGENT_ISOLATED=1
 
     export CODIFY_PI_CLI_HOME="${CODIFY_PI_CLI_HOME:-/home/codify}"
     local agent_dir="${CODIFY_PI_CLI_HOME}/.pi/agent"

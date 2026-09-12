@@ -172,6 +172,14 @@ _STATE: dict = {
     # usage, tool trace and final output. Nothing is read from the plugin's
     # work directory and nothing is derived from prompt text.
     "delegations": {},   # tool_call_id -> merged child list + per-child emit flags
+    # Per-child leaf usage for the attempt total: a child runtime makes its own
+    # provider requests, so its usage is NOT inside the root process's records
+    # (Task 627: root 3241 input / 55 output while the two children alone
+    # reported 3836 input). §5.6 therefore requires the adapter to add every
+    # child's leaf usage to the single ``usage.final`` while keeping the
+    # per-delegation detail on the row. Monotonic per key because the plugin
+    # re-reports a child's cumulative usage with each snapshot.
+    "child_usage": {},   # child id -> {input_tokens, output_tokens, cached_input_tokens}
 }
 _REAL_SESSION_ID: str = ""
 
@@ -397,6 +405,10 @@ def _set_usage(record: dict, raw_line: int, *, emit_update: bool = False) -> Non
     usage = record.get("usage")
     if not isinstance(usage, dict):
         return
+    # ``_STATE["usage"]`` stays the root process's own usage: it is the single
+    # input every total is derived from, so storing an already combined value
+    # would add the children again at the result boundary. The served update
+    # carries the same combined total the terminal will report.
     normalized = _usage(record)
     changed = normalized != _STATE.get("usage")
     _STATE["usage"] = normalized
@@ -404,7 +416,7 @@ def _set_usage(record: dict, raw_line: int, *, emit_update: bool = False) -> Non
         normalized.get(key) is not None
         for key in ("input_tokens", "cached_input_tokens", "output_tokens", "cost")
     ):
-        _emit("usage.updated", {"usage": normalized}, raw_line)
+        _emit("usage.updated", {"usage": _attempt_usage(normalized)}, raw_line)
 
 
 def _message_text(message: dict) -> str:
@@ -435,6 +447,37 @@ def _tool_call_arguments(value: object) -> dict:
     return {}
 
 
+def _record_child_usage(child_id: str, usage: dict | None) -> None:
+    """Keep one child's own leaf usage monotonic per key (plan §5.6)."""
+    if not usage:
+        return
+    totals = _STATE.setdefault("child_usage", {}).setdefault(child_id, {})
+    for key, value in usage.items():
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            totals[key] = max(totals.get(key, 0), value)
+
+
+def _attempt_usage(root_usage: dict) -> dict:
+    """Root terminal usage plus every child's leaf usage.
+
+    The root process reports only its own provider requests, so the attempt
+    total must add the children's leaf usage before it becomes the single
+    ``usage.final`` (plan §5.6). Child detail stays on the delegation row and is
+    never summed by the backend.
+    """
+    if not root_usage:
+        return root_usage
+    combined = dict(root_usage)
+    for usage in (_STATE.get("child_usage") or {}).values():
+        for key, value in usage.items():
+            current = combined.get(key)
+            if isinstance(current, int) and not isinstance(current, bool):
+                combined[key] = current + value
+            else:
+                combined[key] = value
+    return combined
+
+
 def _write_result(
     *,
     success: bool,
@@ -448,6 +491,7 @@ def _write_result(
     if not success:
         message = failure_message or result or "Pi execution failed"
         failure = {"kind": failure_kind or _failure_kind(message), "message": message}
+    usage = _attempt_usage(usage)
     payload = {
         "schema": "codify.worker.result/v2",
         "status": (
@@ -573,6 +617,7 @@ def _emit_terminal_at_eof() -> None:
     if _STATE["terminal"] == "completed":
         # Defensive: a block left open when the stream ends cleanly still
         # never had an end signal; close it rather than leave a spinner.
+        _settle_open_delegations(_STATE["terminal_line"] or 0)
         _close_open_thinking("stream_ended_without_block_end", _STATE["terminal_line"] or 0)
         _emit(
             "harness.completed",
@@ -583,6 +628,7 @@ def _emit_terminal_at_eof() -> None:
             _STATE["terminal_line"],
         )
     elif _STATE["terminal"] == "failed":
+        _settle_open_delegations(_STATE["terminal_line"] or 0)
         _close_open_thinking("harness_failed", _STATE["terminal_line"] or 0)
         failure = _STATE["terminal_failure"] or {
             "kind": "engine_error",
@@ -1035,6 +1081,36 @@ def _child_tool_rows(result: dict) -> list[str]:
     return rows
 
 
+def _settle_open_delegations(raw_line: int) -> None:
+    """End every child that never reported a terminal.
+
+    A cancelled or failed attempt kills the child processes, so those children
+    can never settle on their own. Leaving their rows open would show a
+    permanent spinner and contradict the delegation contract (§10.10): the row
+    must end in place as completed/failed/cancelled. The terminal status is the
+    attempt's own, which is why the caller settles before the harness terminal.
+    """
+    for delegation in (_STATE.get("delegations") or {}).values():
+        if not isinstance(delegation, dict):
+            continue
+        for tool_id, flags in delegation.items():
+            if not isinstance(flags, dict) or not flags.get("started") or flags.get("completed"):
+                continue
+            subagent = flags.get("subagent") or {}
+            flags["completed"] = True
+            _emit(
+                "tool.completed",
+                {
+                    "tool_id": tool_id,
+                    "name": "Subagent",
+                    "output": "",
+                    "error": False,
+                    "subagent": {**subagent, "status": "cancelled"},
+                },
+                raw_line,
+            )
+
+
 def _settle_childless_call(record: dict, delegation: dict, raw_line: int) -> None:
     """Project a ``subagent`` call that never produced a child row.
 
@@ -1139,6 +1215,7 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
                 raw_line,
             )
             child_state_flags["started"] = True
+            child_state_flags["subagent"] = {"id": agent_id, "parent_id": "root", "role": role}
             delegation["rows"] = int(delegation.get("rows", 0)) + 1
         if status is None or child_state_flags["completed"]:
             continue
@@ -1156,6 +1233,9 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
         usage = _child_usage(result)
         if usage:
             subagent["usage"] = usage
+            # The same numbers also feed the attempt total: this child made its
+            # own provider requests, which the root's records do not contain.
+            _record_child_usage(agent_id, usage)
         _emit(
             "tool.completed",
             {

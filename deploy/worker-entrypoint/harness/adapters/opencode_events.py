@@ -178,7 +178,12 @@ _STATE: dict = {
     "agents": {},               # child session_id -> {id, parent_id, role}
     "delegations": {},          # root tool_id -> child session_id
     "child_message_ids": [],    # child assistant messages pending completion
-    "child_usage": {},          # child session id -> detail-only leaf usage
+    "child_usage": {},          # child session id -> summed leaf usage (detail)
+    # A child session's usage arrives with every message.updated of the same
+    # message, so each message keeps its latest value and only the per-message
+    # values are summed; adding every update would inflate the child's leaf
+    # total and, through it, the attempt total (plan §5.6).
+    "child_message_usage": {},  # child session id -> message id -> latest usage
 }
 _REAL_SESSION_ID: str = ""
 
@@ -473,6 +478,38 @@ def _canonical_stream_closed(event_type: str) -> bool:
         # An unreadable or malformed stream is not evidence of a settled Task;
         # preserve the original writer error for diagnosis.
         return False
+
+
+def _record_child_message_usage(agent_id: str, message_id: str | None, usage: dict) -> None:
+    """Keep one child message's latest usage, then re-derive the child's sum."""
+    key = message_id if isinstance(message_id, str) and message_id else "__message__"
+    per_session = _STATE.setdefault("child_message_usage", {}).setdefault(agent_id, {})
+    latest = per_session.get(key) if isinstance(per_session.get(key), dict) else {}
+    for name in ("input_tokens", "output_tokens", "cached_input_tokens"):
+        value = usage.get(name)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            latest[name] = max(int(latest.get(name, 0) or 0), value)
+    per_session[key] = latest
+    totals: dict = {}
+    for message_usage in per_session.values():
+        for name, value in message_usage.items():
+            totals[name] = totals.get(name, 0) + value
+    _STATE.setdefault("child_usage", {})[agent_id] = totals
+
+
+def _attempt_usage(root_usage: dict) -> dict:
+    """Root terminal usage plus every child session's leaf usage (plan §5.6)."""
+    if not root_usage:
+        return root_usage
+    combined = dict(root_usage)
+    for usage in (_STATE.get("child_usage") or {}).values():
+        for key, value in usage.items():
+            current = combined.get(key)
+            if isinstance(current, int) and not isinstance(current, bool):
+                combined[key] = current + value
+            else:
+                combined[key] = value
+    return combined
 
 
 def _usage(properties: dict) -> dict:
@@ -1304,6 +1341,7 @@ def _write_result(
     failure_kind: str | None = None,
 ) -> None:
     result_path = Path(os.environ["CODIFY_HARNESS_RESULT_FILE"])
+    usage = _attempt_usage(usage)
     failure = None
     if not success:
         message = failure_message or result or "OpenCode execution failed"
@@ -1571,12 +1609,8 @@ def _handle_message_updated(properties: dict, raw_line: int) -> None:
         # detail is attached to its delegation row instead.
         agent_id = _current_agent_id()
         if agent_id is not None:
-            totals = _STATE["child_usage"].setdefault(agent_id, {})
             child_usage = _usage({"usage": usage, "cost": info.get("cost")})
-            for key in ("input_tokens", "output_tokens"):
-                value = child_usage.get(key)
-                if isinstance(value, int) and not isinstance(value, bool):
-                    totals[key] = totals.get(key, 0) + value
+            _record_child_message_usage(agent_id, info.get("id") or properties.get("messageID"), child_usage)
         else:
             _STATE["usage"] = _usage({"usage": usage, "cost": info.get("cost")})
     role = info.get("role")

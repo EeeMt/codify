@@ -3697,3 +3697,53 @@ def test_opencode_translator_emits_multi_megabyte_message_text(tmp_path):
     completed = [event for event in _events(tmp_path) if event["type"] == "message.completed"]
     assert len(completed) == 1
     assert completed[0]["payload"]["text"] == text
+
+
+def test_opencode_child_usage_is_summed_once_into_the_attempt_total():
+    """Children make their own requests, so the attempt total must add them.
+
+    Task 621's stored total was 171 input / 85 output while the two children
+    alone reported 688 + 698 input and 116 + 122 output: the root's native
+    usage does not contain child usage (plan §5.6). A child message also
+    streams its usage repeatedly, so only the latest value per message may be
+    summed — otherwise the leaf total inflates on every update.
+    """
+    import importlib
+    import sys
+
+    adapters_dir = str(HARNESS_DIR / "adapters")
+    if adapters_dir not in sys.path:
+        sys.path.insert(0, adapters_dir)
+    events_module = importlib.import_module("opencode_events")
+
+    state = events_module._STATE
+    saved_children = state.get("child_usage")
+    saved_messages = state.get("child_message_usage")
+    try:
+        state["child_usage"] = {}
+        state["child_message_usage"] = {}
+        events_module._record_child_message_usage(
+            "ses_child", "msg_1", {"input_tokens": 100, "output_tokens": 10}
+        )
+        # Same message, same request: the later cumulative value replaces it.
+        events_module._record_child_message_usage(
+            "ses_child", "msg_1", {"input_tokens": 300, "output_tokens": 25}
+        )
+        events_module._record_child_message_usage(
+            "ses_child", "msg_2", {"input_tokens": 50, "output_tokens": 5}
+        )
+        assert state["child_usage"]["ses_child"] == {"input_tokens": 350, "output_tokens": 30}
+
+        combined = events_module._attempt_usage(
+            {"input_tokens": 7, "output_tokens": 1, "cached_input_tokens": 2}
+        )
+        assert combined == {"input_tokens": 357, "output_tokens": 31, "cached_input_tokens": 2}
+    finally:
+        if saved_children is None:
+            state.pop("child_usage", None)
+        else:
+            state["child_usage"] = saved_children
+        if saved_messages is None:
+            state.pop("child_message_usage", None)
+        else:
+            state["child_message_usage"] = saved_messages
