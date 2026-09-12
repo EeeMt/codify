@@ -17,62 +17,7 @@ validates the tree (`findings=0`).
 | Codex | `0.146.0` | `rpc_stdio` (`codex app-server --stdio`) | JSON-RPC notifications on the root subscription | [codex/collab-items.jsonl](codex/collab-items.jsonl) |
 | OpenCode | `1.18.19` | `server_http` (`GET /event` SSE) | Server-global SSE during one `task` delegation | [opencode/child-session.jsonl](opencode/child-session.jsonl) |
 
-## Live acceptance on the development Host (2026-09-12)
-
-Kit `0.6.17-linux-amd64-8140c93eb09a` (built from this branch, all four harness
-CLIs, `subagents: false` in every manifest entry), Profile
-`v2-canary-four-harness` re-verified against it, Tasks created through the real
-API. Three results, all reproducible:
-
-### Claude `2.1.153` — blocked by the runner's `--bare`
-
-The frozen runner always passes `--bare`. On `2.1.153`, `--bare` removes the
-delegation tool entirely, so a Codify Claude Task can never call `Agent`
-(Task 616: the model answered *"There is no `Agent` tool in my available
-toolset — I only have `Bash`, `Edit`, and `Read`"*).
-
-Isolated on the Kit's own binary, same prompt, three flag combinations:
-
-| Invocation | tools the model actually got |
-|---|---|
-| `--bare --allowedTools "Bash,Read,Edit,Write,Agent"` | `Bash` |
-| `--allowedTools "Bash,Read,Edit,Write,Agent"` (no `--bare`) | **`Agent`, `Bash`** |
-| `--bare --dangerously-skip-permissions` | `Bash` |
-
-`Agent` was added to the runner's default allow-list, but that alone cannot
-enable delegation: **dropping `--bare` is required**, and `--bare` is what keeps
-user/project config, hooks and auto-discovery out of the worker. That
-substitution (explicit `--setting-sources`/`--strict-mcp-config` and friends)
-has not been designed or verified, so Claude `subagents` stays `false`.
-
-### OpenCode `1.18.19` — ran, delegation row not projected (unresolved)
-
-Task 617 (`harness=opencode`) completed on the new Kit. The root called the
-native `task` tool twice and both children returned `marker-alpha` /
-`marker-beta`; the canonical stream, however, projected them as plain
-`tool.started`/`tool.completed` rows named `Task` with **no** `subagent` detail,
-and no child-attributed events.
-
-Replaying that Task's own sanitized raw archive
-(`harness-events/opencode.jsonl`) through the **byte-identical** translator
-(`sha256 2b1116c0…`) produces the expected `Subagent` rows with
-`subagent.id` = the child session id, both with and without the
-`codify.root_session` control record. The live/offline difference is therefore
-not in the committed code and is still unexplained; it needs one more
-instrumented run (the child `session.created` records are also absent from the
-live archive, which the offline replay does not reproduce).
-
-### Pi `0.84.2` + `pi-subagents 0.67.0` — blocked by detached workflow runs
-
-See [../../../../deploy/worker-cli/pi-subagents/README.md](../../../../deploy/worker-cli/pi-subagents/README.md).
-
-### Net result
-
-No harness may declare `subagents: true` yet: every manifest entry stays
-`false`, which is the contract's fail-closed default. Phases 1–2 (vocabulary,
-validation, projection, frontend, and the three adapters) are verified by
-fixtures and unit tests; Phase 4 real-Task acceptance is **not** passed.
-
+## Claude `2.1.153` capture
 
 - Delegation is the **`Agent`** tool (`tool_use.name == "Agent"`); its tool_use
   id is also the child's `parent_tool_use_id`, so one native id identifies both
@@ -144,3 +89,97 @@ fixtures and unit tests; Phase 4 real-Task acceptance is **not** passed.
 - The root session is published to the translator explicitly by the Bridge
   (`codify.root_session` control record) rather than inferred from "first
   session seen".
+
+## Live acceptance on the development Host (2026-09-12)
+
+Kit `0.6.17-linux-amd64-8140c93eb09a` (built from this branch, all four harness
+CLIs, `subagents: false` in every manifest entry), Profile
+`v2-canary-four-harness` re-verified against it, Tasks created through the real
+API. Three results, all reproducible:
+
+### Claude `2.1.153` — blocked by the runner's `--bare`
+
+The frozen runner always passes `--bare`. On `2.1.153`, `--bare` removes the
+delegation tool entirely, so a Codify Claude Task can never call `Agent`
+(Task 616: the model answered *"There is no `Agent` tool in my available
+toolset — I only have `Bash`, `Edit`, and `Read`"*).
+
+Isolated on the Kit's own binary, same prompt, three flag combinations:
+
+| Invocation | tools the model actually got |
+|---|---|
+| `--bare --allowedTools "Bash,Read,Edit,Write,Agent"` | `Bash` |
+| `--allowedTools "Bash,Read,Edit,Write,Agent"` (no `--bare`) | **`Agent`, `Bash`** |
+| `--bare --dangerously-skip-permissions` | `Bash` |
+
+`Agent` was added to the runner's default allow-list, but that alone cannot
+enable delegation: **dropping `--bare` is required**, and `--bare` is what keeps
+user/project config, hooks and auto-discovery out of the worker. That
+substitution (explicit `--setting-sources`/`--strict-mcp-config` and friends)
+has not been designed or verified, so Claude `subagents` stays `false`.
+
+### OpenCode `1.18.19` — PASSED on the development Host
+
+Task 621 (`harness=opencode`, provider `anthropic_messages`, `require_changes=false`)
+completed. The root called the native `task` tool twice and both children ran
+`echo marker-alpha` / `echo marker-beta`. Projected `TaskLog` state:
+
+| Row | `name` | `agent` | `subagent` |
+|---|---|---|---|
+| delegation 1 | `Subagent` | – | `{id: ses_f6b25af3…, parent_id: root, role: general, status: completed, usage{input 688, output 116}}` |
+| delegation 2 | `Subagent` | – | `{id: ses_f6b25ae9…, parent_id: root, role: general, status: completed, usage{input 698, output 122}}` |
+| child 1 tool | `Bash` | `{id: ses_f6b25af3…, parent_id: root, role: general}` | – |
+| child 2 tool | `Bash` | `{id: ses_f6b25ae9…, parent_id: root, role: general}` | – |
+
+Each child's id matches its own delegation row — the two concurrent children
+did not cross-pair. Served browser (`/tasks/621`) renders the same tree:
+
+```text
+Subagent · general #1   [Completed]
+Subagent · general #2   [Completed]
+  └─ [Subagent · general #1] Thinking
+  └─ [Subagent · general #2] Thinking
+  └─ [Subagent · general #1] Bash
+  └─ [Subagent · general #2] Bash
+  └─ [Subagent · general #1] AI  marker-alpha
+  └─ [Subagent · general #2] AI  marker-beta
+```
+
+`scrollWidth == clientWidth` at both `390px` and `1512px`, with no overflowing
+node.
+
+### Why the first live OpenCode run (Task 617) projected plain `Task` rows
+
+Not an adapter defect: **task-time orchestration does not come from the Worker
+Kit.** `entrypoint.worker.sh` only uses the Kit for `--verify`; Task execution
+runs the orchestration snapshot uploaded from the *backend image*
+(`/opt/codify/runtime-source`, `RUNTIME_SOURCE_ENV`). Task 617's bundle pinned
+`opencode_events.py` = `cf92470e…` (pre-change bytes) while the Kit and the
+branch had `2b1116c0…`. Rebuilding the image fixed it.
+
+Operational rule this establishes, and the reason Task 620 still projected
+without `subagent`/`agent` metadata:
+
+1. an adapter change requires rebuilding **both** `codify-backend` and
+   `codify-scheduler` (the scheduler runs the projector) — rebuilding only the
+   backend restarts the orchestrator while the projector keeps running the old
+   image;
+2. then the Profile must be re-verified, because the frozen harness
+   verification evidence carries the adapter digest;
+3. never execute Kit files directly on the Host: a stray
+   `worker-entrypoint/**/__pycache__` changes the Kit's mounted bytes and makes
+   `verify-runtime` fail with `worker_kit_invalid`.
+
+
+### Pi `0.84.2` + `pi-subagents 0.67.0` — blocked by detached workflow runs
+
+See [../../../../deploy/worker-cli/pi-subagents/README.md](../../../../deploy/worker-cli/pi-subagents/README.md).
+
+### Net result
+
+OpenCode passes the subagent acceptance end to end on the development Host
+(Kits, canonical events, `TaskLog` metadata, served browser). Claude is blocked
+by `--bare` and Pi by detached workflow runs, so **no manifest entry declares
+`subagents: true` yet** — the contract's fail-closed default still holds for all
+four, and flipping a harness requires finishing its own blocker plus the §10
+matrix (cancel, usage, two-protocol coverage) for that harness.
