@@ -286,3 +286,37 @@ Two items remain outside this evidence set and are **not** claimed:
   auto-discovery. Probes showed no extra workspace files and no CLAUDE.md
   context in either mode, and the worker authenticates with `ANTHROPIC_API_KEY`
   against a task-local HOME, so there is no keychain to read.
+
+## Ceiling enforcement on the pinned plugin
+
+The ceiling has to make background delegation impossible at depth 0, because a
+detached launch returns no child inventory: the parent stream would carry no
+child identity, usage or output. Three distinct plugin routes bypassed a
+foreground-only configuration, and all three are now closed by the vendor patch
+(`deploy/worker-cli/pi-subagents/vendor/force-foreground.patch`, three files,
+seven hunks):
+
+| Route | Plugin decision | Closed by |
+|---|---|---|
+| Explicit `async: true` | `async-execution.ts` background runner | Rejected at the tool entry with a retry hint (`Background delegation is disabled …`) |
+| Single/parallel launch with a default `asyncByDefault` | `executeWithSingleDispatchGuard` | Depth-0 override rewrites the dispatch params |
+| `workflowScript` without an explicit `async` | `const asyncWorkflow = requestParams.async !== false` | Depth-0 override applied at the entry of `execute()`, before that branch reads `async` |
+
+The third route was found by a real Task (643): the workflow detached, the parent
+stream saw `mode: workflow` with an empty `results` array, and the two children
+only surfaced later through a `status` inventory with empty outputs. After the
+fix, the same prompt runs in the foreground and both children report their
+native usage and final output.
+
+Live evidence on the final artifacts (Kit `b5427d36336f`, Runtime Bundle 258):
+
+| Task | Prompt | Observed |
+|---|---|---|
+| 644 | `workflowScript`, no `async` | 2 delegation rows, per-child usage, outputs carry `marker-alpha` / `marker-beta`, no childless row |
+| 645 | `async: true` | One bare `Subagent` row with `error: true` carrying the refusal text, then the model's foreground retry |
+| 643 (pre-fix) | `workflowScript`, no `async` | Detached: no child rows, only a bare "async run is detached" row |
+
+A refused or management call is projected as exactly one bare `Subagent` tool
+row: it keeps the native message and `error` flag, and never fabricates a
+delegation. The input is captured from the start record because the plugin's
+terminal record repeats only the tool name and result.
