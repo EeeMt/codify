@@ -72,8 +72,12 @@ temporary/*.png
 deploy/codify-offline-bundle*.tar.gz
 deploy/offline-bundle/images/*.tar.xz
 
-# Harness CLI binaries staged for the worker image build (large, not in git)
-deploy/worker-cli/
+# Harness CLI binaries staged for the worker image build (large, not in git).
+# The Pi extension policy payload is a few KB and MUST be tracked: it carries
+# the pin/lockfile, MIT license, audit record, ceiling config, agent
+# definitions and the vendor patch (open-harness-v2-subagent-adaptation.md §6.4).
+deploy/worker-cli/*
+!deploy/worker-cli/pi-subagents/
 
 # Logs
 logs/

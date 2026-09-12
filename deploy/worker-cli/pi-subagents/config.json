@@ -1,0 +1,28 @@
+{
+  "asyncByDefault": false,
+  "forceTopLevelAsync": false,
+  "maxSubagentDepth": 1,
+  "maxSubagentSpawnsPerSession": 4,
+  "maxSubagentSpawnsPerRun": 4,
+  "globalConcurrencyLimit": 4,
+  "maxActiveAsyncRunsPerSession": 0,
+  "scheduledRuns": {
+    "enabled": false
+  },
+  "missions": {
+    "enabled": false
+  },
+  "intercomBridge": {
+    "mode": "off"
+  },
+  "waitTool": {
+    "enabled": false
+  },
+  "authorityPolicy": {
+    "spawnBudgetGrant": "forbid",
+    "scheduleCreate": "forbid",
+    "discardWorktree": "forbid",
+    "destructiveCleanup": "forbid"
+  },
+  "forceTopLevelForeground": true
+}

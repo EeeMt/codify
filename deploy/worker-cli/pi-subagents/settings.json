@@ -1,0 +1,6 @@
+{
+  "subagents": {
+    "disableBuiltins": true,
+    "agentScanDirs": []
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "pi-subagents",
+  "version": "0.67.0",
+  "license": "MIT",
+  "repository": "https://github.com/nicobailon/pi-subagents",
+  "tarball": "https://registry.npmjs.org/pi-subagents/-/pi-subagents-0.67.0.tgz",
+  "tarball_sha256": "1b4d7b0677289f84bb7ab2d8c45651ca0f833e65814c30f2a22b8c86b95aadfc",
+  "integrity": "sha512-43FGBi82sbxEGhEfsaj0P7I/rRJfsw1UPuFSVSkjZw0Fy92lrBIB9d3gDTpwmK5hLj3ZzZUnvtlqiKQatySCTw==",
+  "shasum": "72148e3e5f0d0fb947cc0def2423f8068e6e7a52",
+  "unpacked_size": 5352488,
+  "file_count": 325,
+  "entry": "index.ts",
+  "peer_versions_observed": {
+    "@earendil-works/pi-server": "0.85.0",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-agent-core": "0.85.1"
+  },
+  "frozen_pi_version": "0.84.2",
+  "notes": "Lockfile-pinned closure; installed at Kit build time only. See README.md for the audit record and the unresolved foreground-execution gap."
+}

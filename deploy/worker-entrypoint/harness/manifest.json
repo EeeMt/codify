@@ -32,7 +32,7 @@
         "usage_tokens": true,
         "steering": false,
         "follow_up": false,
-        "subagents": false
+        "subagents": true
       },
       "options_schema": "claude/v1"
     },
@@ -62,7 +62,7 @@
         "usage_tokens": true,
         "steering": false,
         "follow_up": false,
-        "subagents": false
+        "subagents": true
       },
       "options_schema": "codex/v1"
     },
@@ -95,7 +95,7 @@
         "usage_tokens": true,
         "steering": true,
         "follow_up": true,
-        "subagents": false
+        "subagents": true
       },
       "options_schema": "pi/v1"
     },
@@ -128,7 +128,7 @@
         "usage_tokens": true,
         "steering": false,
         "follow_up": false,
-        "subagents": false
+        "subagents": true
       },
       "options_schema": "opencode/v1"
     }

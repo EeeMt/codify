@@ -1,0 +1,100 @@
+diff -r w2/pkg/src/runs/background/top-level-async.ts w/pkg/src/runs/background/top-level-async.ts
+--- w2/pkg/src/runs/background/top-level-async.ts	2026-09-12 19:52:24.505969693 +0800
++++ w/pkg/src/runs/background/top-level-async.ts	2026-09-12 19:52:24.762902260 +0800
+@@ -12,3 +12,18 @@
+ 	if (params.foregroundOnly || !(depth === 0 && forceTopLevelAsync)) return params;
+ 	return { ...params, async: true, clarify: false };
+ }
++
++// Codify vendor patch (open-harness-v2-subagent-adaptation.md §6.4).
++//
++// The parent Harness only sees a child's identity, usage and final output in
++// the launch's structured result, and an async/detached launch returns an empty
++// child inventory. The ceiling therefore pins depth-0 launches to the
++// foreground path; the model can no longer opt into background work.
++export function applyForceTopLevelForegroundOverride<T extends AsyncOverrideParams>(
++	params: T,
++	depth: number,
++	forceTopLevelForeground: boolean,
++): T {
++	if (!(depth === 0 && forceTopLevelForeground)) return params;
++	return { ...params, async: false };
++}
+diff -r w2/pkg/src/runs/foreground/subagent-executor.ts w/pkg/src/runs/foreground/subagent-executor.ts
+--- w2/pkg/src/runs/foreground/subagent-executor.ts	2026-09-12 19:52:24.525062869 +0800
++++ w/pkg/src/runs/foreground/subagent-executor.ts	2026-09-12 19:52:24.764348507 +0800
+@@ -106,7 +106,7 @@
+ import { getExternalJobProvider } from "../../api/external-job-provider.ts";
+ import { externalJobFollowUpRequestDigest, externalJobFollowUpRequestId, externalJobFollowUpRunId, externalJobPromptDigest, externalJobStableJson } from "../shared/external-job-runner.ts";
+ import { externalCliReceiptMetadata, normalizeExternalCliRunnerStatus } from "../shared/external-cli-contract.ts";
+-import { applyForceTopLevelAsyncOverride } from "../background/top-level-async.ts";
++import { applyForceTopLevelAsyncOverride, applyForceTopLevelForegroundOverride } from "../background/top-level-async.ts";
+ import { handleMissionAction, MISSION_ACTIONS } from "../../missions/actions.ts";
+ import { attachMissionToLaunchResult, prepareMissionLaunch, writeMissionAsyncBinding, type MissionLaunchBinding } from "../../missions/lifecycle.ts";
+ import { MissionNotFoundError, updateMission } from "../../missions/store.ts";
+@@ -6677,10 +6677,14 @@
+ 		if (normalized.error) return normalized.error;
+ 		const normalizedParams = normalized.params!;
+ 
+-		let effectiveParams = applyForceTopLevelAsyncOverride(
+-			normalizedParams,
++		let effectiveParams = applyForceTopLevelForegroundOverride(
++			applyForceTopLevelAsyncOverride(
++				normalizedParams,
++				depth,
++				deps.config.forceTopLevelAsync === true,
++			),
+ 			depth,
+-			deps.config.forceTopLevelAsync === true,
++			deps.config.forceTopLevelForeground === true,
+ 		);
+ 		const runToolBudget = resolveToolBudget(
+ 			effectiveParams.toolBudget,
+@@ -7227,7 +7231,11 @@
+ 		const requestParams = normalizedAction ? { ...params, action: normalizedAction } : params;
+ 		if (normalizedAction) return execute(id, requestParams, signal, onUpdate, ctx).then(withAggregatedToolUsage);
+ 		const { depth } = checkSubagentDepth(deps.config.maxSubagentDepth, deps.childRuntime);
+-		const dispatchParams = applyForceTopLevelAsyncOverride(requestParams, depth, deps.config.forceTopLevelAsync === true);
++		const dispatchParams = applyForceTopLevelForegroundOverride(
++			applyForceTopLevelAsyncOverride(requestParams, depth, deps.config.forceTopLevelAsync === true),
++			depth,
++			deps.config.forceTopLevelForeground === true,
++		);
+ 		const runsForeground = dispatchParams.clarify === true || (dispatchParams.async ?? deps.asyncByDefault) !== true;
+ 		if (!runsForeground) return execute(id, requestParams, signal, onUpdate, ctx).then(withAggregatedToolUsage);
+ 		if (deps.state.subagentInProgress === true) return duplicateSubagentCallResult(requestParams);
+@@ -7262,6 +7270,22 @@
+ 		if (loaded.error) {
+ 			return Promise.resolve({ content: [{ type: "text", text: loaded.error }], isError: true, details: { mode: publicParams.action ? "management" : "workflow", results: [] } });
+ 		}
++		// Codify ceiling (open-harness-v2-subagent-adaptation.md §6.4): a
++		// background top-level launch returns no child inventory on the parent
++		// stream, so the ceiling forbids it outright instead of relying on
++		// downstream paths to honour the foreground override. Rejecting the
++		// call tells the model exactly how to retry, and no child can ever run
++		// detached from a Codify Task.
++		if (loaded.params) {
++			const { depth } = checkSubagentDepth(deps.config.maxSubagentDepth, deps.childRuntime);
++			if (depth === 0 && deps.config.forceTopLevelForeground === true && (loaded.params as { async?: boolean }).async === true) {
++				return Promise.resolve({
++					content: [{ type: "text", text: "Background delegation is disabled for this workspace. Call the subagent tool again without `async` (or with `async: false`) so the run executes in the foreground." }],
++					isError: true,
++					details: { mode: "single", results: [] },
++				});
++			}
++		}
+ 		publicExecutions.add(loaded.params!);
+ 		return executeWithSingleDispatchGuard(id, loaded.params!, signal, onUpdate, ctx);
+ 	};
+diff -r w2/pkg/src/shared/types.ts w/pkg/src/shared/types.ts
+--- w2/pkg/src/shared/types.ts	2026-09-12 19:52:24.469678046 +0800
++++ w/pkg/src/shared/types.ts	2026-09-12 19:52:24.764824673 +0800
+@@ -2585,6 +2585,8 @@
+ 	/** Experimental observer: mirror each native subagent's progress into a new Orca tab. */
+ 	orcaProgressTabs?: OrcaProgressTabsConfig;
+ 	forceTopLevelAsync?: boolean;
++	/** Codify ceiling: pin depth-0 launches to the foreground path. */
++	forceTopLevelForeground?: boolean;
+ 	waitTool?: WaitToolConfig;
+ 	defaultSessionDir?: string;
+ 	singleRunOutputBaseDir?: string;

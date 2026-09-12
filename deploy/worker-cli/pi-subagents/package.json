@@ -1,0 +1,9 @@
+{
+  "name": "codify-pi-subagents",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Codify Runtime Bundle pin for the audited upstream pi-subagents extension",
+  "dependencies": {
+    "pi-subagents": "0.67.0"
+  }
+}
