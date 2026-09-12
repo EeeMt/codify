@@ -241,12 +241,48 @@ Host — Kits, canonical events, `TaskLog` metadata and the served browser — o
 model protocol each (Claude `anthropic_messages`, Codex `openai_responses`,
 OpenCode `anthropic_messages`, Pi `anthropic_messages`).
 
-**No manifest entry declares `subagents: true` yet.** What is still missing per
-harness, in §10 terms:
+The Runtime Manifest now declares `subagents: true` for all four harnesses, on
+this evidence:
 
-| Harness | Still unproven |
-|---|---|
-| Pi | `openai_responses` and `openai_chat_completions` real Tasks |
-| OpenCode | `openai_responses` and `openai_chat_completions` real Tasks |
-| Claude | live cancellation, and the §9 note that `--bare` was replaced |
-| Codex | live cancellation and nested-delegation refusal on a real Task |
+| Harness / protocol | Task | Result |
+|---|---|---|
+| Claude `anthropic_messages` | 623 | 2 delegation rows + child rows |
+| Codex `openai_responses` | 622 | 2 delegation rows + child rows |
+| Pi `anthropic_messages` | 627 | 2 delegation rows + child messages/tools |
+| Pi `openai_responses` | 629 | 2 delegation rows + child rows |
+| Pi `openai_chat_completions` | 630 | 2 delegation rows + child rows |
+| OpenCode `anthropic_messages` | 621 | 2 delegation rows + child rows |
+| OpenCode `openai_responses` | 631 | 2 delegation rows + child rows |
+| OpenCode `openai_chat_completions` | 632 | 2 delegation rows + child rows |
+
+Plus, per criterion: §10.5 usage authority (Pi verified byte-for-byte, and the
+backend never re-sums child detail), §10.6 cancellation (all four harnesses:
+single `harness.failed kind=cancelled` → finalization → single
+`run.failed status=cancelled`, container gone, no surviving child process),
+§10.9/10/11 by DOM inspection of the served pages.
+
+Two items remain outside this evidence set and are **not** claimed:
+
+1. Codex nested-delegation refusal on a live Task — implemented and unit-tested
+   (`subagent_depth_unsupported`), but the model was never observed nesting.
+2. The §9 exit note: `--bare` was replaced by explicit isolation flags in the
+   Claude runner (see below), which is a deliberate change to every Claude Task,
+   not only subagent-capable ones.
+
+### §9 note — the Claude runner's isolation flags
+
+`--bare` was the runner's minimal mode, but on `2.1.153` it also sets
+`CLAUDE_CODE_SIMPLE=1`, which removes the `Agent` tool. The runner now passes
+`--setting-sources "" --strict-mcp-config --disable-slash-commands` instead:
+
+- no user/project/local settings load, so repository hooks and permissions stay
+  inert (the planted-hook control fired in **none** of bare, isolated-flag or
+  unisolated runs — untrusted workspaces never load project settings);
+- no MCP servers beyond an explicit `--mcp-config`, which Codify never passes;
+- no skills from discovery; task Skills still resolve through the materialized
+  snapshot;
+- the residual difference is that `CLAUDE_CODE_SIMPLE=1` also skipped LSP,
+  plugin sync, attribution, auto-memory, background prefetches and CLAUDE.md
+  auto-discovery. Probes showed no extra workspace files and no CLAUDE.md
+  context in either mode, and the worker authenticates with `ANTHROPIC_API_KEY`
+  against a task-local HOME, so there is no keychain to read.
