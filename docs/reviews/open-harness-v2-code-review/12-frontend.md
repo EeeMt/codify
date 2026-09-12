@@ -21,20 +21,19 @@
 
 ## 1. 结论摘要
 
-| 等级 | 数量 |
+| 判定 | 数量 |
 |---|---|
-| P0 | 0 |
-| P1 | 0 |
-| P2 | 3 |
-| P3 | 3 |
-| INFO | 4 |
+| FIX_NOW | 0 |
+| FIX_IF_CHEAP | 3 |
+| DEFER | 7 |
+| ACCEPT/CLOSE | 0 |
 
-本模块整体质量较高：事件原地更新语义（thinking/tool_call 的 `update` 事件与回绕游标 `since_id`）、流身份守卫（`structuredLogSource !== source`）、原始日志 500k 窗口与截断标记、任务切换时的请求代际守卫都实现完整，且被 V2 新增的 `useTaskLogStreams.spec.ts`（409 行）逐条覆盖；`control_state` 门禁（仅 `accepting` 且 running 可输入）、命令文本上限（前端 4000 = 后端 4000 UTF-16）、harness catalog fail-closed、`harness_options` 只发 `task_override` 白名单内的 `agent/command/model_variant`，均与后端契约一致；`isLegacyReadOnly` 门控覆盖了全部写操作入口。渲染安全方面**没有 V2 新引入的 XSS**：模型/日志/summary 文本全部经 `markdown-it(html:false)`、`escapeXML:true` 的 ANSI 转换或 mermaid `securityLevel:'strict'` 处理，未发现 `v-html` 直出未转义文本。问题集中在错误路径与文案：steering 的 409/422/403 拒绝原因被前端丢弃（FE-02）、命令幂等键每次重发都重新生成（FE-03）、英文语言包缺一个 key 导致 EN 界面露出原始 key（FE-01），其余为 P3/INFO。
+本模块整体质量较高：事件原地更新与回绕游标、流身份守卫、原始日志有界窗口、请求代际守卫均实现完整并有新增 spec 逐条覆盖，渲染安全未发现 V2 新引入的 XSS。无 FIX_NOW；3 条 FIX_IF_CHEAP 都是错误路径与文案上的真缺陷，修复各约 5 行。其余 7 条按 3 人内测、无 SLA、避免过度防御的画像列 DEFER，本阶段书面接受 0 条。
 
 ## 2. 问题清单
 
 ### FE-01 英文语言包缺失 `config.runtimeFailureDetailsUnavailable`，EN 界面显示原始 key
-- **等级**：P2
+- **判定**：FIX_IF_CHEAP —— 一行 key 即可修好
 - **位置**：`frontend/src/i18n/messages/en.ts:1831`（提交 `6ffc86a3`）
 - **证据**：该 key 只在中文包里定义，英文包里在 `runtimeLastChecked` 与 `harnessAvailable` 之间被漏掉：
 
@@ -49,18 +48,11 @@
   用 esbuild 提取两侧叶子 key 求差集（en 2234 / zh 2235）后，这是**唯一**的不对称 key。
   `components/config/WorkerSettingsPanel.spec.ts:699` 断言 `toContain('config.runtimeFailureDetailsUnavailable')`，但该 spec 未安装 i18n 插件，`t()` 原样返回 key，因此该断言对“生产是否缺 key”零覆盖（已实跑确认 37 passed）。
 - **影响**：Worker Profile 运行时状态为 `unavailable` 且后端未返回 `failure_message` 时，`en` 用户在配置页看到字面量 `config.runtimeFailureDetailsUnavailable`；zh 用户正常。属于默认语言下的可见缺陷。
-- **建议**：在 `en.ts:1831` 之后补回该 key：
-
-```
-      runtimeLastChecked: 'Last checked {time}',
-      runtimeFailureDetailsUnavailable: 'Runtime is unavailable. Recheck to fetch the latest diagnostics.',
-      harnessAvailable: 'available',
-```
-
+- **最小动作**：`en.ts` 在 `runtimeLastChecked` 后补 `runtimeFailureDetailsUnavailable`
 - **验证**：已用 key 差集脚本确认；修复后复用同一脚本（差值应为空），或给该 spec 装上真实 i18n 插件再断言文案。本次未运行 frontend build。
 
 ### FE-02 Steering 命令被拒（409/422/403）时丢弃后端 `detail` 对象，拒绝原因不可见
-- **等级**：P2
+- **判定**：FIX_IF_CHEAP —— 纯 UX，不改任何服务端状态
 - **位置**：`frontend/src/components/TaskSteeringPanel.vue:224-234`（提交 `ef098442`）
 - **证据**：前端只识别字符串 / 数组形态的 `detail`：
 
@@ -77,21 +69,11 @@
 
   而后端所有拒绝路径的 `detail` 都是**对象** `{code, message, command_id}`：`backend/app/api/task_command_routes.py:120-146`（`task_not_running`/`attempt_mismatch`/`unsupported_harness`/`control_gate_closed` → 409，`payload_too_large`/`invalid_*` → 422，`not_authorized` → 403）、`:220-229`（同 ID 不同 payload → 409）。这些拒绝**不会**产生命令行（`backend/app/core/task_harness_commands.py:240-271` 在校验后直接 `return`，未 `db.add`），也不会写 `control_event`，因此 `GET /tasks/{id}/commands` 里查不到该命令。
 - **影响**：面板的 `control_state` 来自 TaskView 的 5 秒轮询（`views/TaskView.vue:1303-1320` → `fetchTask` → `control_state`），存在最长 5 秒的陈旧窗口。用户在任务刚结束（`task_not_running`）或 gate 已 `closing`（`control_gate_closed`，例如收到 `agent_settled` 开始 draining）时点击发送，界面只弹出“命令发送失败”，历史里也查不到该命令 —— 运维无法区分“被拒绝（gate 已关）”与“网络/服务故障”，会去排查不存在的传输问题。
-- **建议**：`detail` 为对象时按 `detail.message ?? detail.code` 展示，并按状态码选择文案（409/422 用 `taskView.steeringRejectedToast` + `taskView.steeringRejectionReason`，403 用无权限提示）：
-
-```ts
-    const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
-    const msg = typeof detail === 'object' && detail !== null
-      ? String((detail as { message?: unknown }).message ?? (detail as { code?: unknown }).code ?? '')
-      : Array.isArray(detail)
-        ? detail.map(d => (d as { msg?: string }).msg ?? '').join('; ')
-        : typeof detail === 'string' ? detail : ''
-```
-
+- **最小动作**：`TaskSteeringPanel.vue:224-234` 的 catch 按 `detail.message ?? detail.code` 展示（~5 行）
 - **验证**：静态核对了后端 5 条拒绝分支的 `detail` 形态与前端解析；未运行真实后端。可用单文件单测注入 `{ response: { data: { detail: { code: 'control_gate_closed', message: 'The control gate is closed.' } } } }` 断言提示包含该 message。
 
 ### FE-03 每次发送都重新生成 `command_id`，传输失败后的重试会重复投递同一条指令
-- **等级**：P2
+- **判定**：FIX_IF_CHEAP
 - **位置**：`frontend/src/api/tasks.ts:750-760`（提交 `ef098442`）
 - **证据**：幂等键在 `sendHarnessCommand` 内部生成，调用方拿不到、也无法重放：
 
@@ -106,11 +88,11 @@ export async function sendHarnessCommand(
 
   契约把 `command_id` 定义为**客户端生成**的幂等键（`backend/app/api/task_command_routes.py:3-10`；`backend/app/core/task_harness_commands.py:196-207` 的 `existing_same` 分支只在 ID 相同时去重），而 `TaskSteeringPanel.vue:203-245` 的 `catch` 只弹提示、不保留 ID。重复点击本身已被 `sending` 门闩与 `:disabled` 挡住（`TaskSteeringPanel.vue:44-48`），缺口只在“请求已到服务端但客户端没收到响应”这一层。
 - **影响**：浏览器断网/被节流，或命中 `api/client.ts` 的 30s axios 超时（`frontend/src/api/client.ts:18`）时，PUT 可能已在服务端落库；用户重试 → 新 UUID → 第二条 `queued` 命令 → 运行中的 harness 收到两次同义指令（重复编辑/重复提交）。触发窗口小，但后果是控制面重复投递，而这正是幂等键存在的理由。
-- **建议**：把 ID 所有权提到调用方：`sendHarnessCommand(taskId, request, commandId = generateCommandId())`，面板在文本未变化的重试中复用同一 ID（同 ID 同 payload 后端返回 200 + 原命令行）。
+- **最小动作**：`sendHarnessCommand(taskId, request, commandId = generateCommandId())`，面板在文本未变的重试中复用同一 ID（~5 行）
 - **验证**：未运行验证（需构造“服务端已提交/客户端失败”的传输场景）。可加单测：mock `api.put` 第一次 reject、第二次 resolve，断言两次请求 URL 中的 `command_id` 相同。
 
 ### FE-04 思考耗时 tooltip 硬编码英文，未走 i18n
-- **等级**：P3
+- **判定**：DEFER
 - **位置**：`frontend/src/components/task-process/TaskProcessTextRow.vue:13-17`（提交 `76d588da`）
 - **证据**：新增的耗时徽标把英文写进模板，同文件其余文案都走 `t()`（如 `nameLabel`、`taskView.fullText`）：
 
@@ -124,16 +106,11 @@ export async function sendHarnessCommand(
 
   同型问题 `TaskProcessToolRow.vue:17` 的 `` `Tool duration: ...` `` 在基线已存在（本次只把它的时长格式化函数换成 `formatEventDuration`），属 V1 遗留，不计入本条。
 - **影响**：zh-CN 界面悬停出现英文 tooltip；无功能影响。
-- **建议**：新增 `taskView.thinkingDurationHint`（en: `'Thinking duration: {duration}'`，zh: `'思考耗时：{duration}'`）并改为：
-
-```
-        :title="t('taskView.thinkingDurationHint', { duration: completedDuration })"
-```
-
+- **最小动作**：新增 `taskView.thinkingDurationHint` 两语言 key + 模板 1 行
 - **验证**：静态核对（i18n key 差集脚本确认两侧都没有该 key）；无需行为验证。
 
 ### FE-05 OpenCode `model_variant` 输入缺少与后端一致的客户端校验，422 原因被丢弃
-- **等级**：P3
+- **判定**：DEFER —— FE-02 透出 detail 后大半自愈，补正则属额外代码
 - **位置**：`frontend/src/components/TaskFormDrawer.vue:636-645`（提交 `ab869c67`）
 - **证据**：新输入框只有 `maxlength="64"` 与 `clearable`，无格式校验：
 
@@ -146,11 +123,11 @@ export async function sendHarnessCommand(
 
   而后端 `backend/app/core/harness_options.py:48` 要求 `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`（`:97-135` 的 `OpenCodeV1Options`），非法值经 `validate_task_overrides` 抛 `HarnessOptionsError` → 请求失败；edit 路径的 `catch` 只认字符串 detail（`features/tasks/useTaskFormSubmission.ts:197-206`），create 路径的 `extractSlotErrorMessage` 对数组 detail 也落到通用文案（`utils/slotError.ts:58-68`）。
 - **影响**：输入含空格/中文（如 `my variant`）时保存只提示“任务更新失败”，用户无法定位到该字段。字段白名单本身正确：前端只发 `agent/command/model_variant`（`components/TaskFormDrawer.vue:1239-1248`），与 `harness_options.py:39-44` 的 `TASK_OVERRIDE_KEYS['opencode/v1']` 完全一致。
-- **建议**：给该 `n-form-item` 或 `handleOpenCodeModelVariantChange` 加与后端同形的正则校验并给出字段级提示（新增 `createTask.openCodeModelVariantInvalid`）。
+- **最小动作**：先吃 FE-02 的 detail 透出；字段级正则按需再补
 - **验证**：静态对照前后端校验规则；未运行。可在 `TaskFormDrawer.spec.ts` 断言非法输入时提交被拦截/出现提示。
 
 ### FE-06 每秒把 `nowMs` 下发给每一行思考/回复行，长日志下形成 1Hz 全列表重渲染
-- **等级**：P3
+- **判定**：DEFER —— 无实测卡顿，不阻塞任何工作
 - **位置**：`frontend/src/components/TaskProcessPanel.vue:314-320`（提交 `03a7ae2c`）
 - **证据**：面板持有共享时钟并每秒写一次，同时把该 prop 传给了 `v-for` 中的**每一行**文本行（列表无虚拟滚动，`TaskProcessPanel.vue:51`）：
 
@@ -168,39 +145,39 @@ export async function sendHarnessCommand(
 
   行内 `elapsedText` 依赖 `props.nowMs`（`TaskProcessTextRow.vue:109-116`），因此每次 tick 都会推动每个文本行组件重新渲染（markdown 结果本身有缓存，`renderedHtml` 只在文本变化时重算）。
 - **影响**：长任务（大量 thinking/assistant 事件）停留在“事件流”页签时，每秒 O(行数) 的重渲染，滚动与交互可能卡顿；改动前该定时器只更新表头的 `elapsedMs`（`TaskProcessPanel.vue:227`）。
-- **建议**：只在“本行处于 `in_progress` 且面板 active”时才传 `nowMs`（父组件已能判断，其余行传 `null`），把 tick 的影响面收敛到活跃行。
+- **最小动作**：只给 `in_progress` 行传 `nowMs`，其余传 null
 - **验证**：未运行（缺长日志真机基线）；结论基于 prop → 子组件更新链的静态推导，建议在长日志任务上实测帧率后再定级。
 
-### INFO-01 `control_state='disabled'` 时 gate 徽标渲染为空
-- **等级**：INFO
+### FE-INFO-01 `control_state='disabled'` 时 gate 徽标渲染为空
+- **判定**：DEFER
 - **位置**：`frontend/src/components/TaskSteeringPanel.vue:115-128`
 - **证据**：`gateLabel` 的 `switch` 覆盖 `starting/accepting/closing/closed`，`disabled` 落到 `default: return ''`，但模板仍渲染 `<span class="steering-panel__gate steering-panel__gate--disabled">`（空文本）。可达性：面板可见要求 `capabilities.steering || follow_up`（`:99-105`），而后端 `control_supported` 只看 `capabilities.steering`（`backend/app/core/worker_task_lifecycle.py:496-500`）；现网 manifest 中唯一 `steering: true` 的适配器同时声明 `follow_up: true`（`deploy/worker-entrypoint/harness/manifest.json:94-95`），故当前不可达。
 - **影响**：仅当 capability 与 `control_supported` 判定不一致时出现空徽标，无功能影响。
-- **建议**：为 `disabled` 增加文案或在该态不渲染徽标。
+- **最小动作**：`disabled` 态加文案或该态不渲染徽标
 - **验证**：静态核对 manifest 与两侧判定条件；未运行。
 
-### INFO-02 未知 `push.status` 被渲染为“推送失败”
-- **等级**：INFO
+### FE-INFO-02 未知 `push.status` 被渲染为“推送失败”
+- **判定**：DEFER
 - **位置**：`frontend/src/components/TaskResultPanel.vue:657-668`
 - **证据**：`return labels[status] ?? t('taskView.gitDeliveryFailed')` —— 任何未识别状态（未来新增枚举）都会显示为“失败”，而非“未知”。
 - **影响**：仅在后端新增 `push.status` 且前端未同步时误报失败；当前后端枚举冻结为 5 值（`backend/app/core/worker_git_delivery.py:23`），不可达。
-- **建议**：兜底改为中性文案（“状态未知”）。
+- **最小动作**：兜底改中性文案（「状态未知」）
 - **验证**：静态核对后端枚举集合；未运行。
 
-### INFO-03 `showCommitRecord` 在“有 push 结论但无提交列表”时隐藏整张提交记录卡
-- **等级**：INFO
+### FE-INFO-03 `showCommitRecord` 在“有 push 结论但无提交列表”时隐藏整张提交记录卡
+- **判定**：DEFER —— 该组合是否可达未验证
 - **位置**：`frontend/src/components/TaskResultPanel.vue:597-601`
 - **证据**：`if (gitDelivery.value) return gitDeliveryHasContent.value || gitDeliveryPushFailed.value`，即 `commits`/`recovered_commits` 均为空且 `push.status !== 'failed'` 时整卡不渲染（模板 `:167`）；而后端 `normalize_git_delivery` 只约束“有内容 ⇒ 必须是确认态”（`backend/app/core/worker_git_delivery.py:239-256`），允许 `push.status='pushed'` 且 `commits=null`。该组合是否会被 worker 产出未经验证。
 - **影响**：若该组合真实存在，`head_sha`/`branch` 等交付事实在 UI 上完全不可见。
-- **建议**：把 `push.status` 为确认态（`pushed`/`already_present`）且存在 `head_sha`/`branch` 也纳入展示条件。
+- **最小动作**：展示条件加入确认态 + `head_sha`/`branch`
 - **验证**：静态核对归一化约束；未运行（需真实交付产物）。
 
-### INFO-04 `command-delivered` 事件无消费方
-- **等级**：INFO
+### FE-INFO-04 `command-delivered` 事件无消费方
+- **判定**：DEFER
 - **位置**：`frontend/src/components/TaskSteeringPanel.vue:88,215`、`frontend/src/views/TaskView.vue:432-439`
 - **证据**：面板声明 `defineEmits<{ (e: 'command-delivered'): void }>()`，并在 `delivered` 分支 emit，但 TaskView 挂载处只传 props 与 `data-testid`，无监听者；面板自身已 `await refreshHistory()`，父组件没有必须刷新的状态。
 - **影响**：无功能影响，属未接线的接口。
-- **建议**：删除该 emit，或在 TaskView 上接 `@command-delivered="refreshTask"`。
+- **最小动作**：删除 `command-delivered` emit（1 行）
 - **验证**：静态核对两处代码；未运行。
 
 ## 3. 逐项核查记录
@@ -233,7 +210,7 @@ export async function sendHarnessCommand(
 
 - 未执行任何浏览器/E2E 验证（无 Playwright 运行、无真实后端），交互结论均为静态推导 + 现有 spec 对照。
 - 未运行 `npm run build` / `vue-tsc`，因此无法排除类型层隐患（如 `api/tasks.ts:309-312` 把 `ToolCall.output` 由 `string|null` 放宽为可选后，其他消费点是否仍按非可选使用 —— 本次只抽查了 `TaskProcessToolRow` 与 `taskProcessUtils`）。
-- FE-06 的重渲染开销、INFO-03 的“推送确认但无提交列表”组合，均缺少真实数据/度量支撑，仅给出机制级判断。
+- FE-06 的重渲染开销、FE-INFO-03 的“推送确认但无提交列表”组合，均缺少真实数据/度量支撑，仅给出机制级判断。
 - 未覆盖 `AIProvidersPanel.*`（T10）与测试质量本身（T16）；`WorkerSettingsPanel.spec.ts` 仅用于判定 i18n 断言方式，未评估其测试质量。
 - 「V1 遗留」观察（不计入问题清单，供后续参考）：
   1. `views/TaskView.vue:1299-1320` 的 `pollTimer` 在 `await loadTaskView()` **之后**创建；若组件在首次请求期间被卸载，`onBeforeUnmount`（`:1347`）清不到该定时器，5 秒轮询会持续请求；V2 让该轮询体额外调用 `connectStructuredLogStream/reconnectLogStream`，会保留一条 SSE 连接。轮询体与基线逐字相同（`git show 8081c946^:frontend/src/views/TaskView.vue:1225-1244`）。
