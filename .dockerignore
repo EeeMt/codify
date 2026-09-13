@@ -35,6 +35,9 @@ coverage/
 docs/
 *.md
 !README.md
+# The in-app guide is compiled into the SPA bundle, so its markdown must stay in
+# the build context even though every other markdown file is excluded.
+!frontend/src/guide/**/*.md
 
 # Docker
 Dockerfile*

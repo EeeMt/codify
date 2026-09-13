@@ -154,6 +154,7 @@ vi.mock('@vueuse/core', () => ({
 
 vi.mock('@vicons/ionicons5', () => ({
   BarChartOutline: {},
+  BookOutline: {},
   DocumentTextOutline: {},
   FingerPrintOutline: {},
   GridOutline: {},

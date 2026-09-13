@@ -7,6 +7,7 @@ export { default as ArrowBackOutline } from '@vicons/ionicons5/es/ArrowBackOutli
 export { default as ArrowDownCircleOutline } from '@vicons/ionicons5/es/ArrowDownCircleOutline'
 export { default as ArrowRedoOutline } from '@vicons/ionicons5/es/ArrowRedoOutline'
 export { default as BarChartOutline } from '@vicons/ionicons5/es/BarChartOutline'
+export { default as BookOutline } from '@vicons/ionicons5/es/BookOutline'
 export { default as BulbOutline } from '@vicons/ionicons5/es/BulbOutline'
 export { default as CalendarClearOutline } from '@vicons/ionicons5/es/CalendarClearOutline'
 export { default as CalendarOutline } from '@vicons/ionicons5/es/CalendarOutline'

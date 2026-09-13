@@ -46,3 +46,7 @@ globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({
 
 // Mock Element.getBoundingClientRect
 Element.prototype.getBoundingClientRect = vi.fn(() => new DOMRect(0, 0, 120, 120))
+
+// jsdom has no layout, so scrolling APIs are absent.
+Element.prototype.scrollIntoView = vi.fn()
+window.scrollTo = vi.fn()

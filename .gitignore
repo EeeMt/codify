@@ -50,6 +50,10 @@ deploy/dev-env-info.md
 # Playwright CLI snapshots
 .playwright-cli/
 
+# Stored browser session used by scripts/guide/capture-screenshots.py.
+# It is a live credential and must never be committed.
+.cache/
+
 # Temporary screenshots
 heatmap-check.png
 

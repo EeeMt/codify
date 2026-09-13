@@ -2,7 +2,7 @@ import { nextTick, ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { renderMarkdown } from '../../components/task-process/taskProcessUtils'
-import type { MermaidApi } from '../../vendor/mermaid'
+import { getMermaidRenderer, type MermaidApi } from '../../vendor/mermaid'
 import {
   renderSummaryMarkdownWithMermaid,
   renderSummaryMermaidError,
@@ -23,29 +23,7 @@ export function useSummaryRenderer(options: SummaryRendererOptions) {
   const { t } = useI18n()
   const summaryRenderedHtml = ref('')
   const summaryRenderedSource = ref('')
-  let mermaidConfigured = false
-  let mermaidRenderer: MermaidApi | null = null
   let renderGeneration = 0
-
-  async function getMermaidRenderer() {
-    if (!mermaidRenderer) {
-      const { loadMermaid } = await import('../../vendor/mermaid')
-      mermaidRenderer = await loadMermaid()
-    }
-    if (mermaidConfigured) return mermaidRenderer
-
-    mermaidRenderer.initialize({
-      startOnLoad: false,
-      theme: 'neutral',
-      securityLevel: 'strict',
-      flowchart: {
-        useMaxWidth: true,
-        htmlLabels: true,
-      },
-    })
-    mermaidConfigured = true
-    return mermaidRenderer
-  }
 
   function markMermaidDiagramError(
     root: HTMLElement,

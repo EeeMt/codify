@@ -171,6 +171,23 @@
                   <n-button
                     tertiary
                     circle
+                    class="app-shell__guide-button"
+                    data-testid="open-guide-desktop"
+                    :title="t('shell.viewGuide')"
+                    @click="openGuide"
+                  >
+                    <template #icon>
+                      <n-icon :component="BookOutline" />
+                    </template>
+                  </n-button>
+                </template>
+                {{ t('shell.viewGuide') }}
+              </n-tooltip>
+              <n-tooltip trigger="hover" :style="onboardingTooltipStyle">
+                <template #trigger>
+                  <n-button
+                    tertiary
+                    circle
                     class="app-shell__onboarding-button app-shell__onboarding-button--icon-only"
                     data-testid="reopen-onboarding-desktop"
                     :title="t('shell.reopenOnboarding')"
@@ -230,6 +247,19 @@
                 v-if="showUserToolbar"
                 quaternary
                 circle
+                data-testid="open-guide-mobile"
+                class="mobile-header__guide-button"
+                :title="t('shell.viewGuide')"
+                @click="openGuide"
+              >
+                <template #icon>
+                  <n-icon :component="BookOutline" />
+                </template>
+              </n-button>
+              <n-button
+                v-if="showUserToolbar"
+                quaternary
+                circle
                 data-testid="reopen-onboarding-mobile"
                 class="mobile-header__onboarding-button"
                 :title="t('shell.reopenOnboarding')"
@@ -265,6 +295,7 @@
             :show="showOnboarding"
             @close="handleOnboardingClose"
             @complete="handleOnboardingComplete"
+            @open-guide="openGuide"
             @view-dashboard="navigateToDashboard"
             @create-issue="navigateToCreateIssue"
           />
@@ -299,6 +330,7 @@ import { useI18n } from 'vue-i18n'
 import {
   AddCircleOutline,
   BarChartOutline,
+  BookOutline,
   DocumentTextOutline,
   FingerPrintOutline,
   GridOutline,
@@ -502,6 +534,7 @@ const menuOptions = computed<MenuOption[]>(() => {
     buildMenuItem('nav.dashboard', 'Dashboard', GridOutline),
     buildMenuItem('nav.issues', 'Issues', DocumentTextOutline),
     buildMenuItem('nav.tasks', 'TaskList', ListOutline),
+    buildMenuItem('nav.guide', 'Guide', BookOutline),
   ]
 
   if (authState.authenticated) {
@@ -544,6 +577,11 @@ function handleMenuUpdate(key: string) {
 
 function openOnboarding() {
   manualOnboardingOpen.value = true
+}
+
+function openGuide() {
+  handleOnboardingComplete()
+  void router.push({ name: 'Guide' })
 }
 
 function dismissOnboarding() {
@@ -813,6 +851,7 @@ body {
 }
 
 .app-shell__onboarding-button,
+.app-shell__guide-button,
 .app-shell__logout-button {
   flex-shrink: 0;
 }
@@ -821,11 +860,13 @@ body {
   flex-shrink: 0;
 }
 
-.app-shell__onboarding-button--icon-only {
+.app-shell__onboarding-button--icon-only,
+.app-shell__guide-button {
   color: rgba(15, 23, 42, 0.5);
 }
 
-.app-shell__onboarding-button--icon-only:hover {
+.app-shell__onboarding-button--icon-only:hover,
+.app-shell__guide-button:hover {
   color: rgba(15, 23, 42, 0.72);
 }
 
@@ -1291,6 +1332,7 @@ a.app-link:visited:hover {
 
   .mobile-header__menu-button,
   .mobile-header__create-issue-button,
+  .mobile-header__guide-button,
   .mobile-header__onboarding-button,
   .mobile-header__logout-button {
     min-width: 44px;
@@ -1312,6 +1354,7 @@ a.app-link:visited:hover {
 @media (max-width: 768px) {
   .usage-indicator,
   .app-shell__create-issue-button,
+  .app-shell__guide-button,
   .app-shell__onboarding-button--icon-only {
     min-width: 44px;
     min-height: 44px;

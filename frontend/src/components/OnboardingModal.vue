@@ -168,6 +168,9 @@
         <template #action>
           <div class="onboarding-modal__footer">
             <div class="onboarding-modal__footer-start">
+              <n-button text data-testid="onboarding-view-guide" @click="emit('open-guide')">
+                {{ t('onboarding.actions.viewGuide') }}
+              </n-button>
               <n-button v-if="!isLastStep" text data-testid="onboarding-skip" @click="emit('close')">
                 {{ t('onboarding.actions.skip') }}
               </n-button>
@@ -422,6 +425,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'close'): void
   (event: 'complete'): void
+  (event: 'open-guide'): void
   (event: 'view-dashboard'): void
   (event: 'create-issue'): void
 }>()

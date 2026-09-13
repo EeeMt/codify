@@ -38,6 +38,7 @@ const en = {
     dashboard: 'Dashboard',
     tasks: 'Tasks',
     issues: 'Issues',
+    guide: 'Guide',
     createIssue: 'Create Issue',
     createTask: 'Create Task',
     sessions: 'Sessions',
@@ -52,6 +53,21 @@ const en = {
     workspace: 'Workspace',
     insights: 'Insights & Operations',
     administration: 'Administration'
+  },
+  guide: {
+    title: 'Guide',
+    subtitle: 'How Codify works and how to operate it — from creating an issue to reviewing a merge request, plus the platform settings administrators own.',
+    tocLabel: 'Guide contents',
+    filterPlaceholder: 'Filter chapters',
+    copyCode: 'Copy',
+    copied: 'Copied',
+    copyFailed: 'Copy failed',
+    previous: 'Previous',
+    next: 'Next',
+    sections: {
+      user: 'User Guide',
+      admin: 'Admin Guide'
+    }
   },
   systemStatistics: {
     title: 'System Statistics',
@@ -160,6 +176,7 @@ const en = {
     signedInWithGitlab: 'Signed in with GitLab',
     productTour: 'Product tour',
     reopenOnboarding: 'Open product tour again',
+    viewGuide: 'View guide',
     logout: 'Logout',
     createIssue: 'New Issue',
     createIssueTooltip: 'Create a new issue',
@@ -417,6 +434,7 @@ const en = {
       next: 'Next',
       viewDashboard: 'View Dashboard',
       createIssue: 'Create Issue',
+      viewGuide: 'View full guide',
     },
   },
   dashboard: {

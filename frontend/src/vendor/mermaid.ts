@@ -1,6 +1,7 @@
+import type Mermaid from 'mermaid'
 import { MERMAID_ASSET_DIR } from './mermaidAssetPath'
 
-export type MermaidApi = typeof import('mermaid').default
+export type MermaidApi = typeof Mermaid
 
 let loadPromise: Promise<MermaidApi> | null = null
 
@@ -17,4 +18,34 @@ export function loadMermaid(): Promise<MermaidApi> {
     })
 
   return loadPromise
+}
+
+let rendererPromise: Promise<MermaidApi> | null = null
+
+/**
+ * The single mermaid instance for every diagram surface in the app. The
+ * neutral theme and strict security level are part of the app's diagram
+ * contract, so they are configured once here instead of per consumer.
+ */
+export function getMermaidRenderer(): Promise<MermaidApi> {
+  if (!rendererPromise) {
+    rendererPromise = loadMermaid()
+      .then((mermaid) => {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'neutral',
+          securityLevel: 'strict',
+          flowchart: {
+            useMaxWidth: true,
+            htmlLabels: true,
+          },
+        })
+        return mermaid
+      })
+      .catch((error) => {
+        rendererPromise = null
+        throw error
+      })
+  }
+  return rendererPromise
 }

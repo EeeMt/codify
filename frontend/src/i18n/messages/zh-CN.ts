@@ -38,6 +38,7 @@ const zhCN = {
     dashboard: '仪表盘',
     tasks: '任务',
     issues: '需求',
+    guide: '指南',
     createIssue: '创建需求',
     createTask: '创建任务',
     sessions: '会话',
@@ -52,6 +53,21 @@ const zhCN = {
     workspace: '工作区',
     insights: '分析与运维',
     administration: '管理'
+  },
+  guide: {
+    title: '指南',
+    subtitle: '从创建需求到评审合并请求的完整操作说明，以及管理员负责的平台配置。',
+    tocLabel: '指南目录',
+    filterPlaceholder: '筛选章节',
+    copyCode: '复制',
+    copied: '已复制',
+    copyFailed: '复制失败',
+    previous: '上一章',
+    next: '下一章',
+    sections: {
+      user: '使用指南',
+      admin: '管理指南'
+    }
   },
   systemStatistics: {
     title: '系统统计',
@@ -160,6 +176,7 @@ const zhCN = {
     signedInWithGitlab: '通过 GitLab 登录',
     productTour: '产品介绍',
     reopenOnboarding: '再次查看产品介绍',
+    viewGuide: '查看指南',
     logout: '退出登录',
     createIssue: '新建需求',
     createIssueTooltip: '创建新需求',
@@ -416,6 +433,7 @@ const zhCN = {
       next: '下一步',
       viewDashboard: '查看仪表盘',
       createIssue: '创建需求',
+      viewGuide: '查看完整指南',
     },
   },
   dashboard: {
