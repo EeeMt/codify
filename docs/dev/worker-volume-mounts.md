@@ -24,7 +24,7 @@ Issue 创建时必须显式选择 Worker Profile，之后该 Issue 的普通任�
 |--------|----------|--------|------|
 | `worker_workspace_host_path` | `WORKER_WORKSPACE_HOST_PATH` | `/opt/codify-workspaces` | 每个 Docker daemon 自己的本地工作目录根路径，必须是非空绝对路径 |
 | `worker_workspace_retention_days` | `WORKER_WORKSPACE_RETENTION_DAYS` | `14` | 正常任务 workspace 保留天数 |
-| `worker_failed_workspace_retention_days` | `WORKER_FAILED_WORKSPACE_RETENTION_DAYS` | `30` | 失败任务 workspace 保留天数（配置已定义，清理逻辑尚未区分） |
+| `worker_failed_workspace_retention_days` | `WORKER_FAILED_WORKSPACE_RETENTION_DAYS` | `30` | 失败任务 workspace 保留天数；后端目前没有读取方（`backend/app` 中只有定义、序列化与测试引用），实际清理仍按 `worker_workspace_retention_days` 执行 |
 
 路径通过部署环境变量 `WORKER_WORKSPACE_HOST_PATH` 配置，修改后需要重新创建 Backend
 和 Scheduler 容器。该路径由目标 Docker daemon 解析；多个 Worker 主机可以使用相同路径
@@ -80,8 +80,8 @@ Profile 自定义 volume 的 `host_path` 同样由目标 Docker host 解释，�
 | 宿主机路径 | 容器内路径 | 模式 | 用途 |
 |-----------|-----------|------|------|
 | `.../issue-{id}/repo` | `/workspace` | `rw` | Git 仓库，跨任务复用 |
-| `.../issue-{id}/claude` | `/home/codify/.claude` | `rw` | Claude CLI 会话状态，跨任务复用 |
-| `.../issue-{id}/shared` | `/opt/codify-issue-shared` | `rw` | 同一 issue 内多个 task 共享的通用可变空间 |
+| `.../issue-{id}/claude` | `/home/codify/.claude` | `rw` | Claude CLI 会话状态，跨任务复用；其他 Harness 不使用该挂载 |
+| `.../issue-{id}/shared` | `/opt/codify-issue-shared` | `rw` | 同一 issue 内多个 task 共享的通用可变空间，Codex/Pi/OpenCode 的状态目录也在这里 |
 | `.../issue-{id}/meta` | `/opt/codify-issue-meta` | `rw` | Worker/Profile 归属标记，供运维和安全清理使用 |
 
 `/tmp/codify-runtime` 不再挂载宿主机目录。它属于任务容器本身：输入由 Docker API
@@ -91,6 +91,28 @@ tmpfs：`put_archive` 写入 `created` 容器后，启动时才挂载的 tmpfs �
 `meta/ownership` 记录当前 workspace 的运行 UID/GID。升级后首次复用旧目录时，如果
 该标记缺失或 UID/GID 已变化，entrypoint 会对 repo、Claude 会话和 shared 目录执行
 一次递归 `chown`，完成后后续任务只调整顶层目录权限，避免重复遍历大型目录。
+
+### Harness 状态目录（四 Harness 差异）
+
+四个挂载路径固定，但每个 Harness 把自己的 home、配置、缓存与会话目录指向其中不同的一个，只有 Claude 使用 `claude/` 挂载。是否持久只取决于落在哪里：`claude/` 与 `shared/` 跨任务保留，`/tmp/codify-runtime` 和 `/home/codify` 的其他位置随容器消失。
+
+| Harness | 跨任务保留 | 每次运行重建 |
+|---------|-----------|-------------|
+| Claude | `/home/codify/.claude`（`claude/` 挂载）：会话记录、设置，以及用于恢复 `.claude.json` 的备份 | `/home/codify/.claude.json`、本次运行的提示词文件 |
+| Codex | `CODEX_HOME=/opt/codify-issue-shared/codex-home`（`shared/` 挂载）：`config.toml`、`execpolicy.rules`、会话记录、`.agents/skills` | `shared/` 挂载不可用时回退 `/tmp/codify-runtime/codex-home` |
+| Pi | `PI_HOME=/opt/codify-issue-shared/pi-home`（`shared/` 挂载），其中 `sessions/` 由 `--session-dir` 指定 | `/home/codify/.pi/agent`：`models.json`、`settings.json`、agents 定义、extensions、skills |
+| OpenCode | `XDG_DATA_HOME=/opt/codify-issue-shared/opencode-data`（`shared/` 挂载）：会话数据 | `HOME`、`XDG_CONFIG_HOME`、`XDG_CACHE_HOME`、`XDG_STATE_HOME` 全部落在 `/tmp/codify-runtime/opencode` |
+
+`/home/codify` 不是挂载点，只有它的 `.claude` 子目录随容器保留。Codex 的 CLI 进程以 `HOME=/home/codify` 启动，但它的状态在 `CODEX_HOME`；Pi 的 CLI 会写入 `/home/codify/.pi/agent`，那部分每次运行都会重建。选择这些目录的代码在 `deploy/worker-entrypoint/harness/adapters/<key>.sh`。
+
+Task Skills 的落地位置同样按 Harness 分流，源始终是本次运行的封存快照 `CODIFY_TASK_SKILLS_DIR=/tmp/codify-runtime/skill-scope`：
+
+| Harness | Skills 落地 | 是否持久 |
+|---------|------------|----------|
+| Claude | 不复制，用 `--add-dir` 直接读快照目录 | 否 |
+| Codex | `${CODEX_HOME}/.agents/skills` | 随 `shared/` 挂载持久 |
+| Pi | `${CODIFY_PI_CLI_HOME:-/home/codify}/.pi/agent/skills` | 否，容器内 |
+| OpenCode | `${OPENCODE_CONFIG_DIR}/skills`，再用 `opencode debug skill --pure` 逐个校验可发现 | 否，容器内 |
 
 ### Shared 目录
 
@@ -210,7 +232,9 @@ codify-runtime/task-prompt.md
 
 ---
 
-## 2. Session Storage（Claude 会话持久化）
+## 2. Session Storage（会话持久化）
+
+会话状态的存放位置按 Harness 分流，见上文「Harness 状态目录」：只有 Claude 使用 issue workspace 里的 `claude/` 目录，Codex、Pi、OpenCode 的会话数据放在 `shared/` 挂载下的各自目录。下面以 Claude 为例说明路径生成与生命周期。
 
 ### 路径生成
 
@@ -271,11 +295,18 @@ Worker Kit `0.3.4` 起可将 Playwright 报告、截图、Trace、覆盖率和�
 
 | 文件 | 内容 |
 |------|------|
-| `event.jsonl` | Claude 工具调用事件流 |
-| `runtime.json` | 运行时元数据 |
+| `event.jsonl` | 规范化事件流，四个 Harness 分别由自己的 translator 产出 |
+| `runtime.json` | 运行时元数据；目前只有 Claude runner 写入该文件 |
 | `console.log` | 控制台输出 |
 
 任务完成后，Worker entrypoint 将其打包为 `task-{task_id}-runtime-archive.tar.gz`。
+
+### 归档条目与 Harness 的关系
+
+实际归档不会只含上述三个文件：`artifacts.py` 的 `BASE_ARCHIVE_FILES` 收录 `event.jsonl`、`opencode-http-audit.jsonl`、`harness-result.json`、`runtime.json`、`console.log`、`delivery-summary.md`、`delivery-summary-validation.json`、`repository-preparation.json`、`artifacts-validation.json`（存在才收录，且必须是普通文件），再加上 `harness-events/` 下的每个文件，以及封存成功的 `artifacts/` 子树。
+
+- Harness 专属条目：`opencode-http-audit.jsonl` 只有 OpenCode 运行会产生；`runtime.json` 目前只有 Claude runner（`harness/runners/claude-run.sh`）写入。每个适配器各自写 `harness-events/<key>.jsonl`，即 `claude.jsonl`、`codex.jsonl`、`pi.jsonl`、`opencode.jsonl`。`claude.jsonl` 还会被 `bootstrap.sh` 在每次运行时预创建（root 所有、`0644`），因此非 Claude 的运行也会在归档里得到一个空文件。
+- 持久状态不进归档：`claude/` 与 `shared/` 挂载上的 Harness 状态目录（`codex-home`、`pi-home`、`opencode-data`）都不打包，归档只收录本次运行写进 `/tmp/codify-runtime` 的内容；工作区和 Git 仓库同理。
 
 ### 归档拉取与存储
 
@@ -407,6 +438,8 @@ build_task_runtime_archive(...)
 └─ Docker put_archive('/tmp') → /tmp/codify-runtime（容器内非持久层）
 ```
 
+容器启动后，Harness 适配器再把各自的 `HOME`、`CODEX_HOME`、`PI_HOME`、`XDG_*`、`OPENCODE_CONFIG_DIR` 指向上面某一个挂载（见「Harness 状态目录」），因此持久与不持久由适配器的选择决定，而不是由挂载本身决定。
+
 ---
 
 ## 8. 相关文件索引
@@ -425,5 +458,7 @@ build_task_runtime_archive(...)
 | `backend/app/scheduler.py` | 按数据库状态调度远程 workspace 清理 |
 | `deploy/docker-compose.yml` | Backend 宿主目录挂载 |
 | `deploy/worker-entrypoint/bootstrap.sh` | 容器内 workspace 初始化和归属标记 |
+| `deploy/worker-entrypoint/harness/adapters/*.sh` | 各 Harness 的 HOME/配置/会话目录选择与 Skills 落地 |
+| `deploy/worker-entrypoint/artifacts.py` | 运行时归档的条目清单、封存与上限校验 |
 | `deploy/worker-entrypoint/repository-helpers.sh` | 仓库交付、准备阶段失败产物和计时辅助 |
 | `deploy/worker-entrypoint/repository.sh` | clone/fetch、分支关系判定和 checkout |
