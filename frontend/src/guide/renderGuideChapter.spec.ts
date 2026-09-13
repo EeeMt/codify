@@ -60,11 +60,11 @@ describe('renderGuideChapter', () => {
   })
 
   it('opens a bundled asset link on its own', () => {
-    const { html } = renderGuideChapter('[map](assets/feature-map.svg)', ENV)
+    const { html } = renderGuideChapter('[map](assets/architecture.svg)', ENV)
 
-    expect(html).toContain('feature-map')
+    expect(html).toContain('architecture')
     expect(html).toContain('target="_blank"')
-    expect(html).not.toContain('href="assets/feature-map.svg"')
+    expect(html).not.toContain('href="assets/architecture.svg"')
   })
 
   it('returns an empty render for an empty chapter', () => {

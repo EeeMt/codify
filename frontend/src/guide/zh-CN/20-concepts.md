@@ -99,8 +99,12 @@ flowchart LR
 
 交付摘要由 Harness 生成，显示在「AI 交付摘要」卡片中，可用「放大查看交付摘要」展开阅读。
 
-## 产品全景
+## 系统架构
 
-上面是一条 Issue 的完整生命周期，而平台整体由六块构成：核心引擎（需求、任务、调度、执行）、数据与洞察、配置中心、协作与集成、平台治理，以及前端基础设施。完整关系维护为一张源图：
+控制面由三个长期运行的服务加一个数据库组成，共用两个镜像：nginx 提供前端并把 `/api` 转发给 backend，backend 负责 API 与状态写入，scheduler 是独立的编排进程，也是唯一创建容器的角色；PostgreSQL 保存唯一权威状态。
 
-[打开 Codify 功能地图](assets/feature-map.svg) — 大图，单独打开查看，保证每个方框都清晰可读。
+真正的执行不发生在这些服务里：scheduler 通过 Docker API 在任务快照钉住的 daemon 上创建 Worker 容器，容器加载冻结的 Task Snapshot 与 Runtime Bundle，由 Harness 完成代码工作并直接向 GitLab 推送分支；Merge Request 则由控制面以请求者身份通过 GitLab API 创建和更新。
+
+![Codify 系统架构](assets/architecture.svg)
+
+上图只画了正向链路。两条回程同样重要但没有画出：容器产生的 canonical 事件与日志是由 scheduler 侧主动回收进库的（不是容器推给服务），浏览器再通过 SSE 拿到这些更新；GitLab 则在 MR 合并或流水线失败时以 webhook 回调 backend。

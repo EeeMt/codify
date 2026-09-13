@@ -100,8 +100,12 @@ A finished Task produces more than a status change. The delivery surface include
 
 Artifacts are per Issue as well as per Task: all Tasks deliver to one branch and one Merge Request, and the Issue page aggregates them into a **Delivery Overview**.
 
-## Where this fits
+## System architecture
 
-The lifecycle above is one of six areas the platform covers: the core engine (Issues, Tasks, scheduling, execution), data and insights, configuration, collaboration and integrations, platform governance, and the frontend surfaces. The whole picture is maintained as a single source diagram:
+The control plane is three long-lived services plus one database, built from two images: nginx serves the frontend and proxies `/api` to the backend, the backend owns the API and state writes, and the scheduler is a separate orchestration process — the only component that creates containers. PostgreSQL holds the single authoritative state.
 
-[Open the Codify feature map](assets/feature-map.svg) — a large diagram; it opens on its own so every box stays readable.
+Execution happens outside those services: the scheduler creates a Worker container through the Docker API on the daemon pinned by the task snapshot. The container loads the frozen Task Snapshot and Runtime Bundle, the Harness does the code work and pushes the branch to GitLab directly, and the control plane creates and updates the Merge Request through the GitLab API as the requester.
+
+![Codify system architecture](assets/architecture.svg)
+
+The diagram draws the forward path only. Two return paths matter just as much and are left out of it: the canonical events and logs a container produces are pulled back into the database by the scheduler (the container does not push them to a service), and the browser receives those updates over SSE; GitLab calls back into the backend by webhook when a Merge Request merges or a pipeline fails.
