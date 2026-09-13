@@ -164,10 +164,10 @@ class PiOwner:
     def _resolve_parent_session_path(self) -> Path | None:
         """Resolve the persisted session file required by Pi's native RPC.
 
-        Codify stores a session ID in the lineage row, while Pi's new_session
-        RPC expects the parent session path. Passing the ID under an unknown
-        field (or passing a missing path) makes Pi create a fresh session,
-        which silently violates continue semantics.
+        Codify stores a session ID in the lineage row, while Pi's ``--session``
+        CLI option expects the persisted session path. Pi's ``new_session``
+        RPC only records ``parentSession`` in a new session header; it does not
+        load the parent's messages.
         """
         if not self.parent_session:
             return None
@@ -189,10 +189,16 @@ class PiOwner:
         parent_session_path = (
             self._resolve_parent_session_path() if self.prompt is not None else None
         )
+        pi_command = list(self.command)
+        if parent_session_path is not None:
+            # ``new_session(parentSession=...)`` creates an empty child and
+            # merely records lineage.  Load the persisted transcript through
+            # Pi's native CLI option instead, then use the normal RPC prompt.
+            pi_command.extend(["--session", str(parent_session_path)])
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.socket_path.unlink(missing_ok=True)
         self.process = await asyncio.create_subprocess_exec(
-            *self.command,
+            *pi_command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -222,17 +228,29 @@ class PiOwner:
         if start_control_server:
             await self._start_server()
         if self.prompt is not None:
-            for command, message, extra in (
-                (
-                    "new_session",
-                    None,
-                    {"parentSession": str(parent_session_path)} if parent_session_path else {},
-                ),
-                ("get_state", None, {}),
-                ("prompt", self.prompt, {}),
-            ):
+            handshake = []
+            if parent_session_path is None:
+                handshake.append(("new_session", None, {}))
+            handshake.extend([("get_state", None, {}), ("prompt", self.prompt, {})])
+            for command, message, extra in handshake:
                 _, response = await self._native_roundtrip(command, message, extra=extra)
                 response = await response
+                if command == "get_state" and parent_session_path is not None:
+                    data = response.get("data") if isinstance(response, dict) else None
+                    message_count = data.get("messageCount") if isinstance(data, dict) else None
+                    if (
+                        not isinstance(response, dict)
+                        or not response.get("success")
+                        or isinstance(message_count, bool)
+                        or not isinstance(message_count, int)
+                        or message_count <= 0
+                    ):
+                        self._fail(
+                            RuntimeError(
+                                "Pi resumed session did not load prior messages"
+                            )
+                        )
+                        return
                 if command == "prompt" and not response.get("success"):
                     # Pi refused the initial prompt before accepting it: no turn
                     # will ever start, so stop waiting for agent_settled.

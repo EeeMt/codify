@@ -146,7 +146,7 @@ async def test_owner_rejects_missing_parent_session_before_start(pi_owner, tmp_p
 
 
 @pytest.mark.asyncio
-async def test_owner_sends_parent_session_path_to_native_rpc(pi_owner, tmp_path):
+async def test_owner_loads_parent_session_with_native_cli_option(pi_owner, tmp_path):
     session_id = "01a05d3d-0000-7000-8000-000000000000"
     session_dir = tmp_path / "sessions"
     session_dir.mkdir()
@@ -156,20 +156,22 @@ async def test_owner_sends_parent_session_path_to_native_rpc(pi_owner, tmp_path)
         encoding="utf-8",
     )
     requests = tmp_path / "requests.jsonl"
+    argv = tmp_path / "argv.json"
     fake_pi = tmp_path / "fake_pi.py"
     fake_pi.write_text(
         "import json, sys\n"
         "path = sys.argv[1]\n"
+        "with open(sys.argv[2], 'w', encoding='utf-8') as out: json.dump(sys.argv[3:], out)\n"
         "for line in sys.stdin:\n"
         " request = json.loads(line)\n"
         " with open(path, 'a', encoding='utf-8') as out: out.write(json.dumps(request) + '\\n')\n"
         " response = {'id': request['id'], 'type': 'response', 'command': request['type'], 'success': True}\n"
-        " if request['type'] == 'get_state': response['data'] = {'sessionId': 'child', 'model': {}}\n"
+        f" if request['type'] == 'get_state': response['data'] = {{'sessionId': '{session_id}', 'model': {{}}, 'messageCount': 2}}\n"
         " print(json.dumps(response), flush=True)\n",
         encoding="utf-8",
     )
     owner = pi_owner.PiOwner(
-        [sys.executable, str(fake_pi), str(requests)],
+        [sys.executable, str(fake_pi), str(requests), str(argv)],
         tmp_path / "runtime",
         tmp_path / "owner.sock",
         prompt="initial prompt",
@@ -180,9 +182,47 @@ async def test_owner_sends_parent_session_path_to_native_rpc(pi_owner, tmp_path)
     try:
         await owner.start()
         native = [json.loads(line) for line in requests.read_text().splitlines()]
-        new_session = next(item for item in native if item["type"] == "new_session")
-        assert new_session["parentSession"] == str(parent_path)
-        assert "parentSessionId" not in new_session
+        assert json.loads(argv.read_text()) == ["--session", str(parent_path)]
+        assert [item["type"] for item in native] == ["get_state", "prompt"]
+    finally:
+        if owner.process and owner.process.returncode is None:
+            owner.process.terminate()
+            await owner.process.wait()
+
+
+@pytest.mark.asyncio
+async def test_owner_fails_closed_when_resumed_session_is_empty(pi_owner, tmp_path):
+    session_id = "01a05d3d-0000-7000-8000-000000000001"
+    session_dir = tmp_path / "sessions"
+    session_dir.mkdir()
+    parent_path = session_dir / f"2026-09-01T00-00-00-000Z_{session_id}.jsonl"
+    parent_path.write_text('{"type":"session","version":3,"id":"%s"}\n' % session_id)
+    prompt_seen = tmp_path / "prompt-seen"
+    fake_pi = tmp_path / "fake_pi.py"
+    fake_pi.write_text(
+        "import json, sys\n"
+        "for line in sys.stdin:\n"
+        " request = json.loads(line)\n"
+        " if request['type'] == 'prompt': open(sys.argv[1], 'w').write('unexpected')\n"
+        " response = {'id': request['id'], 'type': 'response', 'command': request['type'], 'success': True}\n"
+        f" if request['type'] == 'get_state': response['data'] = {{'sessionId': '{session_id}', 'model': {{}}, 'messageCount': 0}}\n"
+        " print(json.dumps(response), flush=True)\n",
+        encoding="utf-8",
+    )
+    owner = pi_owner.PiOwner(
+        [sys.executable, str(fake_pi), str(prompt_seen)],
+        tmp_path / "runtime",
+        tmp_path / "owner.sock",
+        prompt="initial prompt",
+        parent_session=session_id,
+        session_dir=session_dir,
+    )
+
+    try:
+        await owner.start()
+        assert owner.failure is not None
+        assert str(owner.failure) == "Pi resumed session did not load prior messages"
+        assert not prompt_seen.exists()
     finally:
         if owner.process and owner.process.returncode is None:
             owner.process.terminate()

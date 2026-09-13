@@ -815,13 +815,9 @@ def test_pi_verify_runtime_enforces_pinned_cli_version(tmp_path):
 
 
 def test_pi_continuation_raw_stream_maps_model_resolved(tmp_path):
-    # Real pi 0.84.2 continuation wire (docs/harness-probes/v2/pi/continuation.raw.jsonl):
-    # the runner resolves the lineage ID to a session file and sends
-    # new_session with parentSession to continue a task;
-    # pi accepts it (success:true) and the following get_state returns the new child
-    # session, from which the translator captures model + session_id. The new_session
-    # ACK itself carries no canonical event and a handshake-only stream (no model
-    # turn) emits no harness terminal at EOF.
+    # Pi --session loads the persisted transcript before RPC starts. Its first
+    # get_state therefore reports a non-empty messageCount; continuation does
+    # not send new_session or create an empty child session.
     runtime_dir = tmp_path / "continuation"
     runtime_dir.mkdir()
     _emit(runtime_dir, "run.started", {"runtime_bundle_digest": "d" * 64})
@@ -890,22 +886,16 @@ def test_pi_real_session_id_tracks_active_session_after_startup_state(tmp_path):
     assert completed["payload"]["session_id"] == active_session_id
 
 
-def test_pi_runner_handshake_uses_new_session_not_resume():
-    # Finding 1 regression guard: real pi 0.84.2 rejects the old handshake frame
-    # The old resume command is rejected by pi; the runner must request
-    # sessions via new_session (+ optional parentSession path for a continued
-    # task), then keep get_state -> prompt.
+def test_pi_runner_handshake_distinguishes_fresh_and_resumed_sessions():
+    # Fresh runs create a session over RPC; continuations load the persisted
+    # session through the native CLI and must not send new_session.
     owner = (REPO_ROOT / "deploy/worker-entrypoint/harness/adapters/pi_owner.py").read_text(encoding="utf-8")
-    assert '"type":"resume"' not in owner
-    # Continuations reference the persisted parent path; missing parents fail
-    # closed instead of silently creating a fresh session.
-    assert '"parentSession"' in owner
-    assert "parentSessionId" not in owner
-    assert '"new_session",' in owner
+    assert '"--session", str(parent_session_path)' in owner
+    assert '"parentSession"' not in owner
+    assert 'handshake.append(("new_session", None, {}))' in owner
+    assert 'message_count <= 0' in owner
     # get_state / prompt frame sequence is preserved by the single owner.
-    assert '("get_state", None' in owner
-    assert '("prompt", self.prompt' in owner
-    assert owner.index('("get_state", None') < owner.index('("prompt", self.prompt')
+    assert 'handshake.extend([("get_state", None, {}), ("prompt", self.prompt, {})])' in owner
 
 
 def test_pi_runner_pins_codify_provider_and_snapshot_model():

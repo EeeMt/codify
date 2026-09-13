@@ -9,7 +9,7 @@
 | 场景 | fixture | 结果 | 关键证据 |
 |---|---|---|---|
 | init / version / clean shutdown / fresh session | `success.raw.jsonl` | ✅ | `get_state` 返回真实模型/会话；`prompt success:true` 仅代表**接口 ACK**（非模型消费）；`agent_settled` 是真正的 settled 终态；流末干净关闭（无残留进程） |
-| fresh 会话 / continue 会话 | `success.raw.jsonl` · `continuation.raw.jsonl` | ✅ | 首会话发无 parent 的 `new_session` → `get_state` 反映 `messageCount:0`；续会话（`CODIFY_RESUME_SESSION`）先解析为持久化 session 文件，再发 `new_session`+`parentSession` 路径 → `get_state` 返回新子会话；缺失 parent 在 Adapter 侧 fail-closed；真实 0.84.2 拒绝旧 `type:resume`（`Unknown command: resume`） |
+| fresh 会话 / continue 会话 | `success.raw.jsonl` · `continuation.raw.jsonl` | ✅ | 首会话发无 parent 的 `new_session` → `get_state` 反映 `messageCount:0`；续会话（`CODIFY_RESUME_SESSION`）先解析为持久化 session 文件，再以 CLI `--session <path>` 启动 → RPC 首个 `get_state` 必须反映 `messageCount>0`；缺失或空 parent 在 Adapter 侧 fail-closed；`new_session(parentSession)` 只记录父链，不加载消息 |
 | steer（工具调用后、下次模型调用前送达） | `steer.raw.jsonl` | ✅ | `queue_update` 的 `steering` 数组列出排队消息；**`steer success:true` 为原生 ACK（`delivered`），无 command_id**；steer 在 turn 边界送达，队列随后排空；两轮 turn 均完成 |
 | follow-up（当前工作结束后继续处理） | `followup.raw.jsonl` | ✅ | `follow_up success:true` ACK；`queue_update.followUp` 记录排队文本；follow_up 成为第二轮独立 user turn，代理按新指令输出；`followUpMode: one-at-a-time` 生效 |
 | settled / closing / drain 竞争 | `success/steer/followup` | ✅ | `agent_settled` 是 attempt 级 settled 判定；settled 前队列已排空 |
@@ -23,7 +23,7 @@
 4. **命令类型**：`steer`（工具调用后、下一模型调用前送达）、`follow_up`（当前工作结束后继续）。与 §6.3 首发命令类型一致。
 5. **Pi 无显式协议版本号**：RPC 事件不带 schema/version 字段；协议版本由 Pi CLI 版本 (`0.84.2`) 隐式承载，V2 固定该版本。
 6. **`followUpMode: one-at-a-time`** 与 `steeringMode: one-at-a-time` 为 get_state 暴露的控制面状态，映射到 V2 command 队列约束。
-7. **续会话帧是 `new_session`+`parentSession` 路径，不是 `resume` 或 `parentSessionId`。** 真实 0.84.2 对 `{"id":1,"type":"resume","sessionId":...}` 返回 `{"success":false,"error":"Unknown command: resume"}`；对 `{"id":1,"type":"new_session","parentSession":"/path/to/parent-session.jsonl"}` 返回 `success:true`，随后 `get_state` 返回新的子会话（新 sessionFile）。Codify 从 lineage 保存的 session ID 精确解析该文件；文件不存在时在启动前 fail-closed。首会话则为无 parent 的裸 `new_session`。
+7. **续会话通过 CLI `--session <path>` 加载，不是 RPC `new_session(parentSession)`。** `new_session` 明确表示 start a fresh session，`parentSession` 只写入新 session header 的父链字段，不会带入父消息；Codify 从 lineage 保存的 session ID 精确解析该文件，启动 Pi 时传入 `--session`，并要求后续 `get_state.messageCount>0`，否则 fail-closed。首会话则为无 parent 的裸 `new_session`。旧的 `type:resume` 仍不是 Pi 0.84.2 的合法 RPC 命令。
 8. **`steer`/`follow_up` 的 ACK 延迟是 turn 级，不是请求级。** probe 的短会话里 ACK 紧跟 `queue_update`，但在真实长 turn 中 ACK 会等到 turn 边界：Task `567`（Pi 0.84.2 / deepseek-flash）的 steer 于 `00:20:48` 写入原生 stdin，`steer success:true` 直到 `00:24:48` `agent_settled` 边界才返回（约 4 分钟）。因此控制面的等待窗口必须覆盖整个 turn（`pi_owner.NATIVE_COMMAND_ACK_TIMEOUT_SECONDS`、`control_client.SOCKET_TIMEOUT_SECONDS`、pump 的 `CONTROL_RESULT_TIMEOUT_SECONDS`/`CONTROL_TRANSPORT_TIMEOUT_SECONDS`）；任何请求级超时都会把**已投递**的命令误记为终态 `outcome_unknown`。
 
 ## 事件类型清单（Observed）
