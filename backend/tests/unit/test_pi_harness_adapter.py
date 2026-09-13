@@ -2070,6 +2070,89 @@ def test_pi_subagent_tool_fans_out_to_one_delegation_row_per_child(tmp_path):
     ) == 2
 
 
+def test_pi_single_agent_result_without_inventory_settles_its_child(tmp_path):
+    """A plain single-agent launch reports results but no workflow inventory.
+
+    Task 656 delegated to one `scout`, whose result carried exitCode 0 and a
+    full final answer, yet the delegation row never settled and no child rows
+    were projected because the child's `state` only exists on the inventory.
+    """
+    _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    result = {
+        "index": 0,
+        "agent": "scout",
+        "exitCode": 0,
+        "outputState": "present",
+        "finalOutput": "## project summary",
+        "sessionFile": "/home/codify/.pi/agent/sessions/2026-09-13T02-00-00-000Z_abc/11111111-1111-4111-8111-111111111111/run-0/session.jsonl",
+        "usage": {"input": 900, "output": 120, "cacheRead": 100},
+        "toolCalls": [{"text": "$ ls -la"}],
+    }
+    records = [
+        {
+            "type": "tool_execution_start",
+            "toolCallId": "call_single",
+            "toolName": "subagent",
+            "args": {"agent": "scout", "task": "summarize"},
+        },
+        {
+            # A mid-run snapshot names neither a run directory nor a run id:
+            # publishing it would open a second row for the same child.
+            "type": "tool_execution_update",
+            "toolCallId": "call_single",
+            "toolName": "subagent",
+            "partialResult": {
+                "content": [],
+                "details": {
+                    "mode": "single",
+                    "results": [{"index": 0, "agent": "scout", "outputState": "absent"}],
+                },
+            },
+        },
+        {
+            "type": "tool_execution_update",
+            "toolCallId": "call_single",
+            "toolName": "subagent",
+            "partialResult": {"content": [], "details": {"mode": "single", "results": [result]}},
+        },
+        {
+            "type": "tool_execution_end",
+            "toolCallId": "call_single",
+            "toolName": "subagent",
+            "result": {"content": [{"type": "text", "text": "done"}], "details": {"mode": "single", "results": [result]}},
+            "isError": False,
+        },
+    ] + _turn_lifecycle(root_usage={"input": 10, "output": 2})
+    _translate(tmp_path, records)
+
+    events = _events(tmp_path)
+    started = [event["payload"] for event in events if event["type"] == "tool.started" and "subagent" in event["payload"]]
+    completed = [event["payload"] for event in events if event["type"] == "tool.completed" and "subagent" in event["payload"]]
+    # Exactly one row per child: the provisional snapshot must not open a
+    # second row under the bare index scope.
+    assert len(started) == 1
+    assert len(completed) == 1
+    assert started[0]["subagent"]["role"] == "scout"
+    assert completed[0]["subagent"]["status"] == "completed"
+    assert completed[0]["error"] is False
+    assert completed[0]["output"] == "## project summary"
+    # Child identity is shared by the delegation row and the child's own rows,
+    # and it comes from the child's own run directory.
+    assert started[0]["tool_id"] == completed[0]["tool_id"]
+    # Derived from the child's run directory, sanitized by the stable redactor,
+    # and never the bare "last resort" index scope.
+    child_id = started[0]["subagent"]["id"]
+    assert child_id.startswith("call_single:")
+    assert not child_id.endswith(":0")
+    child_messages = [
+        event["payload"] for event in events if event["type"] == "message.completed" and "agent" in event["payload"]
+    ]
+    assert [payload["text"] for payload in child_messages] == ["## project summary"]
+    assert child_messages[0]["agent"]["id"] == started[0]["subagent"]["id"]
+    for event in events:
+        validate_event_v2(event)
+
+
 def test_pi_attempt_usage_adds_every_child_leaf_usage(tmp_path):
     """The attempt total includes children, which the root records never do.
 

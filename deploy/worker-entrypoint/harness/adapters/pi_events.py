@@ -29,7 +29,7 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from result_builder import v2_harness_block
 from sanitize import clean_message, redact_hidden_reasoning, sanitize
@@ -1032,7 +1032,9 @@ def _merged_children(details: dict) -> list[dict]:
     return [{"child": {}, "result": result} for result in result_entries]
 
 
-def _delegation_identity(tool_call_id: str, child: dict, result: dict) -> tuple[str, str]:
+def _delegation_identity(
+    tool_call_id: str, child: dict, result: dict
+) -> tuple[str, str, bool]:
     """Return ``(tool_id, agent_id)`` for one child.
 
     One ``subagent`` call may fan out to several children, so both ids are
@@ -1047,15 +1049,34 @@ def _delegation_identity(tool_call_id: str, child: dict, result: dict) -> tuple[
     ``agent.id`` that is stable and unique within the attempt, which the
     inventory key satisfies; the native run id stays in the raw archive.
     """
-    scope = child.get("childId") or child.get("key")
+    provisional = False
+    scope = child.get("childId") or child.get("key") or result.get("workflowKey")
     if not isinstance(scope, str) or not scope.strip():
         run_id = child.get("runId") or result.get("runId")
         scope = run_id if isinstance(run_id, str) and run_id.strip() else None
     if not scope:
+        # A single-agent result has neither key nor run id, but its own session
+        # file names that child's run directory: stable for the child and
+        # unique across a parallel fan-out that repeats ``index``.
+        session_file = result.get("sessionFile")
+        if isinstance(session_file, str) and session_file.strip():
+            # ``…/<session>/<child>/run-0/session.jsonl``: the child's own
+            # directory is the stable, unique part.
+            path = PurePosixPath(session_file.strip())
+            parent = path.parent
+            scope = parent.parent.name if parent.name.startswith("run-") else parent.name
+            scope = scope or path.name
+    if not scope:
+        # Last resort: the result index. A single-agent run reports its own
+        # session file only once the child has started, so an early snapshot
+        # would otherwise open a row under a scope that never comes back and
+        # the same child would appear twice. Callers therefore wait for the
+        # final record before publishing a provisional identity.
         index = result.get("index")
         scope = str(index) if isinstance(index, int) else "0"
+        provisional = True
     tool_id = f"{tool_call_id}:{scope.strip()}"
-    return tool_id, tool_id
+    return tool_id, tool_id, provisional
 
 
 def _child_usage(result: dict) -> dict | None:
@@ -1182,15 +1203,36 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
     # that only ever appeared with a partial inventory must still produce one
     # row, even though a complete one is preferable while the run is live.
     is_final = record_type == "tool_execution_end"
+    # A workflow launch reports both an inventory (``workflowChildren``) and a
+    # result per child; a plain single-agent launch reports only ``results``,
+    # so its children have no native state at all.
+    has_inventory = bool(
+        (details.get("workflowChildren") or {}).get("children")
+        if isinstance(details.get("workflowChildren"), dict)
+        else None
+    )
     for entry in _merged_children(details):
         child = entry["child"]
         result = entry["result"]
-        tool_id, agent_id = _delegation_identity(tool_call_id, child, result)
+        tool_id, agent_id, provisional_identity = _delegation_identity(tool_call_id, child, result)
         native_role = child.get("agent") or result.get("agent")
         role = native_role.strip() if isinstance(native_role, str) and native_role.strip() else "agent"
         child_state = entry["child"].get("state")
         state = str(child_state or "").lower()
         status = _DELEGATION_TERMINAL_STATES.get(state)
+        if status is None and not has_inventory and is_final:
+            # Without an inventory the call's own terminal is the child's:
+            # exit code first, then the plugin's output state, then the tool
+            # result's error flag. Task 656 lost its child rows entirely
+            # because this shape was treated as a still-running child.
+            exit_code = result.get("exitCode")
+            output_state = str(result.get("outputState") or "").lower()
+            if isinstance(exit_code, int) and not isinstance(exit_code, bool):
+                status = "completed" if exit_code == 0 else "failed"
+            elif output_state:
+                status = "failed" if output_state == "absent" else "completed"
+            else:
+                status = "failed" if record.get("isError") else "completed"
         child_state_flags = delegation.setdefault(
             tool_id,
             {"started": False, "completed": False, "task": None},
@@ -1205,6 +1247,10 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
             # identity instead of freezing a placeholder row, but never drop a
             # child — a terminal state emits with whatever is available.
             if not native_role and not is_final:
+                continue
+            if provisional_identity and not is_final:
+                # Wait for the record that names the child (its run directory)
+                # instead of publishing a row under the temporary index scope.
                 continue
             input_payload: dict = {"role": role}
             if isinstance(task, str) and task.strip():
