@@ -351,6 +351,42 @@ Two items remain outside this evidence set and are **not** claimed:
   context in either mode, and the worker authenticates with `ANTHROPIC_API_KEY`
   against a task-local HOME, so there is no keychain to read.
 
+## Child event-type coverage (audited per harness)
+
+Every type §5.3 lists as attributable was checked against what each harness
+actually reports on its own stream. "Projected" means the adapter emits it with
+`payload.agent` and the projector stores it as an indented child row.
+
+| Type | Pi | Claude | Codex | OpenCode |
+|---|---|---|---|---|
+| delegation `tool.started` / `tool.completed` (+ `subagent`) | yes | yes | yes | yes |
+| child `message.completed` | yes (plugin `finalOutput`) | yes (child assistant text) | yes (child `agentMessage`) | yes |
+| child `message.delta` | n/a: children are separate processes | n/a: partial stream events are root-only (probe) | n/a | yes, through the shared current-agent seam |
+| child `tool.started` / `tool.completed` | yes, command text only | yes | yes | yes |
+| child `reasoning_summary.*` | not available: the plugin redacts child thinking | yes, when a child reports thinking | yes, when a child thread reports reasoning | yes |
+| child `context.compacted` | n/a | yes (attributed by `parent_tool_use_id`) | yes (by `threadId`) | yes (by session id) |
+| child `diagnostic` | yes (raw archive only, no timeline row) | yes | yes | yes |
+
+Two limits belong to the upstream streams, not to the projection:
+
+1. **Pi child tool stdout is not in the payload.** A child result carries
+   `toolCalls[]` as `{"text": "<command>", "expandedText": "<command>"}` and
+   nothing else; the command's output appears only inside the same result's
+   `finalOutput`, which is projected as that child's message row and as its
+   delegation row's output (Task 650: `$ echo marker-alpha` on the tool row,
+   `marker-alpha` in the answer). The plugin's `transcriptPath` /
+   `artifactPaths.outputPath` would carry per-command output, but reading them is
+   the side channel §4 and §5.7 forbid.
+2. **Pi child thinking is redacted upstream** (`<HIDDEN_REASONING_OMITTED>`), so
+   no child reasoning row can exist without violating §5.7.
+
+Projection gaps that were real and are now fixed: a delegation whose child
+identity is enriched between start and completion (projector falls back to the
+unique `(agent, tool_id)` row), a plain single-agent launch that reports
+`results[]` with no inventory (the call's own terminal now settles its child,
+and a provisional index-only identity no longer opens a throwaway row), and
+`context.compacted` emitted without attribution.
+
 ## Ceiling enforcement on the pinned plugin
 
 The ceiling has to make background delegation impossible at depth 0, because a
