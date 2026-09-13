@@ -1,0 +1,72 @@
+# Chapter: guide/en/90-troubleshooting.md — "Task failed".
+# Reader takeaway: when a task fails, read it in one order — the Failure reason on
+# the task, then the event stream, the raw logs and the run archive — and recognise
+# the message by its shape: a timeout, an exceeded usage limit, an unavailable
+# Worker runtime, or a push that was never confirmed.
+# Render: d2 failure-triage.d2 failure-triage.svg --pad 24 --theme 0 --layout elk,
+# then set width and height on the root <svg> to the viewBox size so the asset also
+# renders 1:1 outside the guide's <img>.
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+# The numbered chain is the order to read in; the four unnumbered nodes around the
+# Failure reason are the message shapes that appear there, so every one of them
+# points at it.
+triage: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 30
+  style.fill: transparent
+  style.stroke-width: 0
+
+  timeout: "Task timed out\nlimit too small" { class: node }
+  error: "1. Failure reason\non the task" { class: accent }
+  events: "2. Event stream\nwhat ran, in order" { class: node }
+  logs: "3. Raw Logs\ncontainer output" { class: node }
+  quota: "Usage limit\nexceeded, no start" { class: node }
+  runtime: "Worker runtime\nnot available" { class: node }
+  push: "Push not confirmed\ndelivery failed" { class: node }
+  archive: "4. Run archive\nfull run files" { class: node }
+
+  error -> events
+  events -> logs
+  logs -> archive
+  error -> timeout
+  error -> quota
+  error -> runtime
+  error -> push
+}

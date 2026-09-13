@@ -13,7 +13,7 @@ section: User Guide
 3. 预约时间更早的优先。
 4. 创建时间更早的优先；完全相同则按任务 ID。
 
-![任务为什么在等待](assets/diagrams/zh-CN/why-a-task-waits.svg)
+![开始执行前要过三道闸：回合顺序、预约时间、并发容量](assets/diagrams/zh-CN/why-a-task-waits.svg)
 
 队列位置是**活跃任务之间的相对排名**：终态任务不占位置，非队首任务会显示「排队第 {position} 位 · 等待 Task #{blockedBy}」。被阻塞的任务不会占用并发名额，因此不会拖慢其他需求的进度。
 

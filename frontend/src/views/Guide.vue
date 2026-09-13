@@ -21,9 +21,8 @@
         <div
           ref="navPanelRef"
           class="guide-nav__panel"
-          :style="{ transform: `translateY(${navOffset}px)` }"
         >
-          <n-scrollbar class="guide-nav__scroll">
+          <div class="guide-nav__scroll">
             <template v-for="section in visibleSections" :key="section.key">
               <p class="guide-nav__section">{{ t(SECTION_LABEL[section.key]) }}</p>
               <ul class="guide-nav__list">
@@ -50,7 +49,7 @@
                 </li>
               </ul>
             </template>
-          </n-scrollbar>
+          </div>
         </div>
       </aside>
 
@@ -90,7 +89,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NIcon, NInput, NScrollbar } from 'naive-ui'
+import { NIcon, NInput } from 'naive-ui'
 import { SearchOutline } from '@vicons/ionicons5'
 
 import PageHeader from '../components/PageHeader.vue'
@@ -110,7 +109,6 @@ const router = useRouter()
 
 const contentRef = ref<HTMLElement | null>(null)
 const navPanelRef = ref<HTMLElement | null>(null)
-const navOffset = ref(0)
 const chapterFilter = ref('')
 const html = ref('')
 const headings = ref<GuideHeading[]>([])
@@ -153,32 +151,55 @@ function resolveScrollHost(): HTMLElement | null {
   return scrollHost
 }
 
+function applyNavOffset(panel: HTMLElement | null, offset: number): void {
+  if (!panel) return
+  const value = `translateY(${offset}px)`
+  if (panel.style.transform !== value) panel.style.transform = value
+}
+
+/**
+ * Writes the transform straight to the element instead of going through a
+ * reactive binding: a scroll fires many times per frame, and a render cycle per
+ * event lands out of step with the paint, which reads as jitter. One update per
+ * animation frame, snapped to whole pixels, is stable.
+ */
 function syncNavFloat(): void {
   const panel = navPanelRef.value
   const column = panel?.parentElement
   const host = resolveScrollHost()
   if (!panel || !column || !host || isMobile.value) {
-    navOffset.value = 0
+    applyNavOffset(panel, 0)
     return
   }
   const hostTop = host.getBoundingClientRect().top
   const columnTop = column.getBoundingClientRect().top
   const travel = Math.max(0, column.clientHeight - panel.offsetHeight)
-  navOffset.value = Math.min(Math.max(0, hostTop + NAV_STICKY_TOP - columnTop), travel)
+  applyNavOffset(panel, Math.round(Math.min(Math.max(0, hostTop + NAV_STICKY_TOP - columnTop), travel)))
+}
+
+let navFloatFrame = 0
+
+function scheduleNavFloat(): void {
+  if (navFloatFrame) return
+  navFloatFrame = requestAnimationFrame(() => {
+    navFloatFrame = 0
+    syncNavFloat()
+  })
 }
 
 onMounted(() => {
   // Scroll events do not bubble, and the element the shell actually scrolls is
   // not reliably the first scrolling ancestor. A capture-phase listener on the
   // window sees the event from whichever element scrolls.
-  window.addEventListener('scroll', syncNavFloat, { capture: true, passive: true })
-  window.addEventListener('resize', syncNavFloat)
+  window.addEventListener('scroll', scheduleNavFloat, { capture: true, passive: true })
+  window.addEventListener('resize', scheduleNavFloat)
   syncNavFloat()
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('scroll', syncNavFloat, { capture: true })
-  window.removeEventListener('resize', syncNavFloat)
+  if (navFloatFrame) cancelAnimationFrame(navFloatFrame)
+  window.removeEventListener('scroll', scheduleNavFloat, { capture: true })
+  window.removeEventListener('resize', scheduleNavFloat)
 })
 
 const sections = computed(() => guideSections(currentLocale.value))
@@ -336,6 +357,9 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 20px;
+  /* One measure for the whole page: the header subtitle would otherwise run to
+     the shared 760px default and read as a second, wider column. */
+  --app-page-subtitle-max-width: 560px;
 }
 
 .guide-page__filter {
@@ -369,8 +393,15 @@ watch(
 }
 
 .guide-nav__scroll {
+  /* A native scroll container, not n-scrollbar: the nav can grow past the
+     panel (a chapter with many headings expands in place), and naive-ui's
+     container sizes to its content instead of filling the panel, so the extra
+     entries were clipped with nothing to scroll. */
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .guide-nav__section {
@@ -512,80 +543,179 @@ watch(
 </style>
 
 <style>
-/* v-html content is not scoped: chapter typography is owned here. */
+/* v-html content is not scoped: chapter typography is owned here.
+   The guide is a long read built from three shapes - prose, tables and figures
+   - so each gets its own rhythm: sections separated by a rule, tables with
+   horizontal rules only, figures presented as cards. */
+.guide-content__body {
+  /* Type size, not column width, sets the measure here: the diagrams are sized
+     to the full 860px column and must stay at 1:1, so a comfortable line of
+     prose (~85 characters) comes from 17.5px type rather than a narrower
+     column. */
+  font-size: 17.5px;
+  line-height: 1.72;
+  color: rgba(15, 23, 42, 0.82);
+}
+
 .guide-content__body > :first-child {
   margin-top: 0;
 }
 
 .guide-content__body h2 {
-  margin: 32px 0 12px;
-  font-size: 22px;
-  line-height: 1.3;
+  margin: 44px 0 14px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(15, 23, 42, 0.07);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.012em;
   color: #0f172a;
+}
+
+.guide-content__body > h2:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .guide-content__body h3 {
-  margin: 24px 0 10px;
-  font-size: 16px;
-  line-height: 1.4;
+  margin: 32px 0 12px;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.45;
   color: #0f172a;
 }
 
+.guide-content__body p {
+  margin: 0 0 16px;
+}
+
+/* Two measures: prose is capped for a comfortable line, while tables and
+   figures use the full column. A single measure cannot serve both: the diagrams
+   are sized to the column and must not be scaled down (that is the whole point
+   of their size budget), and an 860px line of prose runs to ~99 characters.
+   560px is ~70 characters at 17.5px, inside the comfortable band. `ch`
+   units are unusable here - Inter's digit advance is ~0.63em, so `82ch`
+   resolves to 903px. */
 .guide-content__body p,
-.guide-content__body li {
-  font-size: 14px;
-  line-height: 1.75;
-  color: rgba(15, 23, 42, 0.78);
+.guide-content__body ul,
+.guide-content__body ol,
+.guide-content__body blockquote {
+  max-width: 560px;
 }
 
 .guide-content__body ul,
 .guide-content__body ol {
-  padding-left: 22px;
+  margin: 0 0 18px;
+  padding-left: 24px;
+}
+
+.guide-content__body li + li {
+  margin-top: 5px;
+}
+
+.guide-content__body li::marker {
+  color: rgba(15, 23, 42, 0.35);
 }
 
 .guide-content__body a {
   color: #1d4ed8;
+  text-decoration-color: rgba(29, 78, 216, 0.3);
+  text-underline-offset: 2px;
 }
 
+.guide-content__body a:hover {
+  text-decoration-color: currentColor;
+}
+
+.guide-content__body strong {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+/* Tables carry most of the reference material here; horizontal rules read
+   cleaner than a full grid and keep wide tables scannable. */
 .guide-content__body table {
   width: 100%;
-  margin: 12px 0 20px;
+  margin: 14px 0 24px;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 14.5px;
+  line-height: 1.62;
 }
 
 .guide-content__body th,
 .guide-content__body td {
-  padding: 8px 10px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  padding: 10px 14px;
   text-align: left;
   vertical-align: top;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
 }
 
 .guide-content__body th {
-  background: rgba(148, 163, 184, 0.12);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.16);
+  background: rgba(148, 163, 184, 0.1);
   font-weight: 600;
+  color: #0f172a;
+}
+
+.guide-content__body tbody tr:nth-child(even) {
+  background: rgba(148, 163, 184, 0.045);
 }
 
 .guide-content__body code {
-  padding: 1px 5px;
+  padding: 1.5px 5px;
   border-radius: 5px;
   background: rgba(15, 23, 42, 0.06);
-  font-size: 12.5px;
+  font-size: 15px;
 }
 
 .guide-content__body blockquote {
-  margin: 16px 0;
-  padding: 8px 16px;
+  margin: 18px 0;
+  padding: 10px 18px;
   border-left: 3px solid rgba(32, 128, 240, 0.4);
+  border-radius: 0 10px 10px 0;
   background: rgba(32, 128, 240, 0.05);
+  color: rgba(15, 23, 42, 0.78);
+}
+
+.guide-content__body blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.guide-content__body hr {
+  margin: 32px 0;
+  border: 0;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+/* Figures: the diagrams are half the point of this guide, so they get a card
+   with a caption rather than a bare bordered image. */
+.guide-content__body figure.guide-figure {
+  margin: 22px 0 30px;
+}
+
+.guide-content__body figure.guide-figure img {
+  margin: 0 auto;
+}
+
+.guide-figure__caption {
+  margin-top: 10px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: rgba(15, 23, 42, 0.55);
+  text-align: center;
 }
 
 .guide-content__body img {
+  display: block;
   max-width: 100%;
   height: auto;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  border-radius: 12px;
+  margin: 20px auto 28px;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .guide-code {

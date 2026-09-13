@@ -15,6 +15,8 @@
 
 不要在本目录再维护一份用户指南副本——两处内容必然漂移。
 
+Covers: quick start, creating an issue, core concepts, creating tasks, running and steering, delivery, scheduling and capacity, observability, admin configuration, access and usage governance, troubleshooting.
+
 ## 运维
 
 - [配置参考](ops/CONFIGURATION.md) — 部署期环境变量、运行时覆盖、常用命令、运维备忘

@@ -5,15 +5,15 @@ section: User Guide
 
 ## Branch and commits
 
-Delivery is per Issue, not per Task. Every Task on an Issue commits to the same working branch. The branch is named when the Issue is created and is cut from the Issue's **Starting Branch** when the first run pushes to it. The Branch Config panel on a task names all three roles:
+![One branch; with or without an MR, the Issue still closes](assets/diagrams/en/delivery-path.svg)
+
+Delivery is per Issue, not per Task: every Task commits to the same working branch, which is cut from the Issue's **Starting Branch**. The Branch Config panel on a task names all three roles:
 
 | Role | Label |
 |---|---|
 | Source | **Base branch** |
 | Working | **Working branch** |
 | Merge target | **Target branch** |
-
-The working branch is generated as `codify/issue-{id}`, so it is stable for the whole life of the Issue.
 
 Whether the result becomes a Merge Request depends on how the Issue was configured:
 

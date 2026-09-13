@@ -1,0 +1,69 @@
+# Chapter: guide/en/30-create-task.md — "Task modes", "Run now or schedule".
+# Reader takeaway: a Task makes two choices in one form — which Task Mode the run
+# follows (Implementation modifies and commits, Analysis answers without changing
+# files, Freeform lets the Harness decide) and when it enters the queue
+# (Execute Now straight away, or Schedule at a future time).
+# Render: d2 task-mode-choice.d2 task-mode-choice.svg --pad 24 --theme 0 --layout elk,
+# then set width and height on the root <svg> to the viewBox size so the asset also
+# renders 1:1 outside the guide's <img>.
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+# Two choices, two clusters: the Task Mode cluster on the left (the mode node with
+# its three options wrapping into the second row), the Schedule cluster on the right.
+choice: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 40
+  style.fill: transparent
+  style.stroke-width: 0
+
+  mode: "Task Mode\nhow the run works" { class: accent }
+  impl: "Implementation\nchanges + commits" { class: node }
+  sched: "Schedule\nwhen it runs" { class: node }
+  now: "Execute Now\nqueues at once" { class: node }
+  analysis: "Analysis\nanswers, no code" { class: node }
+  freeform: "Freeform\nHarness decides" { class: node }
+  at: "Schedule at\nat a chosen time" { class: node }
+  gap: " " { style.fill: transparent; style.stroke-width: 0 }
+
+  mode -> impl
+  mode -> analysis
+  mode -> freeform
+  sched -> now
+  sched -> at
+}

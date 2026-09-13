@@ -1,6 +1,7 @@
 # 章节：40-run-and-steer（运行与引导）· 任务生命周期
 # 读者要理解：任务在六个状态之间的移动路径——什么时候排队、什么时候开始执行、
 # 哪些状态可以取消，以及终态可以人工修正。
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
 
 vars: {
   d2-config: {
@@ -53,9 +54,9 @@ states: {
 
   pending -> queued: "排队"
   queued -> running: "开始执行"
-  running -> completed: "完成"
-  running -> failed: "失败"
-  running -> cancelled: "取消"
+  running -> completed
+  running -> failed
+  running -> cancelled
   pending -> cancelled
   queued -> cancelled
   completed <-> failed: "人工修正"

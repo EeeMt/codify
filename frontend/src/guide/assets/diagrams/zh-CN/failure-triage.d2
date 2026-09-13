@@ -1,0 +1,64 @@
+# 章节：90-troubleshooting（故障排查）· 任务失败后的排查顺序
+# 读者要理解：先看错误卡片，再顺着事件流、原始日志、运行归档逐层深入；
+# 错误卡片里的失败信息有几种常见形态——超时、配额、运行时不可用、推送未确认。
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+triage: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 30
+  style.fill: transparent
+  style.stroke-width: 0
+
+  timeout: "超时\nTask timed out" { class: node }
+  error: "错误卡片\n失败原因与类型" { class: accent }
+  events: "事件流\n规范化的事件" { class: node }
+  logs: "原始日志\n控制台原始输出" { class: node }
+  quota: "配额\nusage_limit_exceeded" { class: node }
+  runtime: "运行时不可用\nruntime_unavailable" { class: node }
+  push: "推送未确认\npush_failed" { class: node }
+  archive: "运行归档\n完整证据包" { class: node }
+
+  error -> events
+  events -> logs
+  logs -> archive
+  error -> timeout
+  error -> quota
+  error -> runtime
+  error -> push
+}

@@ -27,6 +27,23 @@ describe('renderGuideChapter', () => {
     expect(headings[0]?.id).toBe('任务状态机')
   })
 
+  it('renders a standalone image as a captioned figure', () => {
+    // A figure must not inherit the prose measure, or the diagram is scaled
+    // down inside the text column; the alt text becomes its caption.
+    const { html } = renderGuideChapter('![Where a task waits](assets/diagrams/en/task-lifecycle.svg)', ENV)
+
+    expect(html).toContain('<figure class="guide-figure">')
+    expect(html).toContain('<figcaption class="guide-figure__caption">Where a task waits</figcaption>')
+    expect(html).not.toContain('<p><img')
+  })
+
+  it('keeps an image inline when it sits inside a sentence', () => {
+    const { html } = renderGuideChapter('See ![diagram](assets/diagrams/en/task-lifecycle.svg) for details.', ENV)
+
+    expect(html).toContain('<p>')
+    expect(html).not.toContain('<figure')
+  })
+
   it('wraps a code fence with a copy button and escapes its content', () => {
     const { html } = renderGuideChapter('```bash\nmake test-unit\n```\n', ENV)
 

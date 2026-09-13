@@ -15,7 +15,7 @@ section: User Guide
 | `FAILED` | 失败 | 执行失败，含超时、协议错误、认证失败、限流、沙箱失败与 Harness 错误 |
 | `CANCELLED` | 已取消 | 被用户取消 |
 
-![任务状态机](assets/diagrams/zh-CN/task-lifecycle.svg)
+![六个状态，以及哪些状态下你能操作](assets/diagrams/zh-CN/task-lifecycle.svg)
 
 任务被提升为已入队时，所属需求的状态会同步变为「进行中」。终态（已完成 / 失败 / 已取消）不会再回到运行态。
 

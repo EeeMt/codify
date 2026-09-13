@@ -1,0 +1,65 @@
+# 章节：15-create-issue（创建需求）· 需求表单
+# 读者要理解：表单分五个部分，每个字段都写在需求上；任务继承这些值并在创建时
+# 冻结自己的快照。项目、分支、Worker 与克隆设置创建后不可改，标题、描述、
+# Provider 与 MR 自动修复随时可改。
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+form: {
+  label: ""
+  grid-rows: 3
+  grid-columns: 3
+  grid-gap: 32
+  style.fill: transparent
+  style.stroke-width: 0
+
+  project: "项目\n创建后不可改" { class: node }
+  content: "需求内容\n标题 / 描述可改" { class: node }
+  branch: "分支策略\n分支创建后不可改" { class: node }
+  env: "运行环境\nWorker 固定 · 模型服务可改" { class: node }
+  issue: "Issue\n表单取值都写在需求上" { class: accent }
+  advanced: "高级设置\n克隆固定 · MR 修复可改" { class: node }
+  blank_a: " " { style.fill: transparent; style.stroke-width: 0 }
+  task: "Task\n继承并冻结自己的快照" { class: node }
+  blank_b: " " { style.fill: transparent; style.stroke-width: 0 }
+
+  project -> issue
+  content -> issue
+  branch -> issue
+  env -> issue
+  advanced -> issue
+  issue -> task: "创建时冻结"
+}

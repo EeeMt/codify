@@ -255,7 +255,7 @@ Two operational budgets sit above the profile list and apply to the whole platfo
 
 Saving a profile does not change tasks that already exist. When a task is created, Codify freezes the profile into an immutable Task Snapshot and binds a content-addressed Runtime Bundle; the pair is what the worker container actually executes.
 
-![Worker Profile to Runtime Bundle](assets/diagrams/en/profile-to-bundle.svg)
+![You edit a Worker Profile; a task runs a frozen snapshot](assets/diagrams/en/profile-to-bundle.svg)
 
 The Task Snapshot records the resolved values — **Worker image**, runtime mode, Worker Kit version and path, **Profile volume mounts**, **Profile environment variables**, scripts, run instructions, harness key, and the model endpoint — together with the shared configuration revision it was resolved against and a digest of the effective configuration. The Runtime Bundle is stored by digest and holds the frozen runtime source and Harness identity. Because the binding is immutable, editing a profile, a shared script, a Skill, or a provider only affects tasks created afterwards; the hint on the shared configuration card states the same rule for the baseline: **Changes become the baseline for future tasks created from profiles that follow the system value. Existing task snapshots do not change.**
 

@@ -2,6 +2,10 @@
 # Reader takeaway: the states a Task moves through, which transitions happen on
 # their own, from which states you can cancel it, and that a terminal state can
 # be corrected by hand.
+# Render: d2 task-lifecycle.d2 task-lifecycle.svg --pad 24 --theme 0 --layout elk,
+# then set width and height on the root <svg> to the viewBox size so the asset also
+# renders 1:1 outside the guide's <img>.
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
 
 vars: {
   d2-config: {
@@ -52,11 +56,14 @@ states: {
   failed: "Failed\nerror or timeout" { class: node }
   cancelled: "Cancelled\nstopped by you" { class: node }
 
+  # Running's three outcomes are already named by their target states, so those
+  # transitions carry no label: the long Pending/Queued -> Cancelled diagonals
+  # cross that band and would route straight through the label text.
   pending -> queued: "queued"
   queued -> running: "starts"
-  running -> completed: "delivered"
-  running -> failed: "failed"
-  running -> cancelled: "cancel"
+  running -> completed
+  running -> failed
+  running -> cancelled
   pending -> cancelled
   queued -> cancelled
   completed <-> failed: "manual override"

@@ -154,7 +154,7 @@ Provider 类型与 Wire 协议必须搭配：`anthropic_compatible` 搭配 `anth
 
 Worker 的执行环境由三层组成：系统的 **共享配置**、可复用的 **Worker Profile**，以及任务创建时冻结的 **Task Snapshot**。
 
-![Worker Profile 到 Runtime Bundle](assets/diagrams/zh-CN/profile-to-bundle.svg)
+![你编辑的是 Worker Profile，任务拿到的是冻结快照](assets/diagrams/zh-CN/profile-to-bundle.svg)
 
 ### 共享配置
 

@@ -8,7 +8,7 @@ section: User Guide
 Almost everything is arranged before you log in. As a user you need three things:
 
 - A Codify account with the `platform_user` or `platform_admin` role.
-- A project you can reach, with a branch you are allowed to work on.
+- A GitLab project the Codify bot account can see and write to. Codify reaches GitLab through a bot account rather than through your own credentials, so the bot has to be a member of the project — or the project has to be internal or public so the bot can at least see it — and it must be allowed to push a branch and open a Merge Request. Read-only access is not enough: the Task generates the change, then the push and the Merge Request fail. Adding the bot to a project is an administrator or project-owner action.
 - A Harness that an administrator has enabled for you — **Claude**, **Codex**, **Pi**, or **OpenCode**.
 
 Administrators set all of these up from **Configuration**. If a page reports that no project or Harness is available, your account is not ready yet; ask an administrator, and see the Admin Guide.
@@ -19,7 +19,7 @@ Your sign-in method is decided by whoever runs the platform: a local account, Gi
 
 Every workflow in Codify follows the same loop: describe the work on an Issue, run a Task against it, then review what the Task delivered.
 
-![The three-step loop](assets/diagrams/en/three-step-loop.svg)
+![Three steps from request to a reviewed change](assets/diagrams/en/three-step-loop.svg)
 
 1. **Create Issue** — pick the project and branches and write the description. The description becomes the default prompt for its tasks.
 2. **Create Task** — from the Issue page, choose a Task Mode and priority, then use **Execute Now** or **Schedule**. Codify queues the Task, starts a container, and streams events back.
@@ -29,7 +29,7 @@ Every workflow in Codify follows the same loop: describe the work on an Issue, r
 
 The shortest path from an empty dashboard to a reviewed change:
 
-1. Open **Issues** and select **Create Issue**. Fill in **Project**, **Starting Branch**, and **Merge Target**, then describe the outcome you want in **Description**.
+1. Open **Issues** and select **Create Issue**. Work through the form — choose **Project**, the **Starting Branch** and **Merge Target**, pick the **Worker**, and describe the outcome you want in **Description**. The Creating an Issue chapter walks the whole form.
 2. On the new Issue, select **Create Task**. Leave **Task Mode** on **Implementation** and priority on the default unless you have a reason to change them.
 3. Leave **Execute Now** selected and submit. The Issue appears with **In Progress** and one run in **Current Run**.
 4. Open that Task. Watch the **Task Process** panel while it runs; the event stream refreshes on its own.
@@ -68,6 +68,7 @@ The task detail page is the control surface for a single run. **Current executio
 ## Where to go next
 
 - Concepts chapter — the vocabulary the rest of the guide assumes: Issue, Task, Harness, workspace, snapshot.
+- Creating an Issue chapter — the Issue form field by field: project, content, branch strategy, execution environment, advanced settings, and what happens after creation.
 - Creating a Task chapter — Task Modes, priority, scheduling, run-instruction templates, Worker and provider selection.
 - Running and Steering chapter — the process log, live steering, follow-up tasks, cancel, retry, and force-finish.
 - Delivery chapter — branches, Merge Requests, change and token statistics, and the run archive.

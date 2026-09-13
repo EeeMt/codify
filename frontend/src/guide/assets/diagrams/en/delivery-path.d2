@@ -1,0 +1,74 @@
+# Chapter: guide/en/50-delivery.md — "Branch and commits", "Merge request".
+# Reader takeaway: every Task commits to the Issue's one working branch codify/issue-{id}
+# cut from the Starting Branch; the commits go through one Merge Request per Issue,
+# created as a draft and updated until it merges, or — when the Issue is set to No MR —
+# straight to a Direct Push, and either way the Issue closes and the branch is deleted
+# or kept.
+# Render: d2 delivery-path.d2 delivery-path.svg --pad 24 --theme 0 --layout elk,
+# then set width and height on the root <svg> to the viewBox size so the asset also
+# renders 1:1 outside the guide's <img>.
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+# Both rows hold four nodes, so every horizontal gap is identical and no cell is
+# empty. The no-MR path leaves the working branch below it and rejoins the MR path
+# at the point where the Issue closes, so the two paths visibly share their ending.
+flow: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 35
+  style.fill: transparent
+  style.stroke-width: 0
+
+  start: "Starting Branch\nwork starts here" { class: node }
+  work: "codify/issue-{id}\ncommits land here" { class: node }
+  mr: "Merge Request\ndraft, then ready" { class: accent }
+  merge: "Merge\ninto Merge Target" { class: node }
+  nomr: "No MR\nissue setting" { class: node }
+  direct: "Direct Push\nno MR path" { class: node }
+  closed: "Issue closed\nmanual or webhook" { class: node }
+  cleanup: "Branch cleanup\ndeleted or kept" { class: node }
+
+  start -> work
+  work -> mr
+  mr -> merge
+  merge -> closed
+  closed -> cleanup
+  work -> direct
+  nomr -> direct
+  direct -> closed
+}

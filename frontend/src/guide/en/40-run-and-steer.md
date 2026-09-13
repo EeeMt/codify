@@ -7,7 +7,7 @@ section: User Guide
 
 A Task moves through a small state machine. The task page names each state and explains what to do in it.
 
-![Task lifecycle](assets/diagrams/en/task-lifecycle.svg)
+![Six states, and which of them you can act on](assets/diagrams/en/task-lifecycle.svg)
 
 | State | Title on the task page | What it means |
 |---|---|---|

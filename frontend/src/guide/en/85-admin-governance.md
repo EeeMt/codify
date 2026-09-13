@@ -36,6 +36,8 @@ Two guards protect the platform from losing its administration:
 
 ## Usage management
 
+![Quota stops work twice: at creation and before the run](assets/diagrams/en/quota-gates.svg)
+
 **Usage Management** (`/usage-management`) reviews system defaults, inspects per-user usage, and manages quota overrides. The page intro is the model to keep in mind: **Usage is tracked at task granularity. Limits can inherit, override, or be set to unlimited.**
 
 ### Quotas and modes
@@ -61,10 +63,7 @@ System defaults offer only **Custom** and **Unlimited**. Overrides accept all th
 
 ### Where limits are enforced
 
-Limits are checked twice, and the two checks have different consequences:
-
-- When a task is created or retried, an already-exceeded limit rejects the request with a structured error whose reason is `usage_limit_exceeded`, naming each exceeded dimension with its used value, limit, and reset time.
-- When a queued task is about to start, an exceeded limit fails the task before any work begins, with the same structured reason stored on the task.
+The refusal is the same in both places: the structured reason `usage_limit_exceeded`, naming each exceeded dimension with its used value, limit, and reset time. A task that fails at start keeps that reason on its own record, which is what a retry or a support ticket can quote.
 
 The check is a strict comparison against the recorded total, so a window at exactly its limit still allows work; the next task that pushes the total over the limit is the one that is blocked.
 

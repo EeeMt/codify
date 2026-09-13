@@ -95,6 +95,6 @@ Harness 决定了模型协议（Claude 使用 Anthropic 协议，Codex 使用 Op
 
 每个任务在创建时会冻结一份 **Task Snapshot**，把当时的配置固定下来；执行时按这份快照绑定对应的 **Runtime Bundle**，执行结束后留下一个 **运行归档**。所以后来的配置改动不会影响已经创建的任务，而每一次执行都有可回看的留档。
 
-![对象模型](assets/diagrams/zh-CN/object-model.svg)
+![一个需求拥有工作区、分支与它的全部任务](assets/diagrams/zh-CN/object-model.svg)
 
 需求关闭后这条线仍然完整：分支与 Merge Request 保留在 GitLab 侧，快照、运行时包身份与运行归档保留在任务上，任务记录本身不会被清理。

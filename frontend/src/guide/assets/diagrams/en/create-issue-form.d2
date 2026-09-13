@@ -1,0 +1,71 @@
+# Chapter: guide/en/15-create-issue.md — "When you create an issue", "Form fields".
+# Reader takeaway: the Issue form renders five parts; every value on it is stored on
+# the Issue, the Project, the branches, the Worker and the clone settings are fixed
+# once it is created while the title, description, provider and MR auto-repair stay
+# editable, and each Task freezes what it inherited into its own snapshot.
+# Render: d2 create-issue-form.d2 create-issue-form.svg --pad 24 --theme 0 --layout elk,
+# then set width and height on the root <svg> to the viewBox size so the asset also
+# renders 1:1 outside the guide's <img>.
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+form: {
+  label: ""
+  grid-rows: 3
+  grid-columns: 3
+  grid-gap: 80
+  style.fill: transparent
+  style.stroke-width: 0
+
+  project: "Project\nfixed at creation" { class: node }
+  content: "Issue content\neditable later" { class: node }
+  branch: "Branch Strategy\nfixed at creation" { class: node }
+  env: "Execution\nenvironment" { class: node }
+  issue: "Issue\nstores every value" { class: accent }
+  advanced: "Advanced settings\nclone fixed" { class: node }
+  task: "Task\ninherits + freezes" { class: node }
+  editable: "Editable later\nprovider · repair" { class: node }
+  gap: " " { style.fill: transparent; style.stroke-width: 0 }
+
+  project -> issue
+  content -> issue
+  branch -> issue
+  env -> issue: "Worker fixed"
+  advanced -> issue
+  env -> editable
+  advanced -> editable
+  issue -> task
+}

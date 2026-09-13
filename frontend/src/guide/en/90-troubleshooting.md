@@ -5,7 +5,9 @@ section: Admin Guide
 
 ## Task failed
 
-A failed task shows the status **Failed** on the Task page. The failure reason is stored on the task itself, so open the task before looking anywhere else: the detail view returns the message plus the failure kind reported by the harness, and the same message is written into the task log.
+![Read the failure reason first; the rest only confirms it](assets/diagrams/en/failure-triage.svg)
+
+A failed task shows the status **Failed** on the Task page. The failure reason is stored on the task itself: the detail view returns the message plus the failure kind reported by the harness, and the same message is written into the task log.
 
 Read the message by shape. Plain text is a human-readable cause. A JSON object is a structured rejection and names its own code.
 
@@ -161,8 +163,11 @@ The page is admin-only until **Allow Monitor for platform users** is enabled und
 **Why is a project flagged as Needs attention in the webhook overview?**
 Its hook is missing, or it is missing SSL verification, merge request events, or pipeline events. Re-run the project webhook setup, then refresh the statuses.
 
+**Why is my project missing from the project list, and why could a task not push to it?**
+The picker only offers what the account behind it can see. When you sign in through GitLab that is your own account; on a local account, or as a platform administrator, the list comes from the Codify bot account that does the work. A project the bot cannot see is missing from the list entirely, while a project the bot can see but not write to is offered and then fails later: the Task clones the repository and generates the change, and the push or the Merge Request creation fails. Both symptoms have the same fix — make the bot a member of the project with enough access to push a branch and open a Merge Request. An internal or public project is visible to the bot without membership, but visibility alone grants no write access. If the bot was just added, allow a few minutes before rechecking: the platform caches the visible project list for five minutes.
+
 **Why did a task fail instead of waiting for its quota window to reset?**
-Quota is checked when the task is created and again before execution. An exceeded limit does not delay the task; it rejects creation, or fails the queued task before a container starts.
+An exceeded limit does not delay the task; it rejects creation, or fails the queued task before a container starts.
 
 **Can a deleted task be restored?**
 No. Data deleted before the coverage start cannot be recovered, deleted records appear as sanitized snapshots without detail links, and cleanup removes the task's logs, archives, and workspace. Treat cleanup as irreversible.

@@ -137,6 +137,30 @@ describe('guide content', () => {
     }
   })
 
+  it('pins every diagram to its intrinsic size', () => {
+    // d2 omits width/height on the root <svg>, and an <img> that embeds such a
+    // file falls back to a default intrinsic size, so the diagram is drawn at
+    // the wrong aspect ratio. scripts/guide/render-diagrams.py pins the viewBox
+    // size onto the root element; this fails if a bare `d2` render is committed.
+    const diagrams = import.meta.glob('./assets/diagrams/*/*.svg', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }) as Record<string, string>
+
+    const paths = Object.keys(diagrams)
+    expect(paths.length, 'no diagram assets found').toBeGreaterThan(0)
+
+    for (const [path, svg] of Object.entries(diagrams)) {
+      const rootTag = /<svg\b[^>]*>/.exec(svg)?.[0] ?? ''
+      const viewBox = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(rootTag)
+      expect(viewBox, `${path} has no '0 0 W H' viewBox`).toBeTruthy()
+      expect(rootTag, `${path} is missing its intrinsic size`).toContain(
+        `width="${viewBox![1]}" height="${viewBox![2]}"`,
+      )
+    }
+  })
+
   it('uses bundled diagrams rather than mermaid fences', () => {
     // The guide standardized on pre-rendered d2 SVGs. A mermaid fence would
     // silently render as a plain code block instead of a diagram.

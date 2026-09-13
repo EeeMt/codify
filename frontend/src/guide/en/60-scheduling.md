@@ -13,7 +13,7 @@ Scheduling is the difference between "the work exists" and "the work is running"
 
 Codify looks for work on a fixed interval — configured as **Scheduler Interval (seconds)**, "how often the scheduler checks for work" — and each cycle promotes only the *legal head* of each unlocked Issue from **Pending** to **Queued**. A Task that is not the head of its Issue is never promoted, no matter how high its priority.
 
-![Why a task waits](assets/diagrams/en/why-a-task-waits.svg)
+![Three gates before a run: turn order, schedule, capacity](assets/diagrams/en/why-a-task-waits.svg)
 
 Among the eligible heads, Codify picks in this order:
 

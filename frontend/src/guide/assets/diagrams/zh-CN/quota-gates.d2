@@ -1,0 +1,63 @@
+# 章节：85-admin-governance（治理与运维）· 配额在哪里拦人
+# 读者要理解：配额只统计四项——日 / 周 Token 与日 / 周任务数；创建任务时超限
+# 直接被拒绝，开始执行前再校验一次，超限的任务直接失败。
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+gates: {
+  label: ""
+  grid-rows: 3
+  grid-columns: 3
+  grid-gap: 40
+  style.fill: transparent
+  style.stroke-width: 0
+
+  blank_a: " " { style.fill: transparent; style.stroke-width: 0 }
+  daily_tokens: "日 Token\n当天累计用量" { class: node }
+  weekly_tokens: "周 Token\n当周累计用量" { class: node }
+  daily_tasks: "日任务数\n当天累计任务数" { class: node }
+  create: "创建任务\n超限即被拒绝" { class: accent }
+  weekly_tasks: "周任务数\n当周累计任务数" { class: node }
+  blank_b: " " { style.fill: transparent; style.stroke-width: 0 }
+  execute: "开始执行前\n再次校验，超限即失败" { class: accent }
+  blank_c: " " { style.fill: transparent; style.stroke-width: 0 }
+
+  daily_tokens -> create
+  weekly_tokens -> create
+  daily_tasks -> create
+  weekly_tasks -> create
+  create -> execute
+}

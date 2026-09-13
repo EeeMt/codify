@@ -27,6 +27,8 @@ Every Task on the Issue works on the same branch, generated as `codify/issue-{id
 
 ## Task modes
 
+![Two choices decide a run: how it works and when it starts](assets/diagrams/en/task-mode-choice.svg)
+
 The **Task Mode** selector determines how the Harness treats your prompt. Open **Choose a task mode** and pick one of three:
 
 | Mode | Description shown in the UI |
@@ -34,8 +36,6 @@ The **Task Mode** selector determines how the Harness treats your prompt. Open *
 | **Implementation** | Codify analyses the project, implements code changes, and commits them |
 | **Analysis** | Codify answers questions, analyses requirements, or outputs a proposal based on the actual project — no files are modified |
 | **Freeform** | Send only the task prompt to the Harness. It decides whether to answer, analyse, or modify code; the task may complete without code changes |
-
-Each option carries a one-line summary: **Codify guides implementation and code changes**, **Codify analyzes the project without retaining file changes**, and **Harness decides whether code changes are needed**.
 
 Mode changes the run instruction as well. Switching modes asks whether to use the new mode's default template, and `require_changes` is fixed to false for **Analysis** and **Freeform**, because those modes are not expected to produce commits.
 

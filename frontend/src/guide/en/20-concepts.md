@@ -94,7 +94,7 @@ Artifacts are per Issue as well as per Task: all Tasks deliver to one branch and
 
 Six objects carry a piece of work through Codify, and all of them hang off the Issue you describe at the start.
 
-![Object model](assets/diagrams/en/object-model.svg)
+![One Issue owns the workspace, the branch and all its tasks](assets/diagrams/en/object-model.svg)
 
 - **Issue** — the requirement container. It owns the workspace, the AI conversation session, and one branch with a single Merge Request lifecycle.
 - **Task** — one ordered turn of an Issue. An Issue can have as many Tasks as you append, and they run strictly in turn order.

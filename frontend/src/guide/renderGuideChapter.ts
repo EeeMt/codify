@@ -14,6 +14,10 @@ export interface RenderedGuideChapter {
 export interface GuideRenderEnv {
   /** Label rendered on the per-code-block copy button. */
   copyLabel: string
+  /** Token indices of paragraphs that hold nothing but an image. */
+  figureParagraphs: Set<number>
+  /** True while rendering inside a figure paragraph, so the image can caption itself. */
+  inFigure: boolean
 }
 
 const md = createMarkdownRenderer({ breaks: false })
@@ -61,13 +65,19 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   return self.renderToken(tokens, idx, options)
 }
 
-md.renderer.rules.image = (tokens, idx, options, _env, self) => {
+md.renderer.rules.image = (tokens, idx, options, env, self) => {
+  const guideEnv = env as GuideRenderEnv
   const token = tokens[idx]
   const source = token.attrGet('src') ?? ''
   const resolved = resolveAsset(source)
   if (resolved) token.attrSet('src', resolved)
-  token.attrSet('loading', 'lazy')
-  return self.renderToken(tokens, idx, options)
+
+  // Deliberately not lazy: a lazily loaded figure reserves no space, so the
+  // chapter shifts under the reader as diagrams arrive. The SVGs are 15-25 kB.
+  const image = self.renderToken(tokens, idx, options)
+  const caption = token.content.trim()
+  if (!guideEnv.inFigure || !caption) return image
+  return `${image}<figcaption class="guide-figure__caption">${md.utils.escapeHtml(caption)}</figcaption>`
 }
 
 md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
@@ -89,18 +99,48 @@ md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
 }
 
 /**
+ * A paragraph holding nothing but an image is a figure, not prose: it must not
+ * inherit the prose measure, or the diagram gets scaled down inside the text
+ * column. Those paragraphs become a <figure> whose caption is the alt text.
+ */
+md.renderer.rules.paragraph_open = (tokens, idx, options, env, self) => {
+  const guideEnv = env as GuideRenderEnv
+  if (!guideEnv.figureParagraphs.has(idx)) return self.renderToken(tokens, idx, options)
+  guideEnv.inFigure = true
+  return '<figure class="guide-figure">'
+}
+
+md.renderer.rules.paragraph_close = (tokens, idx, options, env, self) => {
+  const guideEnv = env as GuideRenderEnv
+  if (!guideEnv.figureParagraphs.has(idx - 2)) return self.renderToken(tokens, idx, options)
+  guideEnv.inFigure = false
+  return '</figure>'
+}
+
+/**
  * Parse and render in one pass so the table of contents and the rendered
  * headings always carry the same generated ids.
  */
-export function renderGuideChapter(markdown: string, env: GuideRenderEnv): RenderedGuideChapter {
+export function renderGuideChapter(markdown: string, options: { copyLabel: string }): RenderedGuideChapter {
   if (!markdown) return { html: '', headings: [] }
 
+  const env: GuideRenderEnv = { copyLabel: options.copyLabel, figureParagraphs: new Set(), inFigure: false }
   const tokens = md.parse(markdown, env)
   const headings: GuideHeading[] = []
   const seen = new Map<string, number>()
 
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]
+
+    if (token.type === 'paragraph_open') {
+      const inline = tokens[index + 1]
+      const children = inline?.type === 'inline' ? inline.children ?? [] : []
+      if (tokens[index + 2]?.type === 'paragraph_close' && children.length === 1 && children[0].type === 'image') {
+        env.figureParagraphs.add(index)
+      }
+      continue
+    }
+
     if (token.type !== 'heading_open') continue
     const level = Number(token.tag.slice(1))
     if (level !== 2 && level !== 3) continue

@@ -2,6 +2,10 @@
 # Reader takeaway: a Task does not run the Worker Profile as it looks now —
 # creation freezes the profile into a Task Snapshot and resolves a Runtime
 # Bundle, so a later profile edit only reaches Tasks created after it.
+# Render: d2 profile-to-bundle.d2 profile-to-bundle.svg --pad 24 --theme 0 --layout elk,
+# then set width and height on the root <svg> to the viewBox size so the asset also
+# renders 1:1 outside the guide's <img>.
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
 
 vars: {
   d2-config: {

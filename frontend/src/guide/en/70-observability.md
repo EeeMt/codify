@@ -5,7 +5,9 @@ section: User Guide
 
 ## Dashboard
 
-**Dashboard** is the personal home page. It answers "what is in flight, and how is my work trending" without exposing platform internals.
+![Five pages, five questions: pick the one you are asking](assets/diagrams/en/observability-map.svg)
+
+**Dashboard** is the personal home page: what is in flight and how your work is trending, without exposing platform internals.
 
 The **My Work Board** groups your work into columns; an empty column reads **No items in this status.**, and an empty board reads **No items in this view yet.**. When a column is truncated you see **Showing the first {shown} items out of {total}**, with **View more** to open the full list.
 
@@ -86,7 +88,7 @@ The roll-up is **Healthy**, **Watch**, or **Attention**. **Recent Failures** lis
 
 ## Schedule overview
 
-**Schedule Overview** answers "when is my capacity actually occupied". It shows active scheduled tasks only — those in **Pending** and **Running** — under **Scheduled Tasks**.
+**Schedule Overview** shows active scheduled tasks only — those in **Pending** and **Running** — under **Scheduled Tasks**.
 
 | Panel | Content |
 |---|---|
