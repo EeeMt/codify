@@ -1,80 +1,67 @@
-diff -r closure/node_modules/pi-subagents/src/agents/agents.ts w7/pkg/src/agents/agents.ts
+diff -r closure/node_modules/pi-subagents/src/agents/agents.ts w9/pkg/src/agents/agents.ts
 --- closure/node_modules/pi-subagents/src/agents/agents.ts	2026-09-12 15:57:53.953711951 +0800
-+++ w7/pkg/src/agents/agents.ts	2026-09-13 00:14:32.543594898 +0800
-@@ -602,6 +602,7 @@
- }
- 
- function collectPackageSubagentPaths(cwd: string, options: { includeUser: boolean; includeProject: boolean } = { includeUser: true, includeProject: true }): PackageSubagentPaths {
-+	if (codifySubagentDiscoveryIsolated()) return { agents: [], chains: [], watchPaths: [], settingsErrors: {} };
- 	const agentDir = getAgentDir();
- 	const projectRoot = findConfiguredProjectRoot(cwd) ?? cwd;
- 	const packageRoots: Array<{ root: string; scope: PackageScope }> = [
-@@ -892,7 +893,18 @@
++++ w9/pkg/src/agents/agents.ts	2026-09-13 11:54:49.306879706 +0800
+@@ -892,7 +892,21 @@
  	return path.join(getAgentDir(), "settings.json");
  }
  
-+// Codify vendor patch: the cloned repository is untrusted. Project agent
-+// definitions, project settings (provider/model/thinking overrides,
-+// disableBuiltins, agentScanDirs, defaultExtensions) and package-provided
-+// subagents all live inside that workspace, so under the ceiling they are
-+// hidden and only the definitions Codify writes into the task-local Pi home
-+// remain visible (open-harness-v2-subagent-adaptation.md §6.4).
-+function codifySubagentDiscoveryIsolated(): boolean {
++// Codify vendor patch: `agentScope: "user"` (pinned by the ceiling, see
++// top-level-async.ts) keeps project and package *definitions* out of every
++// launch, but it does not cover project *settings*: those still supply
++// defaultModel/defaultProvider/defaultThinking/defaultExtensions, rewrite or
++// disable bundled agents through `agentOverrides`, and can re-enable the
++// plugin's builtins with `disableBuiltins: false`. All of them are read through
++// this one path, so the ceiling hides the workspace settings file entirely and
++// only Codify's own task-local Pi home settings apply
++// (open-harness-v2-subagent-adaptation.md §6.4).
++function codifyWorkspaceSettingsHidden(): boolean {
 +	return process.env.CODIFY_PI_SUBAGENT_ISOLATED === "1";
 +}
 +
  function getProjectAgentSettingsPath(cwd: string): string | null {
-+	if (codifySubagentDiscoveryIsolated()) return null;
++	if (codifyWorkspaceSettingsHidden()) return null;
  	const projectRoot = findConfiguredProjectRoot(cwd);
  	return projectRoot ? path.join(getProjectConfigDir(projectRoot), "settings.json") : null;
  }
-@@ -2219,6 +2231,7 @@
- }
- 
- function resolveNearestProjectAgentDirs(cwd: string): { readDirs: string[]; candidateDirs: string[]; preferredDir: string | null } {
-+	if (codifySubagentDiscoveryIsolated()) return { readDirs: [], candidateDirs: [], preferredDir: null };
- 	const projectRoot = findConfiguredProjectRoot(cwd);
- 	if (!projectRoot) return { readDirs: [], candidateDirs: [], preferredDir: null };
- 
-@@ -2233,6 +2246,7 @@
- }
- 
- function resolveNearestProjectChainDirs(cwd: string): { readDirs: string[]; preferredDir: string | null } {
-+	if (codifySubagentDiscoveryIsolated()) return { readDirs: [], preferredDir: null };
- 	const projectRoot = findConfiguredProjectRoot(cwd);
- 	if (!projectRoot) return { readDirs: [], preferredDir: null };
- 
-diff -r closure/node_modules/pi-subagents/src/runs/background/top-level-async.ts w7/pkg/src/runs/background/top-level-async.ts
+diff -r closure/node_modules/pi-subagents/src/runs/background/top-level-async.ts w9/pkg/src/runs/background/top-level-async.ts
 --- closure/node_modules/pi-subagents/src/runs/background/top-level-async.ts	2026-09-12 15:57:54.231719466 +0800
-+++ w7/pkg/src/runs/background/top-level-async.ts	2026-09-13 00:14:22.327007987 +0800
-@@ -12,3 +12,18 @@
++++ w9/pkg/src/runs/background/top-level-async.ts	2026-09-13 11:54:49.191315887 +0800
+@@ -12,3 +12,26 @@
  	if (params.foregroundOnly || !(depth === 0 && forceTopLevelAsync)) return params;
  	return { ...params, async: true, clarify: false };
  }
 +
 +// Codify vendor patch (open-harness-v2-subagent-adaptation.md §6.4).
 +//
-+// The parent Harness only sees a child's identity, usage and final output in
-+// the launch's structured result, and a detached launch returns an empty child
-+// inventory. The ceiling therefore pins depth-0 launches to the foreground
-+// path; the model can no longer opt into background work.
-+export function applyForceTopLevelForegroundOverride<T extends AsyncOverrideParams>(
++// Two documented behaviours are pinned for a depth-0 launch:
++//
++// - `async: false`. WorkflowScript calls use background execution whenever the
++//   request omits `async` (docs/configuration.md, `asyncByDefault`), and a
++//   detached launch returns no child inventory, so the parent stream would lose
++//   every child's identity, usage and output. `asyncByDefault: false` does not
++//   cover workflowScript; the documented per-call escape is `async: false`.
++// - `agentScope: "user"`. Agenth scope defaults to `both`, which reads agent
++//   definitions, project settings and package-provided agents out of the
++//   cloned workspace (docs/agents.md). Scope is a launch parameter that
++//   propagates to workflow children, so pinning it here keeps the ceiling's
++//   four bundled agents the only ones a Codify Task can launch.
++export function applyCodifyCeilingOverrides<T extends AsyncOverrideParams>(
 +	params: T,
 +	depth: number,
-+	forceTopLevelForeground: boolean,
++	ceilingActive: boolean,
 +): T {
-+	if (!(depth === 0 && forceTopLevelForeground)) return params;
-+	return { ...params, async: false };
++	if (!(depth === 0 && ceilingActive)) return params;
++	return { ...params, async: false, agentScope: "user" };
 +}
-diff -r closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.ts w7/pkg/src/runs/foreground/subagent-executor.ts
+diff -r closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.ts w9/pkg/src/runs/foreground/subagent-executor.ts
 --- closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.ts	2026-09-12 15:57:54.215899924 +0800
-+++ w7/pkg/src/runs/foreground/subagent-executor.ts	2026-09-13 00:14:22.346861455 +0800
++++ w9/pkg/src/runs/foreground/subagent-executor.ts	2026-09-13 11:54:49.209243156 +0800
 @@ -106,7 +106,7 @@
  import { getExternalJobProvider } from "../../api/external-job-provider.ts";
  import { externalJobFollowUpRequestDigest, externalJobFollowUpRequestId, externalJobFollowUpRunId, externalJobPromptDigest, externalJobStableJson } from "../shared/external-job-runner.ts";
  import { externalCliReceiptMetadata, normalizeExternalCliRunnerStatus } from "../shared/external-cli-contract.ts";
 -import { applyForceTopLevelAsyncOverride } from "../background/top-level-async.ts";
-+import { applyForceTopLevelAsyncOverride, applyForceTopLevelForegroundOverride } from "../background/top-level-async.ts";
++import { applyForceTopLevelAsyncOverride, applyCodifyCeilingOverrides } from "../background/top-level-async.ts";
  import { handleMissionAction, MISSION_ACTIONS } from "../../missions/actions.ts";
  import { attachMissionToLaunchResult, prepareMissionLaunch, writeMissionAsyncBinding, type MissionLaunchBinding } from "../../missions/lifecycle.ts";
  import { MissionNotFoundError, updateMission } from "../../missions/store.ts";
@@ -83,12 +70,12 @@ diff -r closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.
  		const normalizedGate = normalizeGateParams(params);
  		if (!normalizedGate.ok) return buildRequestedModeError(params, normalizedGate.error);
 -		let requestParams = normalizedGate.params;
-+		// Codify vendor patch: the workflow branch below treats a missing `async`
-+		// as async (`requestParams.async !== false`) and detaches the run to a
-+		// background runner, whose child inventory, usage and output never reach
-+		// the parent stream. Every other override site runs after that decision,
-+		// so the depth-0 foreground pin is applied here, at the entry of execute().
-+		let requestParams = applyForceTopLevelForegroundOverride(
++		// Codify ceiling: the workflow branch below decides its async route from
++		// `requestParams` before any later override site runs, and the launch
++		// paths read `agentScope` from these same params (workflow children
++		// inherit it through the workflow defaults), so both pins are applied
++		// here, at the entry of execute().
++		let requestParams = applyCodifyCeilingOverrides(
 +			normalizedGate.params,
 +			checkSubagentDepth(deps.config.maxSubagentDepth, deps.childRuntime).depth,
 +			deps.config.forceTopLevelForeground === true,
@@ -102,7 +89,7 @@ diff -r closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.
  
 -		let effectiveParams = applyForceTopLevelAsyncOverride(
 -			normalizedParams,
-+		let effectiveParams = applyForceTopLevelForegroundOverride(
++		let effectiveParams = applyCodifyCeilingOverrides(
 +			applyForceTopLevelAsyncOverride(
 +				normalizedParams,
 +				depth,
@@ -119,7 +106,7 @@ diff -r closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.
  		if (normalizedAction) return execute(id, requestParams, signal, onUpdate, ctx).then(withAggregatedToolUsage);
  		const { depth } = checkSubagentDepth(deps.config.maxSubagentDepth, deps.childRuntime);
 -		const dispatchParams = applyForceTopLevelAsyncOverride(requestParams, depth, deps.config.forceTopLevelAsync === true);
-+		const dispatchParams = applyForceTopLevelForegroundOverride(
++		const dispatchParams = applyCodifyCeilingOverrides(
 +			applyForceTopLevelAsyncOverride(requestParams, depth, deps.config.forceTopLevelAsync === true),
 +			depth,
 +			deps.config.forceTopLevelForeground === true,
@@ -150,14 +137,14 @@ diff -r closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.
  		publicExecutions.add(loaded.params!);
  		return executeWithSingleDispatchGuard(id, loaded.params!, signal, onUpdate, ctx);
  	};
-diff -r closure/node_modules/pi-subagents/src/shared/types.ts w7/pkg/src/shared/types.ts
+diff -r closure/node_modules/pi-subagents/src/shared/types.ts w9/pkg/src/shared/types.ts
 --- closure/node_modules/pi-subagents/src/shared/types.ts	2026-09-12 15:57:54.234476008 +0800
-+++ w7/pkg/src/shared/types.ts	2026-09-13 00:14:22.296495097 +0800
++++ w9/pkg/src/shared/types.ts	2026-09-13 11:54:49.158295724 +0800
 @@ -2585,6 +2585,8 @@
  	/** Experimental observer: mirror each native subagent's progress into a new Orca tab. */
  	orcaProgressTabs?: OrcaProgressTabsConfig;
  	forceTopLevelAsync?: boolean;
-+	/** Codify ceiling: pin depth-0 launches to the foreground path. */
++	/** Codify ceiling: pin depth-0 launches to the foreground path and to user-scope agents. */
 +	forceTopLevelForeground?: boolean;
  	waitTool?: WaitToolConfig;
  	defaultSessionDir?: string;

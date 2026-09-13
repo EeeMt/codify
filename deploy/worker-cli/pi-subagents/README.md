@@ -82,11 +82,39 @@ not for terminal safety.
 
 ## Isolation from the workspace
 
-The repository is untrusted, and the plugin's discovery reads it: project agent
-directories (`<root>/.pi/agents`, `<root>/.agents`), project settings (provider,
+The repository is untrusted and the plugin's discovery reads it: agent
+definitions (`<root>/.pi/agents`, `<root>/.agents`), project settings (provider,
 model, thinking, `disableBuiltins`, `agentScanDirs`, `defaultExtensions`) and
-package-provided subagents all come from the clone. The vendor patch gates those
-four sources behind `CODIFY_PI_SUBAGENT_ISOLATED=1`, which the Pi adapter exports
-with the ceiling, so only the four definitions installed into the task-local Pi
-home can exist. `install.sh` applies the patch, and the Kit build applies it in
+package-provided subagents all come from the clone.
+
+The ceiling splits this in two, because upstream expresses only half of it.
+
+**Definitions** — upstream already has the switch: `agentScope`
+(`user | project | both`, default `both`) is a documented launch parameter
+(`docs/agents.md`, `docs/tool-reference.md`) and it propagates to workflow
+children through the workflow defaults. The vendor patch pins every depth-0
+launch to `agentScope: "user"`, which keeps project and package definitions out
+of the launch paths without touching discovery internals.
+
+**Settings** — `agentScope` does not cover project settings: they still supply
+`defaultModel`/`defaultProvider`/`defaultThinking`/`defaultExtensions`, rewrite
+or disable bundled agents through `agentOverrides`, and can re-enable the
+plugin's builtins with `disableBuiltins: false`. A first version of this patch
+pinned only `agentScope` and a live Task showed the leak: the four bundled
+agents came back with `Model: planted-model` from the workspace settings file.
+The patch therefore also hides that one path while the ceiling is active, via
+the `CODIFY_PI_SUBAGENT_ISOLATED` variable the Pi adapter exports.
+
+Measured on the pinned 0.67.0, with `.pi/agents/planted-probe.md` and a project
+`.pi/settings.json` (`disableBuiltins: false`, `agentScanDirs`,
+`defaultModel: planted-model`) planted in the task workspace, by calling the
+plugin's own `discoverAgents(cwd, scope)`:
+
+| Condition | Agents the plugin can launch |
+|---|---|
+| upstream default (`agentScope: both`) | 14 — `planted-probe(project)` plus every builtin |
+| `agentScope: "user"` only | 4 definitions, but all four carry `planted-model` and the builtins reappear in the management listing |
+| Codify ceiling (scope + settings gate) | 4 — `delegate`, `reviewer`, `scout`, `worker`, no builtins, no workspace model override |
+
+`install.sh` applies the patch, and the Kit build applies it in
 `deploy/worker-kit/default.nix`; both fail loudly if the patch is missing.

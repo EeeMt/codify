@@ -418,17 +418,49 @@ Live evidence on the final artifacts (Kit `a40d66420c10`, Runtime Bundle 262/263
 
 ### The repository cannot inject agents (verified)
 
-The ceiling alone could not express one restriction the spec requires: project
-agent definitions, project settings and package-provided subagents are read from
-the cloned workspace, so a repository shipping `.pi/agents/*.md` could shadow a
+The ceiling alone could not express one restriction the spec requires: agent
+definitions, project settings and package-provided subagents are read from the
+cloned workspace, so a repository shipping `.pi/agents/*.md` could shadow a
 bundled agent, re-enable the plugin's own builtins through `.pi/settings.json`
 (`disableBuiltins: false`, `agentScanDirs`, provider/model/thinking overrides,
-`defaultExtensions`), or add package agents. The vendor patch therefore gates
-the four discovery sources behind `CODIFY_PI_SUBAGENT_ISOLATED=1`, which the Pi
-adapter exports whenever the ceiling is applied, and `install.sh` now applies
-the patch so a hand-staged payload cannot ship unpatched.
+`defaultExtensions`), or add package agents.
 
-Probe on the live Kit: with `.pi/agents/opencode-probe.md` and
+Upstream already documents half of the switch: `agentScope`
+(`user | project | both`, default `both`) is a launch parameter that propagates
+to workflow children (`docs/agents.md`, `docs/tool-reference.md` in the pinned
+package). The ceiling therefore pins every depth-0 launch to
+`agentScope: "user"` in the same one-line override that pins `async: false`,
+which keeps project and package agent *definitions* out of every launch path.
+
+The other half is not expressible that way, and a live Task proved it: with
+`agentScope: "user"` alone, the workspace `.pi/settings.json` still applied —
+all four bundled agents came back with `Model: planted-model` and the plugin's
+builtins reappeared in the management listing. Project settings supply
+`defaultModel`/`defaultProvider`/`defaultThinking`/`defaultExtensions`,
+`agentOverrides` and `disableBuiltins`, and they are read outside the launch
+scope, so the patch hides that one settings path while the ceiling is active
+(`CODIFY_PI_SUBAGENT_ISOLATED`, exported by the Pi adapter).
+
+Measured on the pinned 0.67.0 inside the runtime image, with
+`.pi/agents/planted-probe.md` and a project `.pi/settings.json`
+(`disableBuiltins: false`, `agentScanDirs: [".pi/agents"]`,
+`defaultModel: planted-model`) planted in the task workspace, by calling the
+plugin's own `discoverAgents(cwd, scope)`:
+
+| Condition | Result |
+|---|---|
+| upstream default | 14 agents: `planted-probe(project)` plus every builtin |
+| `agentScope: "user"` only | 4 definitions, but all four carry `planted-model` and builtins reappear in the management listing |
+| Codify ceiling | 4 agents (`delegate`, `reviewer`, `scout`, `worker`), `Model: inherits current session`, no builtins |
+
+The vendor patch is therefore four files and eight hunks: the documented
+`async`/`agentScope` pins, the tool-entry rejection of an explicit background
+launch, and the single settings gate.
+
+A launched Task confirms it end to end: the plugin's own `action: "list"` in
+that workspace answers with exactly those four names.
+
+Live Task probe on the Kit: with `.pi/agents/opencode-probe.md` and
 `.pi/settings.json` (`disableBuiltins: false`, `agentScanDirs: [".pi/agents"]`)
 planted in the task workspace, the plugin's own `action: "list"` answered
 

@@ -123,11 +123,15 @@ pi_adapter_materialize_subagents() {
     extension_dir="${payload_dir}/node_modules/pi-subagents"
     export CODIFY_PI_SUBAGENT_EXTENSION="${extension_dir}"
     export CODIFY_PI_SUBAGENTS=1
-    # The cloned repository is untrusted: the ceiling hides project agent
-    # definitions, project settings and package-provided subagents from the
-    # plugin's discovery, so only the four definitions written below can exist
-    # (open-harness-v2-subagent-adaptation.md §6.4). Children inherit this
-    # variable, and the vendor patch reads it.
+    # Workspace isolation is split in two, because upstream expresses only half
+    # of it. The vendor patch pins every depth-0 launch to `agentScope: "user"`
+    # (a documented launch parameter that workflow children inherit), which
+    # keeps project and package *definitions* out of every launch. This
+    # variable covers the other half: project *settings* (defaultModel,
+    # agentOverrides, disableBuiltins, defaultExtensions) are read from the
+    # cloned workspace regardless of the launch scope, so the patch hides that
+    # settings file while the ceiling is active
+    # (open-harness-v2-subagent-adaptation.md §6.4).
     export CODIFY_PI_SUBAGENT_ISOLATED=1
 
     export CODIFY_PI_CLI_HOME="${CODIFY_PI_CLI_HOME:-/home/codify}"
