@@ -387,6 +387,18 @@ unique `(agent, tool_id)` row), a plain single-agent launch that reports
 and a provisional index-only identity no longer opens a throwaway row), and
 `context.compacted` emitted without attribution.
 
+One more settle rule came out of a UI report about confusing durations (Task
+662). The plugin aborts a workflow's children when that workflow's script
+throws, and the terminal record of such a call can arrive with an **empty
+inventory** even though the children had already reached a native state in the
+earlier updates (Task 664: both children completed, then the script failed).
+Settling only at the attempt terminal reported a 28 s duration for a call that
+ended after ~3 s, and it marked completed children as cancelled. The adapter now
+remembers each child's last observed state and output, and every call terminal
+settles that call's children from those facts — so an abandoned child ends as
+`cancelled` where its call failed, and a child that finished keeps
+`completed` with its own duration.
+
 ## Ceiling enforcement on the pinned plugin
 
 The ceiling has to make background delegation impossible at depth 0, because a

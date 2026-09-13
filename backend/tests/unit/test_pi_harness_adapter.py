@@ -2305,3 +2305,111 @@ def test_pi_cancelled_attempt_settles_open_delegations(tmp_path):
     assert len({payload["tool_id"] for payload in payloads}) == 2
     for event in events:
         validate_event_v2(event)
+
+
+def test_pi_call_terminal_with_empty_inventory_settles_from_the_last_state(tmp_path):
+    """A call can end with an empty inventory after its children completed.
+
+    Task 664: the workflow script failed, the call's terminal record carried no
+    inventory at all, yet both children had already reached `completed` in the
+    earlier updates. Settling only at the attempt terminal reported a 28 s
+    duration for a call that ended after ~3 s, and the delegation row kept a
+    stale status.
+    """
+    details = _subagent_details()
+    running = json.loads(json.dumps(details))
+    running["workflowChildren"]["workflowState"] = "running"
+    for child in running["workflowChildren"]["children"]:
+        child["state"] = "running"
+    running["results"] = []
+    done = json.loads(json.dumps(details))
+    done["workflowChildren"]["workflowState"] = "running"
+    done["workflowChildren"]["children"][0]["state"] = "completed"
+    done["workflowChildren"]["children"][1]["state"] = "completed"
+    done["results"] = []
+
+    _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate(
+        tmp_path,
+        [
+            {
+                "type": "tool_execution_update",
+                "toolCallId": "call_empty_end",
+                "toolName": "subagent",
+                "partialResult": {"content": [], "details": running},
+            },
+            {
+                "type": "tool_execution_update",
+                "toolCallId": "call_empty_end",
+                "toolName": "subagent",
+                "partialResult": {"content": [], "details": done},
+            },
+            {
+                "type": "tool_execution_end",
+                "toolCallId": "call_empty_end",
+                "toolName": "subagent",
+                "result": {"content": [{"type": "text", "text": "Workflow failed: boom"}], "details": {}},
+                "isError": True,
+            },
+        ]
+        + _turn_lifecycle(),
+    )
+
+    events = _events(tmp_path)
+    completed = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.completed" and "subagent" in event["payload"]
+    ]
+    assert [payload["subagent"]["status"] for payload in completed] == ["completed", "completed"]
+    settled_lines = {event["raw_ref"]["line"] for event in events if event["type"] == "tool.completed"}
+    assert len(settled_lines) == 1, "children settle at the call's terminal record"
+
+
+def test_pi_failed_workflow_call_settles_its_abandoned_children(tmp_path):
+    """A call that fails after launching children ends their rows at once.
+
+    Task 662: the plugin aborted two launched children when the workflow script
+    threw, but the rows only settled at the attempt terminal, so they reported a
+    13 s duration for a call that failed after ~2 s.
+    """
+    details = _subagent_details()
+    details["workflowChildren"]["workflowState"] = "running"
+    for child in details["workflowChildren"]["children"]:
+        child["state"] = "running"
+    details["results"] = []
+    _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate(
+        tmp_path,
+        [
+            {
+                "type": "tool_execution_update",
+                "toolCallId": "call_failed_wf",
+                "toolName": "subagent",
+                "partialResult": {"content": [], "details": details},
+            },
+            {
+                "type": "tool_execution_end",
+                "toolCallId": "call_failed_wf",
+                "toolName": "subagent",
+                "result": {
+                    "content": [{"type": "text", "text": "Workflow failed: TypeError: runs.run is not a function."}],
+                    "details": details,
+                },
+                "isError": True,
+            },
+        ]
+        + _turn_lifecycle(),
+    )
+
+    events = _events(tmp_path)
+    completed = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.completed" and "subagent" in event["payload"]
+    ]
+    # Both abandoned children end where the call failed, not at the terminal.
+    assert [payload["subagent"]["status"] for payload in completed] == ["cancelled", "cancelled"]
+    assert [payload["error"] for payload in completed] == [False, False]
+    settled_lines = {event["raw_ref"]["line"] for event in events if event["type"] == "tool.completed"}
+    assert len(settled_lines) == 1, "children settle at the call's terminal record"

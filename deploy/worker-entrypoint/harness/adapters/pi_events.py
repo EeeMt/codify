@@ -1109,33 +1109,49 @@ def _child_tool_rows(result: dict) -> list[str]:
     return rows
 
 
-def _settle_open_delegations(raw_line: int) -> None:
+def _settle_open_delegations(raw_line: int, delegation: dict | None = None) -> None:
     """End every child that never reported a terminal.
 
-    A cancelled or failed attempt kills the child processes, so those children
-    can never settle on their own. Leaving their rows open would show a
-    permanent spinner and contradict the delegation contract (§10.10): the row
-    must end in place as completed/failed/cancelled. The terminal status is the
-    attempt's own, which is why the caller settles before the harness terminal.
+    A failed tool call, a cancelled attempt and a failed attempt all kill the
+    child processes, so those children can never settle on their own. Leaving
+    their rows open would show a permanent spinner and contradict the delegation
+    contract (§10.10): the row must end in place as completed/failed/cancelled.
+
+    ``delegation`` limits the sweep to one call's children. The plugin aborts a
+    workflow's children when that workflow's script throws, and settling them
+    only at the attempt terminal would report a duration measured to the end of
+    the attempt instead of to the abort (Task 662: two abandoned children showed
+    13 s although their call failed after ~2 s). The attempt terminal calls this
+    again with no argument, which is a no-op for rows already settled.
     """
-    for delegation in (_STATE.get("delegations") or {}).values():
-        if not isinstance(delegation, dict):
+    delegations = (
+        [delegation] if isinstance(delegation, dict)
+        else list((_STATE.get("delegations") or {}).values())
+    )
+    for entry in delegations:
+        if not isinstance(entry, dict):
             continue
-        for tool_id, flags in delegation.items():
+        for tool_id, flags in entry.items():
             if not isinstance(flags, dict) or not flags.get("started") or flags.get("completed"):
                 continue
+            # A child that already reached a native terminal state keeps it: the
+            # plugin reported its outcome even though the call as a whole ended
+            # with an error (Task 664: a workflow failure arrived with an empty
+            # inventory while both children had completed).
+            state = str(flags.get("state") or "").lower()
+            status = _DELEGATION_TERMINAL_STATES.get(state) or "cancelled"
             subagent = flags.get("subagent") or {}
+            payload: dict = {
+                "tool_id": tool_id,
+                "name": "Subagent",
+                "error": status == "failed",
+                "subagent": {**subagent, "status": status},
+            }
+            recorded_output = flags.get("output")
+            if isinstance(recorded_output, str) and recorded_output:
+                payload["output"] = recorded_output
             flags["completed"] = True
-            _emit(
-                "tool.completed",
-                {
-                    "tool_id": tool_id,
-                    "name": "Subagent",
-                    "error": False,
-                    "subagent": {**subagent, "status": "cancelled"},
-                },
-                raw_line,
-            )
+            _emit("tool.completed", payload, raw_line)
 
 
 def _settle_childless_call(record: dict, delegation: dict, raw_line: int) -> None:
@@ -1196,7 +1212,11 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
     if details is None:
         # No child inventory yet (the call just started, or it is a
         # management action such as `status`/`list`): keep the raw evidence and
-        # wait for the structured result instead of inventing a delegation.
+        # wait for the structured result instead of inventing a delegation. A
+        # terminal record here still has to close the children this call had
+        # already launched and reported in earlier snapshots.
+        if record.get("type") == "tool_execution_end":
+            _settle_open_delegations(raw_line, delegation)
         _settle_childless_call(record, delegation, raw_line)
         return
     # The final record is the last chance to settle a child: a terminal state
@@ -1237,6 +1257,14 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
             tool_id,
             {"started": False, "completed": False, "task": None},
         )
+        # Remember what the plugin last reported for this child: a later
+        # snapshot can arrive with an empty inventory, and the call's terminal
+        # then has to settle the row from these facts.
+        if state:
+            child_state_flags["state"] = state
+        snapshot_output = result.get("finalOutput")
+        if isinstance(snapshot_output, str) and snapshot_output:
+            child_state_flags["output"] = snapshot_output
         task = result.get("task")
         if not isinstance(task, str) or not task.strip():
             summary = result.get("progressSummary")
@@ -1320,6 +1348,12 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
                 raw_line,
                 agent=agent_ref,
             )
+    if is_final:
+        # The call ended: any child it launched and never saw settle ends here,
+        # at the call's own terminal, instead of waiting for the attempt to end.
+        # A workflow script error is the common case, and its terminal record
+        # can arrive with an empty inventory (Task 664).
+        _settle_open_delegations(raw_line, delegation)
     # A terminal result whose inventory carries no children still deserves one
     # row (refused launch, empty fan-out), and the guard above already covers
     # the no-inventory case.
