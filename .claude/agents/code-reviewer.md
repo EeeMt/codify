@@ -34,7 +34,7 @@ You are an expert code reviewer for the Codify project, an AI-powered code gener
 ### 5. Project-Specific Standards
 - Backend models follow SQLAlchemy conventions from `backend/app/models.py`
 - API endpoints match patterns in `backend/app/api/`
-- Docker container naming follows pattern `codify-{task_id}-p{project_id}-i{issue_iid}`
+- Docker container naming follows pattern `{worker_container_prefix}-{task_id}-issue{issue_id}` (prefix defaults to `codify`)
 - Frontend components use Vue 3 Composition API with `<script setup>`
 
 ### 6. Testing Coverage

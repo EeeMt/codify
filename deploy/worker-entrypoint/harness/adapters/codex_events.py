@@ -48,7 +48,7 @@ _STATE: dict = {
     # frozen 0.146.0 App Server streams child-thread items on the root
     # subscription (each tagged with params.threadId) and reports delegation
     # state through ``collabAgentToolCall`` items, so no rollout/session file
-    # is ever read. Probe evidence: docs/harness-probes/v2/codex/.
+    # is ever read. Probe evidence: docs/dev/harness-probes/v2/codex/.
     "agents": {},                    # child thread id -> {id, parent_id, role}
     "delegation_tool_by_child": {},  # child thread id -> delegation tool id
     "closed_delegations": set(),     # child thread ids already settled

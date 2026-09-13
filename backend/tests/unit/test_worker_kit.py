@@ -1028,7 +1028,7 @@ def test_release_helpers_export_an_immutable_content_addressed_kit_archive():
     root = Path(__file__).resolve().parents[3]
     makefile = (root / "Makefile").read_text()
     helper = (root / "deploy/worker-kit/export.sh").read_text()
-    deployment = (root / "docs/DEPLOYMENT.md").read_text()
+    deployment = (root / "docs/ops/DEPLOYMENT.md").read_text()
 
     assert "worker-kit-export" in makefile
     assert "WORKER_KIT_CLI_SELECTION ?= pi,opencode" in makefile

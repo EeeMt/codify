@@ -1,6 +1,6 @@
 """Tests for the OpenCode V2 adapter: event translator, control bridge, adapter shell.
 
-The OpenCode translator is driven by the Phase-0 probe framing (docs/harness-probes/v2/opencode/)
+The OpenCode translator is driven by the Phase-0 probe framing (docs/dev/harness-probes/v2/opencode/)
 and maps OpenCode's SSE ``{id, type, properties}`` records to canonical V2 events, using the
 three-signal settled judgment (design §4): ``session.idle`` + final assistant message + no
 error. The first release has no live command plane (steering=false/follow_up=false), so the
@@ -33,7 +33,7 @@ TRANSLATOR = HARNESS_DIR / "adapters/opencode_events.py"
 EVENT_WRITER = HARNESS_DIR / "events.py"
 ADAPTER = HARNESS_DIR / "adapters/opencode.sh"
 LEGACY_RUNNER = REPO_ROOT / "deploy/worker-entrypoint/harness/runners/opencode-run.sh"
-PROBE_ROOT = REPO_ROOT / "docs/harness-probes/v2/opencode"
+PROBE_ROOT = REPO_ROOT / "docs/dev/harness-probes/v2/opencode"
 
 V2_ENV = {
     "CODIFY_RUNTIME_CONTRACT_VERSION": "codify.worker.harness/v2",

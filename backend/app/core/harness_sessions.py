@@ -33,7 +33,7 @@ def session_namespace_for(
     already scopes the session row), and the authentication domain is captured
     by the Endpoint fingerprint's non-sensitive auth-scheme fields; the volatile
     credential is excluded so credential rotation does not reset the session.
-    See docs/architecture/worker-harness-contract-v1.md.
+    See docs/design/architecture/worker-harness-contract-v1.md.
     """
     material = f"{harness_key}|{endpoint_fingerprint or ''}|state-{adapter_state_major}"
     digest = hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]

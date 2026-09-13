@@ -36,7 +36,7 @@ remains `unreviewed`; neither field is evidence of a Codify Task/MR acceptance.
 - Never put real credentials in shell history, command arguments, prompts,
   fixtures, logs, reports, or `--base-url` user-info/query fields.
 - Do not commit a run archive. Preserve a formal canary only after redaction in
-  `docs/harness-probes/v2/acceptance/` with Bundle/image/Kit digests and task IDs.
+  `docs/dev/harness-probes/v2/acceptance/` with Bundle/image/Kit digests and task IDs.
 - `provider-matrix.py` establishes endpoint behaviour only. It does **not**
   prove Harness protocol support, configuration selection, or acceptance.
 - The direct Pi RPC probe is diagnostic. Release evidence remains the

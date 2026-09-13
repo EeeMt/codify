@@ -6,7 +6,7 @@ This folder contains the artifacts needed to deploy the current Codify build int
 
 - `docker-compose.yml`: offline deployment compose file using prebuilt images only
 - `config/.env.offline.example`: sanitized environment template
-- `docs/CONFIGURATION.md`: variable explanations and deployment checklist
+- `docs/ops/CONFIGURATION.md`: variable explanations and deployment checklist
 - `scripts/load-images.sh`: load exported images into Docker
 - `scripts/start.sh`: start the stack
 - `scripts/stop.sh`: stop the stack
@@ -32,8 +32,8 @@ Before a rollout, freeze the complete multi-harness release candidate:
 - The Task Runtime Bundle manifest digest and each harness Adapter version/digest; the actual
   Adapter comes only from the immutable Runtime Bundle, never from the Kit or host path.
 
-See `docs/runbooks/multi-harness-rollout.md` for the full freeze list, per-Host verification,
-direct switch, alerting and rollback procedure, and `docs/runbooks/multi-harness-rollout-evidence.md`
+See `docs/ops/runbooks/multi-harness-rollout.md` for the full freeze list, per-Host verification,
+direct switch, alerting and rollback procedure, and `docs/ops/runbooks/multi-harness-rollout-evidence.md`
 for the evidence template.
 
 ## Images exported by default

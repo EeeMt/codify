@@ -18,7 +18,7 @@
 #     PROVIDER_CLAUDE_ID=.. PROVIDER_CODEX_ID=.. WORKER_PROFILE_ID=.. ./scripts/dev-regression.sh
 #
 # Config precedence: env vars > gitignored deploy/dev-env-info.md > defaults.
-# Requires: curl, jq, python3. See docs/dev-env-core-regression.md (Tier 1/2).
+# Requires: curl, jq, python3. See docs/dev/dev-env-core-regression.md (Tier 1/2).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

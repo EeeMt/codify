@@ -1,6 +1,6 @@
 """Tests for the Pi V2 adapter: event translator, control bridge, adapter shell.
 
-The Pi translator is driven by the Phase-0 probe framing (docs/harness-probes/v2/pi/)
+The Pi translator is driven by the Phase-0 probe framing (docs/dev/harness-probes/v2/pi/)
 and must map Pi's native RPC records to canonical V2 events with the correct
 ``delivered`` (= native ACK, not model consumption) and ``agent_settled`` (true
 settled) semantics (schemas.md §3.3, probe facts).
@@ -22,7 +22,7 @@ HARNESS_DIR = REPO_ROOT / "deploy/worker-entrypoint/harness"
 TRANSLATOR = HARNESS_DIR / "adapters/pi_events.py"
 EVENT_WRITER = HARNESS_DIR / "events.py"
 ADAPTER = HARNESS_DIR / "adapters/pi.sh"
-PROBE_ROOT = REPO_ROOT / "docs/harness-probes/v2/pi"
+PROBE_ROOT = REPO_ROOT / "docs/dev/harness-probes/v2/pi"
 
 V2_ENV = {
     "CODIFY_RUNTIME_CONTRACT_VERSION": "codify.worker.harness/v2",
@@ -1881,7 +1881,7 @@ def _subagent_details() -> dict:
     """Native `subagent` tool details captured from the Kit-fixed plugin.
 
     Shape taken verbatim from a real 0.84.2 + pi-subagents 0.67.0 run
-    (docs/harness-probes/v2/subagents/README.md); only ids and prompt text are
+    (docs/dev/harness-probes/v2/subagents/README.md); only ids and prompt text are
     rewritten.
     """
     return {

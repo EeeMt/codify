@@ -30,7 +30,7 @@ def main() -> int:
     parser.add_argument("--staged", action="store_true")
     args = parser.parse_args()
     root = pathlib.Path(__file__).resolve().parents[3]
-    paths = args.paths or [root / "scripts/harness-probes/v2", root / "docs/harness-probes/v2"]
+    paths = args.paths or [root / "scripts/harness-probes/v2", root / "docs/dev/harness-probes/v2"]
     findings: list[str] = []
     for path in paths:
         candidates = [path] if path.is_file() else sorted(item for item in path.rglob("*") if item.is_file())

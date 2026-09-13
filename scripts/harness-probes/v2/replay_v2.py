@@ -7,7 +7,7 @@ V2 pipeline would emit for the SAME raw harness captures.
 
 This is a *replay* of already-captured V1 evidence, not a re-run of the CLIs:
 the raw event streams are unchanged; only the canonical envelope and the CLID
-version pins change per the V2 architecture (docs/architecture/open-harness-v2.md).
+version pins change per the V2 architecture (docs/design/architecture/open-harness-v2.md).
 
 V1 -> V2 deltas applied:
   - schema:     "codify.worker.event/v1"  -> "codify.worker.event/v2"
@@ -21,7 +21,7 @@ V1 -> V2 deltas applied:
                 finalization before the single task terminal.
 
 The V2 native boundary evidence (Pi steer/follow_up/abort, OpenCode
-session/event/abort) is captured separately under docs/harness-probes/v2/pi and
+session/event/abort) is captured separately under docs/dev/harness-probes/v2/pi and
 /opencode; the three new V2 control events (control.command.delivered/rejected,
 control.queue.updated) are *appended-only* audit events and are not synthesised
 from V1 CLI captures.
@@ -37,7 +37,7 @@ import argparse
 import json
 from pathlib import Path
 
-# V2 pinned CLI versions (see docs/harness-probes/v2/README.md §3.1)
+# V2 pinned CLI versions (see docs/dev/harness-probes/v2/README.md §3.1)
 CLI_VERSION = {
     "claude": "2.1.152",
     "codex": "0.146.0",

@@ -35,7 +35,7 @@ make test-e2e                     # all E2E: Playwright + GitLab
 make lint                         # backend ruff
 ```
 
-Testing deep-dive: [docs/TESTING.md](docs/TESTING.md).
+Testing deep-dive: [docs/dev/TESTING.md](docs/dev/TESTING.md).
 
 ## Architecture essentials
 
@@ -54,7 +54,7 @@ Key modules:
 | `deploy/worker-entrypoint/harness/` | worker-side adapters + event translators + runner (claude/codex) |
 | `backend/app/migrations.py` + `alembic/versions/NNN_*.py` | migrations (head: `072`) |
 
-Worker containers: `codify-{task_id}-p{project_id}-i{issue_iid}` — scheduler crash recovery matches this pattern.
+Worker containers: `{worker_container_prefix}-{task_id}-issue{issue_id}` (prefix defaults to `codify`, e.g. `codify-670-issue183`) — scheduler crash recovery matches `^{prefix}-(\d+)-issue(\d+)$`.
 
 ## Conventions
 
@@ -65,6 +65,6 @@ Worker containers: `codify-{task_id}-p{project_id}-i{issue_iid}` — scheduler c
 ## Docs map
 
 - [docs/README.md](docs/README.md) — full index
-- [docs/dev-env-core-regression.md](docs/dev-env-core-regression.md) — dev-env regression plan (Tier 1/2/3)
-- [docs/dev-env-api-regression.md](docs/dev-env-api-regression.md) — L4 API verification steps
-- [docs/multi-harness-debugging.md](docs/multi-harness-debugging.md) — multi-harness integration lessons
+- [docs/dev/dev-env-core-regression.md](docs/dev/dev-env-core-regression.md) — dev-env regression plan (Tier 1/2/3)
+- [docs/dev/dev-env-api-regression.md](docs/dev/dev-env-api-regression.md) — L4 API verification steps
+- [docs/dev/multi-harness-debugging.md](docs/dev/multi-harness-debugging.md) — multi-harness integration lessons

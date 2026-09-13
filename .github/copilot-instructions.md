@@ -48,7 +48,7 @@ docker build -f deploy/Dockerfile.worker -t codify-worker:latest .
 1. User creates an issue in the dashboard describing the goal and constraints
 2. User launches or schedules a task from the issue
 3. The **Scheduler** (separate process: `python -m app.scheduler_service`) polls for PENDING tasks using a priority queue
-4. Scheduler calls `WorkerExecutor`, which spawns a Docker container named `codify-{task_id}-p{project_id}-i{issue_iid}`
+4. Scheduler calls `WorkerExecutor`, which spawns a Docker container named `{worker_container_prefix}-{task_id}-issue{issue_id}` (prefix defaults to `codify`, e.g. `codify-670-issue183`)
 5. The container (`deploy/entrypoint.sh`) clones the repo, runs Claude CLI to generate code, commits, pushes, and creates an MR
 6. Worker updates task status; dashboard shows logs and delivery details in real-time
 
@@ -91,7 +91,7 @@ Settings have two layers:
 
 ### Container naming
 
-Worker containers follow the pattern `codify-{task_id}-p{project_id}-i{issue_iid}` (matched by `WORKER_CONTAINER_PATTERN` regex). Crash recovery on scheduler startup identifies and cleans up stale containers by this pattern.
+Worker containers follow the pattern `{worker_container_prefix}-{task_id}-issue{issue_id}` (prefix defaults to `codify`; matched by the scheduler's `^{prefix}-(\d+)-issue(\d+)$` regex in `backend/app/scheduler.py`). Crash recovery on scheduler startup identifies and cleans up stale containers by this pattern.
 
 ### Priority levels
 

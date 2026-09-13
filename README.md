@@ -1,6 +1,6 @@
 # Codify
 
-[中文说明](docs/README.zh-CN.md)
+[中文文档索引](docs/README.zh-CN.md)
 
 Codify is a self-hosted platform that turns requirements into code. It puts interactive coding agents — **Claude Code**, with **Codex** wired in and rolling out — behind a web control plane: describe what you need, and Codify runs the agent in an isolated Docker container, commits the changes, pushes a branch, and opens a Merge Request. Schedule tasks for off-peak hours and your compute works around the clock.
 
@@ -59,7 +59,7 @@ At its core, Codify takes an agent CLI (like `claude -p "..."`) and adds everyth
 
 ## Architecture
 
-Four services under docker-compose: **backend** (FastAPI + async SQLAlchemy), **scheduler** (same image; DB-backed queue state machine `PENDING → QUEUED → RUNNING`), **nginx** (frontend + `/api` proxy), **postgres**. Each task runs in its own container named `codify-{task_id}-p{project_id}-i{issue_iid}` on a configurable Docker host.
+Four services under docker-compose: **backend** (FastAPI + async SQLAlchemy), **scheduler** (same image; DB-backed queue state machine `PENDING → QUEUED → RUNNING`), **nginx** (frontend + `/api` proxy), **postgres**. Each task runs in its own container named `{worker_container_prefix}-{task_id}-issue{issue_id}` — the prefix defaults to `codify`, so a task looks like `codify-670-issue183` (`backend/app/core/worker_runtime.py` `get_container_name`) — on a configurable Docker host.
 
 A task's life:
 
@@ -84,7 +84,7 @@ docker-compose up -d --build
 - Frontend: `http://localhost:8880`
 - Backend API: `http://localhost:8000`
 
-**Login (recommended):** start with OIDC disabled, make sure everything works, then enable it via the dashboard Configuration page. See [docs/GITLAB_OIDC_SETUP.md](docs/GITLAB_OIDC_SETUP.md).
+**Login (recommended):** start with OIDC disabled, make sure everything works, then enable it via the dashboard Configuration page. See [docs/ops/GITLAB_OIDC_SETUP.md](docs/ops/GITLAB_OIDC_SETUP.md).
 
 ## Common commands
 
@@ -102,8 +102,9 @@ make lint                       # backend ruff
 ## Related docs
 
 - [docs/README.md](docs/README.md) — full doc index
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) · [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) · [docs/E2E_TESTS.md](docs/E2E_TESTS.md)
-- [docs/README.zh-CN.md](docs/README.zh-CN.md) — 中文入门与使用指南
+- [docs/ops/DEPLOYMENT.md](docs/ops/DEPLOYMENT.md) · [docs/ops/CONFIGURATION.md](docs/ops/CONFIGURATION.md) · [docs/dev/DEVELOPMENT.md](docs/dev/DEVELOPMENT.md)
+- [docs/dev/E2E_TESTS.md](docs/dev/E2E_TESTS.md) · [docs/README.zh-CN.md](docs/README.zh-CN.md) — 中文文档索引
+- In-app guide source: [frontend/src/guide/](frontend/src/guide/) (rendered at `/guide`)
 - [deploy/offline-bundle/README.md](deploy/offline-bundle/README.md) — offline deployment kit
 
 ## License

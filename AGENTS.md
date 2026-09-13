@@ -46,7 +46,7 @@ make test-e2e-down          # Stop E2E test environment
 
 ### Testing & Debugging
 
-See [docs/TESTING.md](docs/TESTING.md) for the detailed testing guide.
+See [docs/dev/TESTING.md](docs/dev/TESTING.md) for the detailed testing guide.
 
 Quick debug commands:
 ```bash
@@ -151,7 +151,7 @@ Settings have two layers:
 
 ### Container naming
 
-Worker containers follow the pattern `codify-{task_id}-p{project_id}-i{issue_iid}` (matched by `WORKER_CONTAINER_PATTERN` regex). Crash recovery on scheduler startup identifies and cleans up stale containers by this pattern.
+Worker containers follow the pattern `{worker_container_prefix}-{task_id}-issue{issue_id}` (prefix defaults to `codify`; matched by the scheduler's `^{prefix}-(\d+)-issue(\d+)$` regex in `backend/app/scheduler.py`). Crash recovery on scheduler startup identifies and cleans up stale containers by this pattern.
 
 ### Priority levels
 

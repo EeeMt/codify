@@ -4,7 +4,7 @@
 OpenCode 1.18.19 drives a Task-scoped ``opencode serve`` (control transport
 ``server_http``). The Server pushes events over a single ``GET /event`` SSE
 stream; each SSE record is the ``{id, type, properties}`` object observed in
-the Phase-0 probe (docs/harness-probes/v2/opencode/events.observed.jsonl).
+the Phase-0 probe (docs/dev/harness-probes/v2/opencode/events.observed.jsonl).
 This translator reads those records one-per-line from stdin (the wire framing
 is unwrapped into JSON by the Bridge) and maps each to a canonical event.
 
@@ -1209,7 +1209,7 @@ def _handle_child_durable_text(record_type: str, data: dict, raw_line: int) -> N
 def _delegation_child(state: dict) -> str | None:
     """Child session id of a native ``task`` delegation, from native metadata.
 
-    Frozen 1.18.19 evidence (docs/harness-probes/v2/subagents/opencode): the
+    Frozen 1.18.19 evidence (docs/dev/harness-probes/v2/subagents/opencode): the
     root session's ``task`` tool part carries
     ``state.metadata.sessionId``/``parentSessionId``; the child session it
     names is the delegation target. Never inferred from the prompt text.

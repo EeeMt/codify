@@ -226,7 +226,7 @@ CLAUDE_ARGS=(
 # below keep the same boundary directly: no user/project/local settings (so
 # repo hooks and permissions cannot load), no MCP configuration beyond an
 # explicit --mcp-config we never pass, and no skills. Probe evidence, including
-# the planted-hook control, is in docs/harness-probes/v2/subagents/README.md.
+# the planted-hook control, is in docs/dev/harness-probes/v2/subagents/README.md.
 # NOTE: `--bare` additionally skipped keychain reads; this runner authenticates
 # with ANTHROPIC_API_KEY against a task-local HOME, so there is no keychain.
 CLAUDE_ARGS+=(
