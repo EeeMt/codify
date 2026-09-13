@@ -520,6 +520,39 @@ describe('TaskProcessPanel', () => {
     expect(wrapper.find('.scroll-navigation').exists()).toBe(false)
   })
 
+  it('auto-hides the navigation overlay and reveals it on real scroll or pane hover', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(TaskProcessPanel, {
+      props: {
+        task: createTask('completed'),
+        taskLogs: [createTaskLog(1)],
+        isActive: false,
+        terminalHtml: '',
+        taskStatus: 'completed',
+      },
+    })
+    await nextTick()
+    const scroller = wrapper.get('.n-scrollbar-container')
+    setScrollMetrics(scroller.element as HTMLElement, 400)
+
+    await scroller.trigger('scroll')
+    const navigation = wrapper.get('.scroll-navigation')
+    expect(navigation.classes()).toContain('scroll-navigation--revealed')
+
+    vi.advanceTimersByTime(2000)
+    await nextTick()
+    expect(navigation.classes()).not.toContain('scroll-navigation--revealed')
+
+    const pane = wrapper.get('.process-content')
+    await pane.trigger('pointerenter')
+    expect(navigation.classes()).toContain('scroll-navigation--revealed')
+
+    await pane.trigger('pointerleave')
+    vi.advanceTimersByTime(200)
+    await nextTick()
+    expect(navigation.classes()).not.toContain('scroll-navigation--revealed')
+  })
+
   it('renders input preview in tool_call header and output preview in body', async () => {
     const task = createTask('completed')
     const toolCallLog: TaskLog = {

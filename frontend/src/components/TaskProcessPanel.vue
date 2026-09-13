@@ -30,7 +30,11 @@
       :container-name="props.task?.container_name ?? null"
     />
 
-    <div class="process-content">
+    <div
+      class="process-content"
+      @pointerenter="onNavigationPointerEnter"
+      @pointerleave="onNavigationPointerLeave"
+    >
       <template v-if="activeTab === 'events'">
         <template v-if="!hasStructuredContent">
           <div class="process-content__pane">
@@ -102,8 +106,11 @@
     <div
       v-if="showScrollNavigation"
       class="scroll-navigation"
+      :class="{ 'scroll-navigation--revealed': navigationRevealed }"
       role="group"
       :aria-label="t('taskView.scrollNavigation')"
+      @pointerenter="onNavigationPointerEnter"
+      @pointerleave="onNavigationPointerLeave"
     >
       <n-button
         v-if="canScrollToTop"
@@ -179,6 +186,10 @@ const eventStreamPaneRef = ref<HTMLElement | null>(null)
 type ProcessTab = 'events' | 'raw'
 type ScrollPosition = { atTop: boolean; atBottom: boolean }
 const PROGRAMMATIC_SCROLL_GUARD_MS = 1000
+// The overlay mirrors the scrollbar affordance: it fades in while the pane is
+// hovered (or briefly after a real scroll / tap) and fades out again.
+const NAVIGATION_POINTER_HIDE_DELAY_MS = 160
+const NAVIGATION_IDLE_HIDE_MS = 1800
 
 const rawPaneRef = ref<{ logContentRef: HTMLElement | null } | null>(null)
 const logContentRef = computed(() => rawPaneRef.value?.logContentRef ?? null)
@@ -191,6 +202,7 @@ const scrollPositions = reactive<Record<ProcessTab, ScrollPosition>>({
 const elapsedMs = ref(0)
 const nowMs = ref(Date.now())
 const expandedRowIndex = ref<number | null>(null)
+const navigationRevealed = ref(false)
 
 const {
   expandedPayloads,
@@ -205,7 +217,9 @@ const {
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 let programmaticScrollTimer: ReturnType<typeof setTimeout> | null = null
 let lastRowScrollTimer: ReturnType<typeof setTimeout> | null = null
+let navigationHideTimer: ReturnType<typeof setTimeout> | null = null
 let isProgrammaticScroll = false
+let pointerOverScrollArea = false
 
 const processRows = computed(() => normalizeTaskProcessRows(props.taskLogs))
 
@@ -243,6 +257,43 @@ const activePaneHasContent = computed(() => (
 const showScrollNavigation = computed(() => (
   activePaneHasContent.value && (canScrollToTop.value || canScrollToBottom.value)
 ))
+
+function cancelNavigationHide() {
+  if (!navigationHideTimer) return
+  clearTimeout(navigationHideTimer)
+  navigationHideTimer = null
+}
+
+function revealNavigation() {
+  cancelNavigationHide()
+  navigationRevealed.value = true
+}
+
+function scheduleNavigationHide(delayMs: number) {
+  cancelNavigationHide()
+  navigationHideTimer = setTimeout(() => {
+    navigationHideTimer = null
+    if (pointerOverScrollArea) return
+    navigationRevealed.value = false
+  }, delayMs)
+}
+
+function onNavigationPointerEnter() {
+  pointerOverScrollArea = true
+  revealNavigation()
+}
+
+function onNavigationPointerLeave() {
+  pointerOverScrollArea = false
+  scheduleNavigationHide(NAVIGATION_POINTER_HIDE_DELAY_MS)
+}
+
+// Touch and keyboard users never hover, so keep the overlay around briefly after
+// a real scroll or a jump click.
+function markNavigationActivity() {
+  revealNavigation()
+  if (!pointerOverScrollArea) scheduleNavigationHide(NAVIGATION_IDLE_HIDE_MS)
+}
 
 function getExpandedText(entry: ParsedTextEntry): string {
   if (entry.payloadId) {
@@ -381,12 +432,14 @@ function updateActiveScrollPosition() {
 
 function onEventStreamScroll(e: Event) {
   if (isProgrammaticScroll) return
+  markNavigationActivity()
   const el = e.target as HTMLElement
   updateScrollPosition('events', el)
 }
 
 function onLogContentScroll() {
   if (isProgrammaticScroll || !logContentRef.value) return
+  markNavigationActivity()
   updateScrollPosition('raw', logContentRef.value)
 }
 
@@ -396,6 +449,7 @@ watch(logContentRef, (el, oldEl) => {
 })
 
 function scrollToTop() {
+  markNavigationActivity()
   scrollPositions[activeTab.value].atTop = true
   scrollPositions[activeTab.value].atBottom = false
   setProgrammaticScroll()
@@ -407,6 +461,7 @@ function scrollToTop() {
 }
 
 function scrollToLatest() {
+  markNavigationActivity()
   scrollPositions[activeTab.value].atTop = false
   scrollPositions[activeTab.value].atBottom = true
   setProgrammaticScroll()
@@ -456,6 +511,7 @@ onBeforeUnmount(() => {
   logContentRef.value?.removeEventListener('scroll', onLogContentScroll)
   if (programmaticScrollTimer) clearTimeout(programmaticScrollTimer)
   if (lastRowScrollTimer) clearTimeout(lastRowScrollTimer)
+  cancelNavigationHide()
 })
 
 onMounted(() => nextTick(updateActiveScrollPosition))
@@ -747,6 +803,23 @@ defineExpose({
   background: color-mix(in srgb, var(--n-color, #fff) 90%, transparent);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.08);
   backdrop-filter: blur(10px);
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+/* Auto-hidden like the pane scrollbar; keyboard users still reach the buttons,
+   which stay in the tab order and force the overlay back on focus. */
+.scroll-navigation--revealed,
+.scroll-navigation:focus-within {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scroll-navigation {
+    transition: none;
+  }
 }
 .scroll-navigation__button {
   --n-height: 30px !important;
