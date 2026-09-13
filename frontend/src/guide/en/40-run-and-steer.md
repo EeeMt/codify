@@ -57,7 +57,7 @@ Very large logs are truncated in the browser: only the latest output is shown, a
 | Steer | **Steer** | Send a mid-run instruction to the harness, with the placeholder "Send a mid-run instruction to the harness..." |
 | Follow-up | **Follow-up** | Queue the next instruction to be consumed when the current turn is done |
 
-Each type is enabled only when the frozen runtime supports it. A Harness that does not advertise steering leaves **Steer** disabled; one that does not support follow-ups leaves **Follow-up** disabled. When neither is supported, the panel hides its send controls.
+Each type is enabled only when the frozen runtime supports it. A Harness that does not advertise steering leaves **Steer** disabled; one that does not support follow-ups leaves **Follow-up** disabled. When neither is supported, the panel hides its send controls. Live steering requires a control channel, which today means Pi only; the other Harnesses show no panel and their command gate stays disabled.
 
 Codify queues every command and tracks its delivery. A command reports one of these delivery states:
 
@@ -79,7 +79,7 @@ When a run finishes and you want more work on the same Issue, append a Task inst
 - On the latest Task of an Issue, **Append a Follow-up Task** says this is the latest task on the issue and that appending here continues from this run. Use **Append Task** to open the form.
 - A completed Task also links **Continue on This Issue**, explaining that you can append a follow-up task on the issue page to continue where this task left off; all tasks share the same workspace, AI session, and Git branch.
 
-Follow-up Tasks are appended to the tail of the Issue queue, so they run after everything already queued. If the conversation should not carry over, enable **Run in a new session** while creating the follow-up: the workspace, Git branch, and previous session records are preserved, but a new conversation generation starts.
+Follow-up Tasks are appended to the tail of the Issue queue, so they run after everything already queued. If the conversation should not carry over, enable **Run in a new session** while creating the follow-up: the workspace, Git branch, and previous session records are preserved, but a new conversation generation starts. The next turn continues from the working branch, including commits you pushed yourself; the Delivery chapter covers the branch rules.
 
 A follow-up created by CI auto-repair shows its trigger source as **CI auto-repair**, alongside **Retry** and **Follow-up**.
 

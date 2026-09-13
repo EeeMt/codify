@@ -1240,18 +1240,14 @@ watch(
   margin: 0 0 16px;
 }
 
-/* Two measures: prose is capped for a comfortable line, while tables and
-   figures use the full column. A single measure cannot serve both: the diagrams
-   are sized to the column and must not be scaled down (that is the whole point
-   of their size budget), and an 860px line of prose runs to ~99 characters.
-   560px is ~74 characters at 15.5px, inside the comfortable band. `ch`
-   units are unusable here - Inter's digit advance is ~0.63em, so `82ch`
-   resolves to 903px. */
+/* Keep prose aligned with the same reading column as tables and figures. The
+   column itself is capped at 860px, so paragraphs use the available measure
+   without leaving an artificial block of empty space on the right. */
 .guide-content__body p,
 .guide-content__body ul,
 .guide-content__body ol,
 .guide-content__body blockquote {
-  max-width: 560px;
+  max-width: 100%;
 }
 
 .guide-content__body ul,

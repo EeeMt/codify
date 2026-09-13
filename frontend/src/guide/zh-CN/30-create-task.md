@@ -78,7 +78,7 @@ section: User Guide
 
 - **Worker 由需求固定**：创建任务时不可更换，「Worker 与 Worker Kit 由需求固定」。
 - **AI 模型服务可按需覆盖**：默认「跟随需求默认」，也可以「本次指定」一个 Provider；切换 Harness 时界面会提示已自动切换到协议匹配的 Provider。
-- **Harness**：可选 Claude、Codex、Pi、OpenCode，可用性由 Worker 配置决定。状态会显示「可用」「不可用」「未验证」以及原因（如「Worker 配置已禁用」「运行时未验证」）。续跑任务必须沿用当前 Harness，勾选「使用新会话执行」后才可以切换。
+- **Harness**：可选 Claude、Codex、Pi、OpenCode，可用性由 Worker 配置决定。状态会显示「可用」「不可用」「未验证」以及原因（如「Worker 配置已禁用」「运行时未验证」）。只有运行时包（Runtime Bundle）中实际提供的 Harness 才能选中，各条可用性原因的含义见《Harness 支持》。续跑任务必须沿用当前 Harness，勾选「使用新会话执行」后才可以切换。
 
 「MR 设置」中的「创建合并请求」开关控制这次执行是否产出 Merge Request；禁用时仅推送工作分支，不创建 MR。
 

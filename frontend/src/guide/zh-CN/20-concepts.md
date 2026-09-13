@@ -51,7 +51,7 @@ Task（界面标签为「任务」）是需求的一次执行。每次执行都�
 
 Harness 是容器内调用模型的执行引擎。创建任务时可选的标签为 Claude、Codex、Pi、OpenCode，具体可用项由需求的 Worker 配置决定。每个任务在创建时冻结自己的 Harness 选择，续跑任务必须沿用当前 Harness；要切换 Harness，需要勾选「使用新会话执行」开启新一代会话。
 
-Harness 决定了模型协议（Claude 使用 Anthropic 协议，Codex 使用 OpenAI 协议）、可用的运行指令模板，以及是否支持实时引导。任务详情页的「Harness」行与「执行模型」行会显示实际使用的引擎和模型。
+Harness 决定了模型协议（Claude 使用 Anthropic 协议，Codex 使用 OpenAI 协议）、可用的运行指令模板，以及是否支持实时引导；这些差异在《Harness 支持》中逐项说明。任务详情页的「Harness」行与「执行模型」行会显示实际使用的引擎和模型。
 
 ## 工作区、会话与分支
 

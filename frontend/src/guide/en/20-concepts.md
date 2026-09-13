@@ -47,7 +47,7 @@ Trigger sources describe where a Task came from: a manual creation, a **Retry**,
 
 The Harness is the coding agent CLI that performs the work inside the container. Codify does not run the model itself. It prepares a workspace, renders a prompt, and hands both to a Harness.
 
-Each Harness has an adapter, a wire protocol, and a capability policy. The capability policy decides what a live run accepts: **steering** and **follow-up** commands are gated per Harness, so the steering controls on a task page are enabled only when the frozen runtime supports them.
+Each Harness has an adapter, a wire protocol, and a capability policy. The capability policy decides what a live run accepts: **steering** and **follow-up** commands are gated per Harness, so the steering controls on a task page are enabled only when the frozen runtime supports them. The Harness Support chapter sets out the per-Harness differences.
 
 Harness names appear directly on the task pages: **Claude**, **Codex**, **Pi**, and **OpenCode** are options in the task form and in the task metadata panel. Which ones your platform can run depends on the Worker Profile and the configured AI Providers.
 

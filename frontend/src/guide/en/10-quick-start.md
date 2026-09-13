@@ -77,3 +77,4 @@ The task detail page is the control surface for a single run: **Current executio
 - Delivery chapter: branches, Merge Requests, change and token statistics, and the run archive.
 - Scheduling chapter: queue arbitration, concurrency, the per-issue mutex, slot capacity, and timeouts.
 - Observability chapter: Dashboard, Analytics, Monitor, Schedule Overview, and Sessions.
+- Harness Support chapter: per-Harness differences, steering support, and model protocol pairing.
