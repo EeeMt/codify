@@ -565,7 +565,7 @@ describe('TaskProcessPanel raw pane wiring', () => {
     expect(wrapper.find('pre.log-content').exists()).toBe(true)
   })
 
-  it('renders container summary in runtime info instead of the event stream', () => {
+  it('renders the container in the process header instead of the event stream', () => {
     const wrapper = mount(TaskProcessPanel, {
       props: {
         task: {
@@ -593,7 +593,10 @@ describe('TaskProcessPanel raw pane wiring', () => {
           started_at: null,
           completed_at: null,
         },
-        taskLogs: [],
+        taskLogs: [createTaskLog({
+          log_type: 'system_init',
+          metadata: JSON.stringify({ model: 'claude-sonnet-4-6', cwd: '/workspace' }),
+        })],
         isActive: false,
         terminalHtml: '',
         taskStatus: 'completed',
@@ -601,7 +604,9 @@ describe('TaskProcessPanel raw pane wiring', () => {
     })
 
     expect(wrapper.text()).toContain('worker-292')
-    expect(wrapper.find('.system-init-banner').text()).toContain('worker-292')
+    expect(wrapper.find('.process-header__container').text()).toContain('worker-292')
+    expect(wrapper.text()).not.toContain('claude-sonnet-4-6')
+    expect(wrapper.text()).not.toContain('/workspace')
     expect(wrapper.find('.empty-state').attributes('description')).toBe('taskView.noLogsAvailable')
     expect(wrapper.find('.event-stream .event-item--container').exists()).toBe(false)
   })

@@ -459,17 +459,6 @@ export function parseTextEntry(metadata: unknown): ParsedTextEntry {
   return { text, preview, payloadId, charCount, truncated, thinkingStatus, startedAt, endedAt, durationMs }
 }
 
-export function parseSystemInitEntry(taskLogs: TaskLog[]) {
-  const entry = taskLogs.find((l) => l.log_type === 'system_init')
-  const metadata = parseJsonMetadata(entry?.metadata)
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
-  const obj = metadata as Record<string, unknown>
-  return {
-    model: typeof obj.model === 'string' ? obj.model : null,
-    cwd: typeof obj.cwd === 'string' ? obj.cwd : null,
-  }
-}
-
 export function parseControlEntry(metadata: unknown): ParsedControlEntry {
   const parsed = parseJsonMetadata(metadata)
   const obj = parsed && typeof parsed === 'object' && !Array.isArray(parsed)

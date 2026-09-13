@@ -10,6 +10,15 @@
           <span class="panel-title">{{ t('taskView.taskProcess') }}</span>
           <n-tag v-if="isActive" type="success" size="small" round :class="{ 'live-badge--pulse': isActive }">{{ t('taskView.realTime') }}</n-tag>
           <span v-if="isActive && elapsedDisplay" class="elapsed-time">{{ elapsedDisplay }}</span>
+          <span
+            v-if="containerDisplay"
+            class="process-header__container"
+            :title="containerDisplay"
+          >
+            <n-icon size="14"><ServerOutline /></n-icon>
+            <span class="process-header__container-label">{{ t('taskView.container') }}</span>
+            <code class="process-header__container-value">{{ containerDisplay }}</code>
+          </span>
         </div>
         <n-tabs v-model:value="activeTab" type="segment" size="small" class="process-tabs process-tabs--header">
           <n-tab name="events">
@@ -22,13 +31,6 @@
         </n-tabs>
       </div>
     </template>
-
-    <TaskProcessSystemInitBanner
-      v-if="runtimeInfoEntry"
-      :entry="runtimeInfoEntry"
-      :container-id="props.task?.container_id ?? null"
-      :container-name="props.task?.container_name ?? null"
-    />
 
     <div
       class="process-content"
@@ -192,12 +194,11 @@ import { NCard, NIcon, NTag, NEmpty, NTabs, NTab, NButton, NBadge, NScrollbar } 
 import type { ScrollbarInst } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { formatDurationMs } from '../utils/format'
-import { ChevronDownOutline, ChevronUpOutline } from '@vicons/ionicons5'
+import { ChevronDownOutline, ChevronUpOutline, ServerOutline } from '@vicons/ionicons5'
 import type { TaskLog, Task } from '../api'
-import TaskProcessSystemInitBanner from './task-process/TaskProcessSystemInitBanner.vue'
 import TaskProcessRawPane from './task-process/TaskProcessRawPane.vue'
 import TaskProcessEventRow from './task-process/TaskProcessEventRow.vue'
-import { agentDisplayName, groupTaskProcessRows, normalizeTaskProcessRows, parseSystemInitEntry, isTextRow, isToolRow, isCompactRow, type NormalizedTaskProcessBlock, type NormalizedTaskProcessRow, type ParsedTextEntry } from './task-process/taskProcessUtils'
+import { agentDisplayName, groupTaskProcessRows, normalizeTaskProcessRows, isTextRow, isToolRow, isCompactRow, type NormalizedTaskProcessBlock, type NormalizedTaskProcessRow, type ParsedTextEntry } from './task-process/taskProcessUtils'
 import { useTaskPayloadExpansion } from './task-process/useTaskPayloadExpansion'
 import { parseUtcDate } from '../utils/datetime'
 
@@ -274,11 +275,10 @@ function isChildRow(row: NormalizedTaskProcessRow): boolean {
 function setCollapseRef(row: NormalizedTaskProcessRow, element: unknown) {
   collapseRefs[row.event.id] = element instanceof HTMLElement ? element : null
 }
-const systemInitEntry = computed(() => parseSystemInitEntry(props.taskLogs))
-const runtimeInfoEntry = computed(() => {
-  if (systemInitEntry.value) return systemInitEntry.value
-  if (props.task?.container_id) return { model: null, cwd: null }
-  return null
+const containerDisplay = computed(() => {
+  const containerId = props.task?.container_id
+  if (!containerId) return ''
+  return props.task?.container_name ?? containerId.slice(0, 12)
 })
 const hasStructuredContent = computed(() => processRows.value.length > 0)
 const eventStreamCount = computed(() => processRows.value.filter(r => !isCompactRow(r)).length)
@@ -604,6 +604,28 @@ defineExpose({
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+.process-header__container {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--n-text-color-2, #666);
+}
+.process-header__container-label {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+.process-header__container-value {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--n-font-family-mono, monospace);
+  font-size: 11px;
+  background: rgba(128, 128, 128, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 .elapsed-time {
   flex: 0 0 auto;
