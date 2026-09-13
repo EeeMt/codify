@@ -15,19 +15,20 @@ Administrators set all of these up from **Configuration**. If a page reports tha
 
 Your sign-in method is decided by whoever runs the platform: a local account, GitLab sign-in, or both. The login page is at `/login`, and a brand-new platform shows a one-time setup screen until the first administrator account exists.
 
-## The three-step loop
+## The issue loop
 
-Every workflow in Codify follows the same loop: describe the work on an Issue, run a Task against it, then review what the Task delivered.
+An Issue is the container for one piece of work, not a single run. You create it once and it owns the workspace, the AI session, and one branch; everything after that is a turn on that same Issue. The Issue page's primary button is **Create Task** while the Issue has no task and **Append Task** afterwards, and an appended turn shares the workspace, session, and branch, so it continues from where the previous turn stopped. You review each turn before deciding what the next one should be, and when the result is good, the single Merge Request is merged and the Issue closes.
 
-![Three steps from request to a reviewed change](assets/diagrams/en/three-step-loop.svg)
+- **Create the Issue — once.** Pick the project and branches and write the description; it becomes the default prompt for the Issue's tasks. The workspace, the session, and the branch start here and are not rebuilt.
+- **Create or append a Task — the next turn.** On the Issue page, choose a Task Mode and priority, then use **Execute Now** or **Schedule**. Codify queues the Task, runs it in an isolated container, and streams events back.
+- **Review the turn.** Open the Task to read the process log, the commit record, the change and token statistics, and the Merge Request link. Steer it while it runs when it drifts, and append a follow-up turn when the work should go further.
+- **Finish once.** Every turn commits to the same branch and feeds the same Merge Request; when you are happy with it, merge it and the Issue is done.
 
-1. **Create Issue** — pick the project and branches and write the description. The description becomes the default prompt for its tasks.
-2. **Create Task** — from the Issue page, choose a Task Mode and priority, then use **Execute Now** or **Schedule**. Codify queues the Task, starts a container, and streams events back.
-3. Review the delivery — open the Task to read the process log, the commit record, the change and token statistics, and the Merge Request link.
+![One Issue, many turns, one Merge Request](assets/diagrams/en/issue-loop.svg)
 
 ### Your first task
 
-The shortest path from an empty dashboard to a reviewed change:
+Your first turn is one Issue and one Task against it. The shortest path from an empty dashboard to a reviewed change:
 
 1. Open **Issues** and select **Create Issue**. Work through the form — choose **Project**, the **Starting Branch** and **Merge Target**, pick the **Worker**, and describe the outcome you want in **Description**. The Creating an Issue chapter walks the whole form.
 2. On the new Issue, select **Create Task**. Leave **Task Mode** on **Implementation** and priority on the default unless you have a reason to change them.
@@ -37,7 +38,7 @@ The shortest path from an empty dashboard to a reviewed change:
 
 If the Task ends as **Failed**, the **Error** section of **Task Result** gives you the failure reason and its kind before you retry. A **Retry** reuses the same frozen configuration, so you only need to change something when the cause was the prompt, the configuration, or the environment — not the transient failure.
 
-To get more work out of the same Issue, use **Append Task** instead of creating a new Task from scratch: appended tasks share the same workspace, AI session, and Git branch, allowing them to continue from where the previous task left off.
+One turn rarely finishes the work, and the Issue stays open for the rest of it. What normally comes next is another turn on the same Issue: use **Append Task** rather than going back to **Issues** and creating a new one. An appended Task shares the same workspace, AI session, and Git branch, so it continues from where the previous turn stopped — and everything still ends in this Issue's single Merge Request.
 
 ## Navigating the interface
 

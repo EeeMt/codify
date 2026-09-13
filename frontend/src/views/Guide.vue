@@ -1,20 +1,41 @@
 <template>
   <section class="guide-page">
-    <PageHeader :title="t('guide.title')" :subtitle="t('guide.subtitle')">
-      <template #actions>
-        <n-input
-          v-model:value="chapterFilter"
-          class="guide-page__filter"
-          size="small"
-          clearable
-          :placeholder="t('guide.filterPlaceholder')"
-        >
-          <template #prefix>
-            <n-icon :component="SearchOutline" />
-          </template>
-        </n-input>
-      </template>
-    </PageHeader>
+    <div ref="headerRef" class="guide-page__header">
+      <PageHeader :title="t('guide.title')" :subtitle="t('guide.subtitle')">
+        <template #actions>
+          <div class="guide-search">
+            <n-input
+              v-model:value="searchQuery"
+              class="guide-search__input"
+              size="small"
+              clearable
+              :placeholder="t('guide.searchPlaceholder')"
+              @focus="searchFocused = true"
+              @blur="searchFocused = false"
+              @keydown.enter="openFirstHit"
+            >
+              <template #prefix>
+                <n-icon :component="SearchOutline" />
+              </template>
+            </n-input>
+
+            <ul v-if="showSearchResults" class="guide-search__results">
+              <li v-for="hit in searchHits" :key="`${hit.kind}:${hit.slug}:${hit.headingId ?? ''}`">
+                <button type="button" class="guide-search__hit" @mousedown.prevent="openHit(hit)">
+                  <span class="guide-search__hit-label">{{ hit.label }}</span>
+                  <span class="guide-search__hit-meta">
+                    {{ hit.kind === 'chapter' ? t('guide.searchChapter') : hit.chapterTitle }}
+                  </span>
+                  <span v-if="hit.snippet" class="guide-search__hit-snippet">{{ hit.snippet }}</span>
+                </button>
+              </li>
+            </ul>
+
+            <p v-else-if="searchActive" class="guide-search__empty">{{ t('guide.searchEmpty') }}</p>
+          </div>
+        </template>
+      </PageHeader>
+    </div>
 
     <div class="guide-page__body">
       <aside class="guide-nav" :aria-label="t('guide.tocLabel')">
@@ -23,7 +44,7 @@
           class="guide-nav__panel"
         >
           <div class="guide-nav__scroll">
-            <template v-for="section in visibleSections" :key="section.key">
+            <template v-for="section in sections" :key="section.key">
               <p class="guide-nav__section">{{ t(SECTION_LABEL[section.key]) }}</p>
               <ul class="guide-nav__list">
                 <li v-for="chapter in section.chapters" :key="chapter.slug">
@@ -94,9 +115,9 @@ import { SearchOutline } from '@vicons/ionicons5'
 
 import PageHeader from '../components/PageHeader.vue'
 import { useBreakpoints } from '../composables/useBreakpoints'
-import { currentLocale } from '../i18n'
-import { guideSections, type GuideSectionKey } from '../guide/guideContent'
-import { renderGuideChapter, type GuideHeading } from '../guide/renderGuideChapter'
+import { currentLocale, type AppLocale } from '../i18n'
+import { guideChapters, guideSections, type GuideSectionKey } from '../guide/guideContent'
+import { indexGuideChapter, renderGuideChapter, type GuideChapterIndex, type GuideHeading } from '../guide/renderGuideChapter'
 
 const SECTION_LABEL: Record<GuideSectionKey, string> = {
   user: 'guide.sections.user',
@@ -109,7 +130,9 @@ const router = useRouter()
 
 const contentRef = ref<HTMLElement | null>(null)
 const navPanelRef = ref<HTMLElement | null>(null)
-const chapterFilter = ref('')
+const headerRef = ref<HTMLElement | null>(null)
+const searchQuery = ref('')
+const searchFocused = ref(false)
 const html = ref('')
 const headings = ref<GuideHeading[]>([])
 
@@ -151,39 +174,59 @@ function resolveScrollHost(): HTMLElement | null {
   return scrollHost
 }
 
-function applyNavOffset(panel: HTMLElement | null, offset: number): void {
-  if (!panel) return
+function applyOffset(element: HTMLElement | null, offset: number): void {
+  if (!element) return
   const value = `translateY(${offset}px)`
-  if (panel.style.transform !== value) panel.style.transform = value
+  if (element.style.transform !== value) element.style.transform = value
 }
 
 /**
- * Writes the transform straight to the element instead of going through a
- * reactive binding: a scroll fires many times per frame, and a render cycle per
+ * Writes the transforms straight to the elements instead of going through
+ * reactive bindings: a scroll fires many times per frame, and a render cycle per
  * event lands out of step with the paint, which reads as jitter. One update per
  * animation frame, snapped to whole pixels, is stable.
+ *
+ * Both the sidebar and the page header float this way because `position: sticky`
+ * cannot work here - the shell nests every page in wrappers that clip overflow,
+ * so a sticky element has no scrollport of its own.
  */
-function syncNavFloat(): void {
+function syncFloating(): void {
+  const host = resolveScrollHost()
+  const hostTop = host ? host.getBoundingClientRect().top : 0
+
   const panel = navPanelRef.value
   const column = panel?.parentElement
-  const host = resolveScrollHost()
   if (!panel || !column || !host || isMobile.value) {
-    applyNavOffset(panel, 0)
+    applyOffset(panel, 0)
+  } else {
+    const columnTop = column.getBoundingClientRect().top
+    const travel = Math.max(0, column.clientHeight - panel.offsetHeight)
+    applyOffset(panel, Math.round(Math.min(Math.max(0, hostTop + NAV_STICKY_TOP - columnTop), travel)))
+  }
+
+  const header = headerRef.value
+  const page = header?.parentElement
+  if (!header || !page || !host) {
+    applyOffset(header, 0)
+    header?.classList.remove('guide-page__header--pinned')
     return
   }
-  const hostTop = host.getBoundingClientRect().top
-  const columnTop = column.getBoundingClientRect().top
-  const travel = Math.max(0, column.clientHeight - panel.offsetHeight)
-  applyNavOffset(panel, Math.round(Math.min(Math.max(0, hostTop + NAV_STICKY_TOP - columnTop), travel)))
+  // The header pins to the top of the scroll viewport and stops at the end of
+  // the guide page, so it never covers the footer.
+  const pageTop = page.getBoundingClientRect().top
+  const travel = Math.max(0, page.clientHeight - header.offsetHeight)
+  const offset = Math.round(Math.min(Math.max(0, hostTop - pageTop), travel))
+  applyOffset(header, offset)
+  header.classList.toggle('guide-page__header--pinned', offset > 0)
 }
 
-let navFloatFrame = 0
+let floatFrame = 0
 
-function scheduleNavFloat(): void {
-  if (navFloatFrame) return
-  navFloatFrame = requestAnimationFrame(() => {
-    navFloatFrame = 0
-    syncNavFloat()
+function scheduleFloating(): void {
+  if (floatFrame) return
+  floatFrame = requestAnimationFrame(() => {
+    floatFrame = 0
+    syncFloating()
   })
 }
 
@@ -191,16 +234,123 @@ onMounted(() => {
   // Scroll events do not bubble, and the element the shell actually scrolls is
   // not reliably the first scrolling ancestor. A capture-phase listener on the
   // window sees the event from whichever element scrolls.
-  window.addEventListener('scroll', scheduleNavFloat, { capture: true, passive: true })
-  window.addEventListener('resize', scheduleNavFloat)
-  syncNavFloat()
+  window.addEventListener('scroll', scheduleFloating, { capture: true, passive: true })
+  window.addEventListener('resize', scheduleFloating)
+  syncFloating()
 })
 
 onBeforeUnmount(() => {
-  if (navFloatFrame) cancelAnimationFrame(navFloatFrame)
-  window.removeEventListener('scroll', scheduleNavFloat, { capture: true })
-  window.removeEventListener('resize', scheduleNavFloat)
+  if (floatFrame) cancelAnimationFrame(floatFrame)
+  window.removeEventListener('scroll', scheduleFloating, { capture: true })
+  window.removeEventListener('resize', scheduleFloating)
 })
+
+interface GuideSearchHit {
+  slug: string
+  chapterTitle: string
+  kind: 'chapter' | 'heading' | 'text'
+  label: string
+  headingId?: string
+  snippet?: string
+}
+
+const SEARCH_LIMIT = 12
+const SEARCH_HEADINGS_PER_CHAPTER = 3
+const SNIPPET_RADIUS = 42
+
+/**
+ * Search runs over chapter titles, section headings and body text. The index is
+ * built once per locale on first use: it reuses the renderer's heading ids, so a
+ * hit can be linked to the anchor the chapter actually renders.
+ */
+const searchIndexes = new Map<AppLocale, Map<string, GuideChapterIndex>>()
+
+function chapterIndex(locale: AppLocale): Map<string, GuideChapterIndex> {
+  let index = searchIndexes.get(locale)
+  if (!index) {
+    index = new Map()
+    for (const chapter of guideChapters(locale)) {
+      index.set(chapter.slug, indexGuideChapter(chapter.body))
+    }
+    searchIndexes.set(locale, index)
+  }
+  return index
+}
+
+function snippetAround(text: string, query: string): string {
+  const at = text.toLowerCase().indexOf(query)
+  if (at < 0) return ''
+  const start = Math.max(0, at - SNIPPET_RADIUS)
+  const end = Math.min(text.length, at + query.length + SNIPPET_RADIUS)
+  return `${start > 0 ? '…' : ''}${text.slice(start, end).trim()}${end < text.length ? '…' : ''}`
+}
+
+const searchHits = computed<GuideSearchHit[]>(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+  if (!query) return []
+
+  const index = chapterIndex(currentLocale.value)
+  const titleHits: GuideSearchHit[] = []
+  const headingHits: GuideSearchHit[] = []
+  const bodyHits: GuideSearchHit[] = []
+
+  for (const chapter of chapters.value) {
+    const entry = index.get(chapter.slug)
+    const titleMatches = chapter.title.toLowerCase().includes(query)
+    if (titleMatches) {
+      titleHits.push({
+        slug: chapter.slug,
+        chapterTitle: chapter.title,
+        kind: 'chapter',
+        label: chapter.title,
+      })
+    }
+
+    let matchedHeadings = 0
+    for (const heading of entry?.headings ?? []) {
+      if (matchedHeadings >= SEARCH_HEADINGS_PER_CHAPTER) break
+      if (!heading.text.toLowerCase().includes(query)) continue
+      matchedHeadings += 1
+      headingHits.push({
+        slug: chapter.slug,
+        chapterTitle: chapter.title,
+        kind: 'heading',
+        label: heading.text,
+        headingId: heading.id,
+      })
+    }
+
+    if (!titleMatches && entry && entry.text.toLowerCase().includes(query)) {
+      bodyHits.push({
+        slug: chapter.slug,
+        chapterTitle: chapter.title,
+        kind: 'text',
+        label: chapter.title,
+        snippet: snippetAround(entry.text, query),
+      })
+    }
+  }
+
+  return [...titleHits, ...headingHits, ...bodyHits].slice(0, SEARCH_LIMIT)
+})
+
+const searchActive = computed(() => searchFocused.value && searchQuery.value.trim().length > 0)
+const showSearchResults = computed(() => searchActive.value && searchHits.value.length > 0)
+
+function openHit(hit: GuideSearchHit): void {
+  searchFocused.value = false
+  searchQuery.value = ''
+  void router.push({
+    name: 'Guide',
+    params: { chapter: hit.slug },
+    hash: hit.headingId ? `#${hit.headingId}` : '',
+  })
+}
+
+function openFirstHit(): void {
+  const first = searchHits.value[0]
+  if (first) openHit(first)
+}
 
 const sections = computed(() => guideSections(currentLocale.value))
 const chapters = computed(() => sections.value.flatMap((section) => section.chapters))
@@ -228,19 +378,6 @@ const nextChapter = computed(() =>
     ? chapters.value[activeIndex.value + 1]
     : null,
 )
-
-const visibleSections = computed(() => {
-  const query = chapterFilter.value.trim().toLowerCase()
-  if (!query) return sections.value
-  return sections.value
-    .map((section) => ({
-      ...section,
-      chapters: section.chapters.filter((chapter) =>
-        chapter.title.toLowerCase().includes(query),
-      ),
-    }))
-    .filter((section) => section.chapters.length > 0)
-})
 
 function revealHeading(id: string): void {
   const target = contentRef.value?.querySelector<HTMLElement>(`#${CSS.escape(id)}`)
@@ -345,7 +482,7 @@ watch(
     await nextTick()
     if (token !== renderToken) return
     revealChapterStart()
-    syncNavFloat()
+    syncFloating()
     hasRendered = true
   },
   { immediate: true },
@@ -362,8 +499,95 @@ watch(
   --app-page-subtitle-max-width: 560px;
 }
 
-.guide-page__filter {
-  width: 220px;
+.guide-page__header {
+  position: relative;
+  /* Above the chapter body: while pinned, content scrolls underneath it. */
+  z-index: 3;
+  background: #fff;
+}
+
+.guide-page__header--pinned {
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
+}
+
+/* The title block wraps to two lines at this measure; centring the actions
+   against it keeps the header from reading as a loose bar. */
+.guide-page__header :deep(.page-header) {
+  align-items: center;
+}
+
+.guide-search {
+  position: relative;
+  width: 260px;
+}
+
+.guide-search__results {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  width: 380px;
+  max-height: 60vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+}
+
+.guide-search__hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.guide-search__hit:hover,
+.guide-search__hit:focus-visible {
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.guide-search__hit-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.guide-search__hit-meta {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(15, 23, 42, 0.45);
+}
+
+.guide-search__hit-snippet {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(15, 23, 42, 0.62);
+}
+
+.guide-search__empty {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  margin: 0;
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.1);
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.55);
 }
 
 .guide-page__body {
@@ -536,8 +760,12 @@ watch(
     max-height: 320px;
   }
 
-  .guide-page__filter {
+  .guide-search {
     width: 100%;
+  }
+
+  .guide-search__results {
+    width: min(92vw, 380px);
   }
 }
 </style>
@@ -552,8 +780,8 @@ watch(
      to the full 860px column and must stay at 1:1, so a comfortable line of
      prose (~85 characters) comes from 17.5px type rather than a narrower
      column. */
-  font-size: 17.5px;
-  line-height: 1.72;
+  font-size: 15.5px;
+  line-height: 1.7;
   color: rgba(15, 23, 42, 0.82);
 }
 
@@ -565,9 +793,9 @@ watch(
   margin: 44px 0 14px;
   padding-top: 22px;
   border-top: 1px solid rgba(15, 23, 42, 0.07);
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.28;
   letter-spacing: -0.012em;
   color: #0f172a;
 }
@@ -579,8 +807,8 @@ watch(
 }
 
 .guide-content__body h3 {
-  margin: 32px 0 12px;
-  font-size: 19px;
+  margin: 30px 0 12px;
+  font-size: 17.5px;
   font-weight: 600;
   line-height: 1.45;
   color: #0f172a;
@@ -594,7 +822,7 @@ watch(
    figures use the full column. A single measure cannot serve both: the diagrams
    are sized to the column and must not be scaled down (that is the whole point
    of their size budget), and an 860px line of prose runs to ~99 characters.
-   560px is ~70 characters at 17.5px, inside the comfortable band. `ch`
+   560px is ~74 characters at 15.5px, inside the comfortable band. `ch`
    units are unusable here - Inter's digit advance is ~0.63em, so `82ch`
    resolves to 903px. */
 .guide-content__body p,
@@ -639,13 +867,13 @@ watch(
   width: 100%;
   margin: 14px 0 24px;
   border-collapse: collapse;
-  font-size: 14.5px;
-  line-height: 1.62;
+  font-size: 13.5px;
+  line-height: 1.6;
 }
 
 .guide-content__body th,
 .guide-content__body td {
-  padding: 10px 14px;
+  padding: 9px 12px;
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid rgba(15, 23, 42, 0.07);
@@ -666,7 +894,7 @@ watch(
   padding: 1.5px 5px;
   border-radius: 5px;
   background: rgba(15, 23, 42, 0.06);
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .guide-content__body blockquote {

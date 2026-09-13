@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { renderGuideChapter } from './renderGuideChapter'
+import { indexGuideChapter, renderGuideChapter } from './renderGuideChapter'
 
 const ENV = { copyLabel: 'Copy' }
 
@@ -25,6 +25,26 @@ describe('renderGuideChapter', () => {
     const { headings } = renderGuideChapter('## 任务状态机', ENV)
 
     expect(headings[0]?.id).toBe('任务状态机')
+  })
+
+  it('indexes the same anchors the renderer generates', () => {
+    const markdown = '## Task lifecycle\n\nBody text here.\n\n### Cancel a task\n\nMore.'
+    const { headings: rendered } = renderGuideChapter(markdown, { copyLabel: 'Copy' })
+    const { headings: indexed, text } = indexGuideChapter(markdown)
+
+    expect(indexed).toEqual(rendered)
+    expect(text).toContain('Body text here.')
+    expect(text).toContain('More.')
+  })
+
+  it('de-duplicates heading anchors in the index exactly as rendering does', () => {
+    const { headings } = indexGuideChapter('## Retry\n\n## Retry')
+
+    expect(headings.map((heading) => heading.id)).toEqual(['retry', 'retry-2'])
+  })
+
+  it('returns an empty index for an empty chapter', () => {
+    expect(indexGuideChapter('')).toEqual({ headings: [], text: '' })
   })
 
   it('renders a standalone image as a captioned figure', () => {

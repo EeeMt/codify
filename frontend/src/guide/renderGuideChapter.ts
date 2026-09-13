@@ -49,6 +49,24 @@ function uniqueId(base: string, seen: Map<string, number>): string {
   return count === 0 ? base : `${base}-${count + 1}`
 }
 
+/** The subset of an inline token this module reads; keeps the helper type-free. */
+interface InlineLike {
+  children?: { type: string; content: string }[] | null
+  content?: string
+}
+
+/** Plain text of a heading, with inline markup flattened to its text. */
+function inlineText(token: InlineLike | undefined): string {
+  const children = token?.children
+  if (!children || !children.length) return token?.content ?? ''
+  let text = ''
+  for (const child of children) {
+    if (child.type === 'text' || child.type === 'code_inline') text += child.content
+    else if (child.type === 'softbreak' || child.type === 'hardbreak') text += ' '
+  }
+  return text
+}
+
 function codeBlock(env: GuideRenderEnv, source: string, lang: string): string {
   return [
     '<div class="guide-code">',
@@ -145,18 +163,47 @@ export function renderGuideChapter(markdown: string, options: { copyLabel: strin
     const level = Number(token.tag.slice(1))
     if (level !== 2 && level !== 3) continue
 
-    const inline = tokens[index + 1]
-    const text = (inline?.children ?? [])
-      .map((child) => {
-        if (child.type === 'text' || child.type === 'code_inline') return child.content
-        if (child.type === 'softbreak' || child.type === 'hardbreak') return ' '
-        return ''
-      })
-      .join('') || inline?.content || ''
+    const text = inlineText(tokens[index + 1])
     const id = uniqueId(slugify(text), seen)
     token.attrSet('id', id)
     headings.push({ id, text, level })
   }
 
   return { html: md.renderer.render(tokens, md.options, env), headings }
+}
+
+export interface GuideChapterIndex {
+  /** The same anchors the renderer generates, so a hit can be linked to. */
+  headings: GuideHeading[]
+  /** Raw plain text of the chapter, for body matches and snippets. */
+  text: string
+}
+
+/**
+ * Build a chapter's search index. Headings go through the same slug and
+ * de-duplication path as rendering, so a search hit links to the exact anchor
+ * the chapter renders.
+ */
+export function indexGuideChapter(markdown: string): GuideChapterIndex {
+  if (!markdown) return { headings: [], text: '' }
+
+  const env: GuideRenderEnv = { copyLabel: '', figureParagraphs: new Set(), inFigure: false }
+  const tokens = md.parse(markdown, env)
+  const headings: GuideHeading[] = []
+  const seen = new Map<string, number>()
+  const text: string[] = []
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (token.type === 'heading_open') {
+      const level = Number(token.tag.slice(1))
+      if (level !== 2 && level !== 3) continue
+      const headingText = inlineText(tokens[index + 1])
+      headings.push({ id: uniqueId(slugify(headingText), seen), text: headingText, level })
+      continue
+    }
+    if (token.type === 'inline') text.push(token.content)
+  }
+
+  return { headings, text: text.join(' ') }
 }

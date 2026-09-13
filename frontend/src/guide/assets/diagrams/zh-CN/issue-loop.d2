@@ -1,0 +1,68 @@
+# 章节：10-quick-start（快速开始）· 一个需求，多个回合
+# 读者要理解：需求只创建一次，它拥有工作区、AI 会话与分支；之后是在同一个
+# 需求上反复追加回合——创建或追加 Task、执行、评审，再决定是否继续，
+# 满意后合并这唯一一个合并请求，需求随之关闭。
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+loop: {
+  label: ""
+  grid-rows: 3
+  grid-columns: 4
+  grid-gap: 30
+  style.fill: transparent
+  style.stroke-width: 0
+
+  create_issue: "创建需求（一次）\n拥有工作区 · 分支" { class: accent }
+  append_task: "创建 / 追加任务\n共享上下文" { class: node }
+  run_turn: "回合执行\n隔离容器中运行" { class: node }
+  gap_1: " " { style.fill: transparent; style.stroke-width: 0 }
+  gap_2: " " { style.fill: transparent; style.stroke-width: 0 }
+  gap_3: " " { style.fill: transparent; style.stroke-width: 0 }
+  review: "评审结果\n决定是否继续" { class: node }
+  gap_4: " " { style.fill: transparent; style.stroke-width: 0 }
+  gap_5: " " { style.fill: transparent; style.stroke-width: 0 }
+  gap_6: " " { style.fill: transparent; style.stroke-width: 0 }
+  merge_mr: "合并请求合入\n一个需求一个" { class: node }
+  close_issue: "需求关闭" { class: node }
+
+  create_issue -> append_task: "只做一次"
+  append_task -> run_turn
+  run_turn -> review
+  review -> append_task: "继续下一回合"
+  review -> merge_mr: "结果满意"
+  merge_mr -> close_issue: "随即关闭"
+}
