@@ -534,7 +534,6 @@ const menuOptions = computed<MenuOption[]>(() => {
     buildMenuItem('nav.dashboard', 'Dashboard', GridOutline),
     buildMenuItem('nav.issues', 'Issues', DocumentTextOutline),
     buildMenuItem('nav.tasks', 'TaskList', ListOutline),
-    buildMenuItem('nav.guide', 'Guide', BookOutline),
   ]
 
   if (authState.authenticated) {

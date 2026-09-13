@@ -29,7 +29,7 @@ section: Admin Guide
 数据库覆盖  >  环境变量  >  内置默认值
 ```
 
-部署期的 `CONFIG_ENCRYPTION_KEY` 用于加密这些密钥。更换或丢失该值时，已存储的密钥无法解密，配置读取和保存都会失败。
+已存储的密钥由平台加密保管，加密密钥只能在部署实例时设定，页面上不提供修改入口。加密密钥一旦更换或丢失，已存储的密钥将无法解密，配置的读取与保存都会失败。
 
 ## 运行时与容量
 
@@ -39,7 +39,7 @@ section: Admin Guide
 
 ### 任务超时策略
 
-**任务超时策略** 使用业务时区，字段旁显示 **业务时区：{timezone}**（当前部署为 `Asia/Shanghai`），把一天切成高峰和低峰两段。
+**任务超时策略** 使用业务时区，字段旁显示 **业务时区：{timezone}**（本平台为 `Asia/Shanghai`），把一天切成高峰和低峰两段。
 
 | 字段 | 说明 |
 |---|---|
@@ -71,7 +71,7 @@ section: Admin Guide
 | **Workspace 清理** | **Worker 本地 Workspace 路径**、**Workspace 保留天数** |
 | **任务产物** | **总大小上限（MiB）**、**单文件上限（MiB）**、**文件和目录总数上限**、**运行归档保留天数** |
 
-**Worker 本地 Workspace 路径** 是在目标 Docker daemon 主机上解析的绝对路径，各 Worker 目录彼此独立，无需 NFS。该路径由 Backend、Scheduler 的 `WORKER_WORKSPACE_HOST_PATH` 指定，**不能** 在页面上修改：通过配置 API 提交它会返回冲突，必须修改环境变量并重新创建服务。**Workspace 保留天数** 到期后，无近期文件更新的 Issue workspace 和 CI 证据包会被定期清理，0 表示关闭自动清理。**运行归档保留天数** 到期后只删除运行归档，不删除对应的任务或需求。**单文件上限** 不能超过 **总大小上限**。
+**Worker 本地 Workspace 路径** 是每个 Worker 存放工作区所用的绝对路径，各 Worker 目录彼此独立。该值只能在部署实例时设定，页面上不提供修改入口：通过配置 API 提交它会返回冲突。**Workspace 保留天数** 到期后，无近期文件更新的 Issue workspace 和 CI 证据包会被定期清理，0 表示关闭自动清理。**运行归档保留天数** 到期后只删除运行归档，不删除对应的任务或需求。**单文件上限** 不能超过 **总大小上限**。
 
 ### 页面权限
 
@@ -154,14 +154,7 @@ Provider 类型与 Wire 协议必须搭配：`anthropic_compatible` 搭配 `anth
 
 Worker 的执行环境由三层组成：系统的 **共享配置**、可复用的 **Worker Profile**，以及任务创建时冻结的 **Task Snapshot**。
 
-```mermaid
-flowchart LR
-  SH["Worker 共享配置"] --> P["Worker Profile"]
-  P --> S["Task Snapshot"]
-  S --> B["Runtime Bundle"]
-  S --> H["Harness 选择"]
-  B --> W["Worker 容器"]
-```
+![Worker Profile 到 Runtime Bundle](assets/diagrams/zh-CN/profile-to-bundle.svg)
 
 ### 共享配置
 

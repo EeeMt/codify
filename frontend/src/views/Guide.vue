@@ -18,34 +18,40 @@
 
     <div class="guide-page__body">
       <aside class="guide-nav" :aria-label="t('guide.tocLabel')">
-        <n-scrollbar class="guide-nav__scroll">
-          <template v-for="section in visibleSections" :key="section.key">
-            <p class="guide-nav__section">{{ t(SECTION_LABEL[section.key]) }}</p>
-            <ul class="guide-nav__list">
-              <li v-for="chapter in section.chapters" :key="chapter.slug">
-                <RouterLink
-                  class="guide-nav__chapter"
-                  :class="{ 'guide-nav__chapter--active': chapter.slug === activeChapter?.slug }"
-                  :to="{ name: 'Guide', params: { chapter: chapter.slug } }"
-                >
-                  {{ chapter.title }}
-                </RouterLink>
-                <ul v-if="chapter.slug === activeChapter?.slug && headings.length" class="guide-nav__headings">
-                  <li v-for="heading in headings" :key="heading.id">
-                    <a
-                      class="guide-nav__heading"
-                      :class="`guide-nav__heading--level-${heading.level}`"
-                      :href="`#${heading.id}`"
-                      @click.prevent="revealHeading(heading.id)"
-                    >
-                      {{ heading.text }}
-                    </a>
-                  </li>
-                </ul>
-              </li>
-            </ul>
-          </template>
-        </n-scrollbar>
+        <div
+          ref="navPanelRef"
+          class="guide-nav__panel"
+          :style="{ transform: `translateY(${navOffset}px)` }"
+        >
+          <n-scrollbar class="guide-nav__scroll">
+            <template v-for="section in visibleSections" :key="section.key">
+              <p class="guide-nav__section">{{ t(SECTION_LABEL[section.key]) }}</p>
+              <ul class="guide-nav__list">
+                <li v-for="chapter in section.chapters" :key="chapter.slug">
+                  <RouterLink
+                    class="guide-nav__chapter"
+                    :class="{ 'guide-nav__chapter--active': chapter.slug === activeChapter?.slug }"
+                    :to="{ name: 'Guide', params: { chapter: chapter.slug } }"
+                  >
+                    {{ chapter.title }}
+                  </RouterLink>
+                  <ul v-if="chapter.slug === activeChapter?.slug && headings.length" class="guide-nav__headings">
+                    <li v-for="heading in headings" :key="heading.id">
+                      <a
+                        class="guide-nav__heading"
+                        :class="`guide-nav__heading--level-${heading.level}`"
+                        :href="`#${heading.id}`"
+                        @click.prevent="revealHeading(heading.id)"
+                      >
+                        {{ heading.text }}
+                      </a>
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+            </template>
+          </n-scrollbar>
+        </div>
       </aside>
 
       <article class="guide-content">
@@ -81,17 +87,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NIcon, NInput, NScrollbar } from 'naive-ui'
 import { SearchOutline } from '@vicons/ionicons5'
 
 import PageHeader from '../components/PageHeader.vue'
+import { useBreakpoints } from '../composables/useBreakpoints'
 import { currentLocale } from '../i18n'
 import { guideSections, type GuideSectionKey } from '../guide/guideContent'
 import { renderGuideChapter, type GuideHeading } from '../guide/renderGuideChapter'
-import { hydrateGuideMermaid } from '../guide/hydrateGuideMermaid'
 
 const SECTION_LABEL: Record<GuideSectionKey, string> = {
   user: 'guide.sections.user',
@@ -103,6 +109,8 @@ const route = useRoute()
 const router = useRouter()
 
 const contentRef = ref<HTMLElement | null>(null)
+const navPanelRef = ref<HTMLElement | null>(null)
+const navOffset = ref(0)
 const chapterFilter = ref('')
 const html = ref('')
 const headings = ref<GuideHeading[]>([])
@@ -110,6 +118,68 @@ const headings = ref<GuideHeading[]>([])
 // Guards against a slower render of a previous chapter overwriting a newer one.
 let renderToken = 0
 let hasRendered = false
+
+const { isMobile } = useBreakpoints()
+
+const NAV_STICKY_TOP = 20
+
+/**
+ * The app shell nests every page inside layouts that clip overflow — both
+ * `n-scrollbar` and `n-layout` set `overflow: hidden` — so `position: sticky`
+ * has no scrollport of its own and never sticks. Translate the panel instead:
+ * a transform is not constrained by an ancestor's overflow, and the panel stays
+ * in flow so its column keeps its width.
+ *
+ * The host is only used for the reference viewport top; the scroll events
+ * themselves are caught on the window (see onMounted).
+ */
+function findScrollHost(): HTMLElement | null {
+  let el: HTMLElement | null = navPanelRef.value?.parentElement ?? null
+  while (el) {
+    const { overflowY } = getComputedStyle(el)
+    if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1) {
+      return el
+    }
+    el = el.parentElement
+  }
+  return null
+}
+
+let scrollHost: HTMLElement | null = null
+
+function resolveScrollHost(): HTMLElement | null {
+  if (scrollHost?.isConnected) return scrollHost
+  scrollHost = findScrollHost()
+  return scrollHost
+}
+
+function syncNavFloat(): void {
+  const panel = navPanelRef.value
+  const column = panel?.parentElement
+  const host = resolveScrollHost()
+  if (!panel || !column || !host || isMobile.value) {
+    navOffset.value = 0
+    return
+  }
+  const hostTop = host.getBoundingClientRect().top
+  const columnTop = column.getBoundingClientRect().top
+  const travel = Math.max(0, column.clientHeight - panel.offsetHeight)
+  navOffset.value = Math.min(Math.max(0, hostTop + NAV_STICKY_TOP - columnTop), travel)
+}
+
+onMounted(() => {
+  // Scroll events do not bubble, and the element the shell actually scrolls is
+  // not reliably the first scrolling ancestor. A capture-phase listener on the
+  // window sees the event from whichever element scrolls.
+  window.addEventListener('scroll', syncNavFloat, { capture: true, passive: true })
+  window.addEventListener('resize', syncNavFloat)
+  syncNavFloat()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', syncNavFloat, { capture: true })
+  window.removeEventListener('resize', syncNavFloat)
+})
 
 const sections = computed(() => guideSections(currentLocale.value))
 const chapters = computed(() => sections.value.flatMap((section) => section.chapters))
@@ -253,8 +323,8 @@ watch(
 
     await nextTick()
     if (token !== renderToken) return
-    void hydrateGuideMermaid(contentRef.value)
     revealChapterStart()
+    syncNavFloat()
     hasRendered = true
   },
   { immediate: true },
@@ -280,15 +350,27 @@ watch(
 }
 
 .guide-nav {
-  position: sticky;
-  top: 16px;
-  max-height: calc(100vh - 140px);
-  padding: 4px 4px 4px 0;
-  border-right: 1px solid rgba(15, 23, 42, 0.08);
+  /* Must span the full row height: the float's travel is bounded by how much
+     taller the column is than the panel, so with `align-items: start` on the
+     grid the panel could never move. The column itself stays invisible. */
+  align-self: stretch;
+  min-width: 0;
+}
+
+.guide-nav__panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 120px);
+  padding: 12px 10px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
 .guide-nav__scroll {
-  max-height: calc(100vh - 148px);
+  flex: 1;
+  min-height: 0;
 }
 
 .guide-nav__section {
@@ -414,12 +496,9 @@ watch(
     gap: 20px;
   }
 
-  .guide-nav {
-    position: static;
+  .guide-nav__panel {
     max-height: none;
-    padding: 0 0 12px;
-    border-right: none;
-    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    box-shadow: none;
   }
 
   .guide-nav__scroll {
@@ -548,33 +627,5 @@ watch(
 .guide-code:hover .guide-code__copy,
 .guide-code__copy:focus-visible {
   opacity: 1;
-}
-
-.guide-mermaid {
-  margin: 16px 0 24px;
-  padding: 12px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 12px;
-  background: #fff;
-  overflow-x: auto;
-}
-
-.guide-mermaid[data-guide-mermaid-state='pending']::before {
-  content: '';
-  display: block;
-  height: 96px;
-  border-radius: 8px;
-  background: linear-gradient(90deg, rgba(148, 163, 184, 0.12), rgba(148, 163, 184, 0.24), rgba(148, 163, 184, 0.12));
-}
-
-.guide-mermaid svg {
-  max-width: 100%;
-  height: auto;
-}
-
-.guide-mermaid__error {
-  margin: 0 0 8px;
-  color: #b91c1c;
-  font-size: 13px;
 }
 </style>

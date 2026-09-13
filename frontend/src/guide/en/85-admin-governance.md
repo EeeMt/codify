@@ -31,7 +31,7 @@ Use **Filter by role** and **Filter by state**, or search by username, display n
 
 Two guards protect the platform from losing its administration:
 
-- The last active platform admin cannot be demoted or disabled. The request is refused, so a deployment can never reach a state where no one can sign in as an administrator.
+- The last active platform admin cannot be demoted or disabled. The request is refused, so the platform can never reach a state where no one can sign in as an administrator.
 - Disabling an account revokes its sessions in the same transaction, and an already-issued session is rejected on its next request with the message that the dashboard account is disabled.
 
 ## Usage management
@@ -64,7 +64,7 @@ System defaults offer only **Custom** and **Unlimited**. Overrides accept all th
 Limits are checked twice, and the two checks have different consequences:
 
 - When a task is created or retried, an already-exceeded limit rejects the request with a structured error whose reason is `usage_limit_exceeded`, naming each exceeded dimension with its used value, limit, and reset time.
-- When the scheduler is about to execute a queued task, an exceeded limit fails the task before the worker container runs, with the same structured reason stored on the task. No container is started.
+- When a queued task is about to start, an exceeded limit fails the task before any work begins, with the same structured reason stored on the task.
 
 The check is a strict comparison against the recorded total, so a window at exactly its limit still allows work; the next task that pushes the total over the limit is the one that is blocked.
 
@@ -99,7 +99,7 @@ Two selectors narrow the scope:
 - **Trend time range**: **All**, **Last 90 days**, or **Last 1 year**.
 - **Data state**: **All**, **Retained**, or **Deleted**.
 
-Deleted data is only included after the deletion coverage guarantee is enabled for the deployment. Until that point the page reports **Deletion coverage guarantee is not enabled yet** and states that deleted data is not included; data deleted before the coverage start cannot be recovered.
+Deleted data is only included after the deletion coverage guarantee is enabled for your installation. Until that point the page reports **Deletion coverage guarantee is not enabled yet** and states that deleted data is not included; data deleted before the coverage start cannot be recovered.
 
 Deleted records are shown as sanitized snapshots only and provide no detail links, so a deleted task can never be opened from this page.
 
@@ -128,6 +128,6 @@ The result is reported as `Cleanup finished: {issues} issue(s), {tasks} task(s) 
 The **Maintenance** tab holds the two page-wide actions under **Actions**, with the subtitle that they reload current values or reset every section back to env or defaults.
 
 - **Reload** re-reads the effective configuration and discards nothing else.
-- **Reset to env/defaults** deletes every persisted override across all sections, returning the deployment to its environment and default values. It first asks **Reset all configuration sections to their environment variable / default values? Unsaved changes will be lost.** The summary tags on the configuration page then show **env fallback** or **default fallback** instead of **DB override**.
+- **Reset to env/defaults** deletes every persisted override across all sections, returning every value to its installation default. It first asks **Reset all configuration sections to their environment variable / default values? Unsaved changes will be lost.** The summary tags on the configuration page then show **env fallback** or **default fallback** instead of **DB override**.
 
-Some values are deployment-time only and are deliberately not editable here. The worker workspace path belongs to the backend and scheduler environment as `WORKER_WORKSPACE_HOST_PATH`, and the key material used to encrypt stored secrets — `CONFIG_ENCRYPTION_KEY`, or `SESSION_SECRET` when it is unset — must stay stable and identical across backend and scheduler. A reset that returns secret fields to environment values is the supported way to recover when a persisted secret can no longer be decrypted; if the encryption key itself changed, every stored secret must be entered again.
+Some values are set when Codify is installed and are deliberately not editable here. The worker workspace path is fixed at installation time, and the key material used to encrypt stored secrets must stay stable and unchanged. A reset that returns secret fields to their stored installation values is the supported way to recover when a persisted secret can no longer be decrypted; if the encryption key itself changed, every stored secret must be entered again.

@@ -27,16 +27,6 @@ describe('renderGuideChapter', () => {
     expect(headings[0]?.id).toBe('任务状态机')
   })
 
-  it('turns a mermaid fence into a placeholder carrying the diagram source', () => {
-    const source = 'flowchart LR\n  A["创建 Issue"] --> B["任务"]'
-    const { html } = renderGuideChapter(`\`\`\`mermaid\n${source}\n\`\`\`\n`, ENV)
-
-    expect(html).toContain('data-guide-mermaid-state="pending"')
-    expect(html).toContain('data-guide-mermaid-source=')
-    expect(html).toContain('创建 Issue')
-    expect(html).not.toContain('md-code-block')
-  })
-
   it('wraps a code fence with a copy button and escapes its content', () => {
     const { html } = renderGuideChapter('```bash\nmake test-unit\n```\n', ENV)
 
@@ -60,11 +50,11 @@ describe('renderGuideChapter', () => {
   })
 
   it('opens a bundled asset link on its own', () => {
-    const { html } = renderGuideChapter('[map](assets/architecture.svg)', ENV)
+    const { html } = renderGuideChapter('[map](assets/diagrams/en/task-lifecycle.svg)', ENV)
 
-    expect(html).toContain('architecture')
+    expect(html).toContain('task-lifecycle')
     expect(html).toContain('target="_blank"')
-    expect(html).not.toContain('href="assets/architecture.svg"')
+    expect(html).not.toContain('href="assets/diagrams/en/task-lifecycle.svg"')
   })
 
   it('returns an empty render for an empty chapter', () => {

@@ -122,22 +122,30 @@ describe('guide content', () => {
   })
 
   it('ships every locale with the same asset references', () => {
-    const reference = guideChapters('en')
-    for (const chapter of reference) {
+    // Diagram files live in a per-locale directory, so compare the paths with
+    // the locale segment normalized away.
+    const localeNeutral = (target: string) =>
+      target.replace(/^assets\/diagrams\/(zh-CN|en)\//, 'assets/diagrams/<locale>/')
+    const targets = (body: string) =>
+      [...imageTargets(body), ...assetLinks(body)].map(localeNeutral)
+
+    for (const chapter of guideChapters('en')) {
       const translated = guideChapters('zh-CN').find((entry) => entry.slug === chapter.slug)!
-      const targets = (body: string) => [...imageTargets(body), ...assetLinks(body)]
       expect(targets(translated.body), `${chapter.slug} assets drifted between locales`).toEqual(
         targets(chapter.body),
       )
     }
   })
 
-  it('leaves no mermaid fence empty', () => {
+  it('uses bundled diagrams rather than mermaid fences', () => {
+    // The guide standardized on pre-rendered d2 SVGs. A mermaid fence would
+    // silently render as a plain code block instead of a diagram.
     for (const locale of LOCALES) {
       for (const chapter of guideChapters(locale)) {
-        for (const match of chapter.body.matchAll(/```mermaid\n([\s\S]*?)```/g)) {
-          expect(match[1].trim().length, `${locale}/${chapter.slug} has an empty mermaid fence`).toBeGreaterThan(0)
-        }
+        expect(
+          chapter.body.includes('```mermaid'),
+          `${locale}/${chapter.slug} still contains a mermaid fence; use a d2 diagram in assets/diagrams/ instead`,
+        ).toBe(false)
       }
     }
   })

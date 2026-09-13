@@ -57,13 +57,6 @@ function codeBlock(env: GuideRenderEnv, source: string, lang: string): string {
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const token = tokens[idx]
   const info = token.info.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
-  if (info === 'mermaid') {
-    // Hydrated after mount: diagrams need the lazily loaded mermaid bundle.
-    return [
-      '<div class="guide-mermaid" data-guide-mermaid-state="pending"',
-      ` data-guide-mermaid-source="${md.utils.escapeHtml(token.content)}"></div>`,
-    ].join('')
-  }
   if (info) return codeBlock(env as GuideRenderEnv, token.content, info)
   return self.renderToken(tokens, idx, options)
 }

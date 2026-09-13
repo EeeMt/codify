@@ -7,22 +7,7 @@ section: User Guide
 
 A Task moves through a small state machine. The task page names each state and explains what to do in it.
 
-```mermaid
-stateDiagram-v2
-    [*] --> PENDING
-    PENDING --> QUEUED: head of the Issue queue and due
-    QUEUED --> RUNNING: claimed under the Issue lock
-    PENDING --> CANCELLED: cancelled before running
-    QUEUED --> CANCELLED: cancelled before running
-    RUNNING --> COMPLETED: delivery confirmed
-    RUNNING --> FAILED: error or timeout
-    RUNNING --> CANCELLED: cancel requested
-    COMPLETED --> FAILED: manual override
-    FAILED --> COMPLETED: manual override
-    COMPLETED --> [*]
-    FAILED --> [*]
-    CANCELLED --> [*]
-```
+![Task lifecycle](assets/diagrams/en/task-lifecycle.svg)
 
 | State | Title on the task page | What it means |
 |---|---|---|
@@ -72,11 +57,11 @@ Each type is enabled only when the frozen runtime supports it. A Harness that do
 
 Commands are queued and tracked rather than fired blind. A command reports one of these delivery states:
 
-- **Queued** — accepted by the control plane, not yet sent.
+- **Queued** — accepted by Codify, not yet sent.
 - **Dispatching** — being handed to the harness.
 - **Harness accepted** — the interface acknowledged the command.
 - **Rejected** — refused, with **Reason: {message}**.
-- **Outcome unknown** — the control plane could not confirm delivery.
+- **Outcome unknown** — Codify could not confirm delivery.
 
 The gate itself is shown while a run is in progress: **Starting**, **Accepting commands**, **Draining**, and **Closed**. While the gate is **Starting** you see "Waiting for the harness control endpoint to become ready..."; while it is **Draining** you see that the run is finishing and no new commands are accepted.
 

@@ -5,7 +5,7 @@ section: Admin Guide
 
 ## Configuration overview
 
-The Configuration page (`/configuration`, sidebar entry **Configuration**) is restricted to platform admins. It is the single place where you change scheduler behavior, GitLab connectivity, login, AI providers, worker runtimes, notifications, and cleanup — without editing environment files or restarting services.
+The Configuration page (`/configuration`, sidebar entry **Configuration**) is restricted to platform admins. It is the single place where you change scheduler behavior, GitLab connectivity, login, AI providers, worker runtimes, notifications, and cleanup — with no files to edit and nothing to restart.
 
 Settings are grouped into eleven tabs.
 
@@ -27,13 +27,13 @@ Settings are grouped into eleven tabs.
 
 Every control shows one of three origins. **DB override** means a value was saved here and wins over the environment. **env fallback** means no override exists and the value comes from the process environment. **default fallback** means neither is set, so the built-in default applies. A single page-level tag shows **Unsaved changes** or **In sync**.
 
-The backend exposes three levels: `get_settings()` reads environment variables, `get_effective_settings()` overlays the DB-persisted overrides on top, and application code always uses the effective settings. Saving a section writes the override; **Reset to env/defaults** on the **Maintenance** tab deletes every override and returns all sections to environment or default values after the confirmation **Reset all configuration sections to their environment variable / default values? Unsaved changes will be lost.**
+Saving a section writes the override, and the override is what the platform uses from then on. **Reset to env/defaults** on the **Maintenance** tab deletes every override and returns all sections to environment or default values after the confirmation **Reset all configuration sections to their environment variable / default values? Unsaved changes will be lost.**
 
 ### Secrets
 
 The page banner **Secrets are stored server-side and never returned to the browser. Leave secret fields blank to keep their current stored values.** applies to every secret field. Secret values are encrypted before they are persisted, and the API only returns a boolean such as `gitlab_bot_token_configured`. Clearing a stored secret is a separate action from saving a new one.
 
-Encryption uses `CONFIG_ENCRYPTION_KEY`, falling back to `SESSION_SECRET` when the former is unset. A missing key, or the placeholder value `change-me-in-production`, makes secret writes fail. Keep both values stable across restarts and redeploys: if the key that produced the stored ciphertext changes, existing secrets can no longer be decrypted and must be entered again. `docs/ops/DEPLOYMENT.md` lists `SECRET_KEY` and `CONFIG_ENCRYPTION_KEY` as required production configuration for exactly this reason.
+Encryption uses a key that is fixed for the instance. A missing key, or the placeholder value `change-me-in-production`, makes secret writes fail. Keep that key stable across restarts and upgrades: if the key that produced the stored ciphertext changes, existing secrets can no longer be decrypted and must be entered again. It is therefore deployment-time configuration, not something this page can change.
 
 ## Runtime and capacity
 
@@ -41,7 +41,7 @@ Encryption uses `CONFIG_ENCRYPTION_KEY`, falling back to `SESSION_SECRET` when t
 
 **Max Concurrency** caps how many tasks execute at the same time; the accepted range is 1 to 20. **Scheduler Interval (seconds)** controls how often the scheduler checks for work; the accepted range is 1 to 60. **Default Target Branch** is used when a task does not name one.
 
-Raising concurrency increases pressure on the Docker target, the model endpoint, and GitLab at the same time. Lower the interval only after confirming the scheduler process keeps up with the task volume.
+Raising concurrency increases pressure on the workers, the model endpoint, and GitLab at the same time. Lower the interval only after confirming the platform keeps up with the task volume.
 
 ### Task timeout policy
 
@@ -90,7 +90,7 @@ The page header summarizes how many of these are enabled under **Shared Pages**.
 
 ### Webhook automation
 
-The callback URL Codify registers in GitLab is derived from the deployment's backend URL setting plus `/api/webhook/gitlab`. Setting up a webhook requires a valid http/https backend URL, **GitLab URL**, and **GitLab Admin Token**; a missing field is reported by name.
+The callback URL Codify registers in GitLab is derived from the configured backend URL plus `/api/webhook/gitlab`. Setting up a webhook requires a valid http/https backend URL, **GitLab URL**, and **GitLab Admin Token**; a missing field is reported by name.
 
 Choose one project with **Select a GitLab project**, then use **Set up project webhook** to create or update the hook, or **View project webhook status** to inspect the existing one. The stored per-project secret is managed by Codify: the status reports **per-project managed secret** when one exists and **no local secret configured** when it does not. A rotating encryption key can leave a stored secret unreadable; in that case re-running the setup issues a new secret for the project.
 
@@ -235,7 +235,7 @@ A profile that is still assigned to open issues cannot simply be disabled: **Dis
 
 ### Docker target
 
-Each profile can run on the system Docker target or on its own. **Use system Docker target** inherits the deployment's daemon; turning it off exposes **Docker Host** and the optional **TLS CA path**, **TLS client certificate path**, and **TLS client key path**. **Test connection** verifies the target, and a remote TCP endpoint configured without TLS is flagged with **This remote TCP endpoint is configured without TLS.** Treat that combination as a finding, not a convenience.
+Each profile can run on the shared execution target or on one of its own. **Use system Docker target** keeps the profile on the target the platform already uses; turning it off exposes **Docker Host** and the optional **TLS CA path**, **TLS client certificate path**, and **TLS client key path**. **Test connection** verifies the target, and a remote TCP endpoint configured without TLS is flagged with **This remote TCP endpoint is configured without TLS.** Treat that combination as a finding, not a convenience.
 
 ### Runtime verification
 
@@ -245,24 +245,19 @@ Each profile can run on the system Docker target or on its own. **Use system Doc
 
 ### Workspace cleanup and artifacts
 
-Two operational budgets sit above the profile list and apply to the whole deployment.
+Two operational budgets sit above the profile list and apply to the whole platform.
 
-**Workspace Cleanup** sets the daemon-local workspace root and how long issue workspaces and CI evidence bundles survive without file updates. A retention value of `0` disables automatic cleanup. The path is deployment-time only: the field carries the hint that `WORKER_WORKSPACE_HOST_PATH` on backend and scheduler names the daemon-local path, that the directory is not mounted into the control plane, and that the services must be recreated after the variable changes. Attempting to save a new path through the API returns a conflict instead of silently accepting a value the running containers will not honor.
+**Workspace Cleanup** sets where issue workspaces live and how long issue workspaces and CI evidence bundles survive without file updates. A retention value of `0` disables automatic cleanup. The location itself is deliberately deployment-time only: it cannot be changed from this page, and attempting to save a different path is refused rather than silently accepted, because the workers already running would not honor it.
 
 **Task Artifacts** governs the artifact budget of a run: maximum total size in MiB, maximum single-file size in MiB, maximum files and directories, and how many days runtime archives are kept. The single-file limit cannot exceed the total limit; the panel reports **The single-file limit cannot exceed the total limit.** and the API rejects the pair. Expired runtime archives are deleted without deleting their Tasks or Issues.
 
 ### Task Snapshot and Runtime Bundle
 
-Saving a profile does not change tasks that already exist. When a task is created, the control plane freezes the profile into an immutable Task Snapshot and binds a content-addressed Runtime Bundle; the pair is what the worker container actually executes.
+Saving a profile does not change tasks that already exist. When a task is created, Codify freezes the profile into an immutable Task Snapshot and binds a content-addressed Runtime Bundle; the pair is what the worker container actually executes.
 
-```mermaid
-flowchart LR
-  A["Worker Profile"] --> B["Task Snapshot"]
-  B --> C["Runtime Bundle"]
-  C --> D["Worker container"]
-```
+![Worker Profile to Runtime Bundle](assets/diagrams/en/profile-to-bundle.svg)
 
-The Task Snapshot records the resolved values — image, runtime mode, Worker Kit version and path, mounts, environment variables, scripts, run instructions, harness key, and the model endpoint — together with the shared configuration revision it was resolved against and a digest of the effective configuration. The Runtime Bundle is stored by digest and holds the frozen runtime source and harness adapter identity. Because the binding is immutable, editing a profile, a shared script, a Skill, or a provider only affects tasks created afterwards; the hint on the shared configuration card states the same rule for the baseline: **Changes become the baseline for future tasks created from profiles that follow the system value. Existing task snapshots do not change.**
+The Task Snapshot records the resolved values — **Worker image**, runtime mode, Worker Kit version and path, **Profile volume mounts**, **Profile environment variables**, scripts, run instructions, harness key, and the model endpoint — together with the shared configuration revision it was resolved against and a digest of the effective configuration. The Runtime Bundle is stored by digest and holds the frozen runtime source and Harness identity. Because the binding is immutable, editing a profile, a shared script, a Skill, or a provider only affects tasks created afterwards; the hint on the shared configuration card states the same rule for the baseline: **Changes become the baseline for future tasks created from profiles that follow the system value. Existing task snapshots do not change.**
 
 This is also why a task keeps running when you disable or edit a Skill or a provider: the snapshot already carries what it needs.
 

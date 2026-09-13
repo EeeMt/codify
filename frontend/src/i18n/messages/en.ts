@@ -38,7 +38,6 @@ const en = {
     dashboard: 'Dashboard',
     tasks: 'Tasks',
     issues: 'Issues',
-    guide: 'Guide',
     createIssue: 'Create Issue',
     createTask: 'Create Task',
     sessions: 'Sessions',

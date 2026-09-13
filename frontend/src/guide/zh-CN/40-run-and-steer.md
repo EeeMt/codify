@@ -15,21 +15,7 @@ section: User Guide
 | `FAILED` | 失败 | 执行失败，含超时、协议错误、认证失败、限流、沙箱失败与 Harness 错误 |
 | `CANCELLED` | 已取消 | 被用户取消 |
 
-```mermaid
-stateDiagram-v2
-    [*] --> PENDING
-    PENDING --> QUEUED: 满足调度条件
-    QUEUED --> RUNNING: 取得 Issue 锁与并发空位
-    QUEUED --> PENDING: 预约时间未到
-    PENDING --> CANCELLED: 取消
-    QUEUED --> CANCELLED: 取消
-    RUNNING --> COMPLETED: 成功并完成交付
-    RUNNING --> FAILED: 失败或超时
-    RUNNING --> CANCELLED: 取消请求生效
-    COMPLETED --> [*]
-    FAILED --> [*]
-    CANCELLED --> [*]
-```
+![任务状态机](assets/diagrams/zh-CN/task-lifecycle.svg)
 
 任务被提升为已入队时，所属需求的状态会同步变为「进行中」。终态（已完成 / 失败 / 已取消）不会再回到运行态。
 

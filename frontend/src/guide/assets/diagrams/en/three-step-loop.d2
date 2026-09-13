@@ -1,0 +1,60 @@
+# Chapter: guide/en/10-quick-start.md — "The three-step loop".
+# Reader takeaway: every Codify workflow is the same three steps — describe the
+# work on an Issue, create a Task against it, review what the Task delivered —
+# and a follow-up Task appended to the same Issue continues in the same
+# workspace, session, and branch.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+loop: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 45
+  style.fill: transparent
+  style.stroke-width: 0
+
+  issue: "Describe the work\nIssue" { class: accent }
+  task: "Create a Task\nTask" { class: node }
+  wait: "Waiting to run\nqueue · schedule" { class: node }
+  review: "Review results\ncommit + MR" { class: node }
+  below_gap: " " { style.fill: transparent; style.stroke-width: 0 }
+  append: "Append Task\nsame workspace,\nsession, branch" { class: node }
+
+  issue -> task
+  task -> wait
+  wait -> review
+  task -> append
+}

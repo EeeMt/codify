@@ -1,0 +1,51 @@
+# Chapter: guide/en/20-concepts.md — "Issue", "Task and turn", "Delivery artifacts".
+# Reader takeaway: an Issue owns one working branch and one Merge Request, its
+# Tasks are its ordered turns committing to that branch, and each Task carries
+# the configuration frozen at creation plus the archive of its own run.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+issue: "Issue\nthe requirement" { class: accent }
+task: "Task\nordered turn 1..N" { class: node }
+branch: "Branch\nall commits here" { class: node }
+mr: "Merge Request\none per Issue" { class: node }
+snapshot: "Task Snapshot\nfrozen at creation" { class: node }
+archive: "Run archive\none per Task" { class: node }
+
+issue -> task
+task -> branch
+branch -> mr
+task -> snapshot
+task -> archive

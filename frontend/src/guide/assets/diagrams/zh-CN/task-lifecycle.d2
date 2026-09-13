@@ -1,0 +1,62 @@
+# 章节：40-run-and-steer（运行与引导）· 任务生命周期
+# 读者要理解：任务在六个状态之间的移动路径——什么时候排队、什么时候开始执行、
+# 哪些状态可以取消，以及终态可以人工修正。
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+states: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 3
+  grid-gap: 90
+  style.fill: transparent
+  style.stroke-width: 0
+
+  pending: "PENDING\n待处理" { class: node }
+  queued: "QUEUED\n已入队" { class: node }
+  running: "RUNNING\n执行中" { class: accent }
+  completed: "COMPLETED\n已完成" { class: node }
+  failed: "FAILED\n失败" { class: node }
+  cancelled: "CANCELLED\n已取消" { class: node }
+
+  pending -> queued: "排队"
+  queued -> running: "开始执行"
+  running -> completed: "完成"
+  running -> failed: "失败"
+  running -> cancelled: "取消"
+  pending -> cancelled
+  queued -> cancelled
+  completed <-> failed: "人工修正"
+}

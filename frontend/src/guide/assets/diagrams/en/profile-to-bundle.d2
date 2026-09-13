@@ -1,0 +1,60 @@
+# Chapter: guide/en/80-admin-configuration.md — "Task Snapshot and Runtime Bundle".
+# Reader takeaway: a Task does not run the Worker Profile as it looks now —
+# creation freezes the profile into a Task Snapshot and resolves a Runtime
+# Bundle, so a later profile edit only reaches Tasks created after it.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+flow: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 3
+  grid-gap: 65
+  style.fill: transparent
+  style.stroke-width: 0
+
+  profile: "Worker Profile\nadmin-configured" { class: accent }
+  snapshot: "Task Snapshot\nfrozen at creation" { class: node }
+  bundle: "Runtime Bundle\nresolved by digest" { class: node }
+  edit: "Profile edits\nmade later" { class: node }
+  no_effect: "Created Tasks\nunaffected" { class: node }
+  task: "Task\nactual run" { class: node }
+
+  profile -> snapshot
+  snapshot -> bundle
+  bundle -> task
+  profile -> edit
+  edit -> no_effect
+}

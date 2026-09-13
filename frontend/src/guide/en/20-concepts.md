@@ -41,23 +41,13 @@ Task statuses are **Pending**, **Queued**, **Running**, **Completed**, **Failed*
 
 Trigger sources describe where a Task came from: a manual creation, a **Retry**, a **Follow-up**, or a **CI auto-repair**.
 
-```mermaid
-flowchart LR
-    I["Issue"] --> T1["Task · turn 1"]
-    T1 --> T2["Task · turn 2"]
-    T2 --> B["Working branch"]
-    B --> MR["Merge Request"]
-    MR --> M["MR merged"]
-    M --> C["Issue auto-closed"]
-```
-
 ## Harness
 
 The Harness is the coding agent CLI that actually performs the work inside the container. Codify does not run the model by itself; it prepares a workspace, renders a prompt, and hands both to a Harness.
 
 Each Harness has an adapter, a wire protocol, and a capability policy. The capability policy decides what a live run accepts: **steering** and **follow-up** commands are gated per Harness, so the steering controls on a task page are enabled only when the frozen runtime actually supports them.
 
-The task pages expose Harness names directly: **Claude**, **Codex**, **Pi**, and **OpenCode** appear as harness options in the task form and in the task metadata panel. Which ones your deployment can run depends on the Worker Profile and the configured AI Providers.
+The task pages expose Harness names directly: **Claude**, **Codex**, **Pi**, and **OpenCode** appear as harness options in the task form and in the task metadata panel. Which ones your platform can run depends on the Worker Profile and the configured AI Providers.
 
 A Task's Harness is part of its execution identity. Continue-session tasks must reuse the current Harness; to switch Harness you create a Task with **Run in a new session**.
 
@@ -65,7 +55,7 @@ A Task's Harness is part of its execution identity. Continue-session tasks must 
 
 Three things persist across the Tasks of one Issue, and they are the reason appending a follow-up Task is cheap:
 
-- **Workspace** — the checked-out repository. Codify keeps a per-Issue workspace so a follow-up Task does not clone from scratch. Stale workspaces are cleaned up by the scheduler on a retention schedule.
+- **Workspace** — the checked-out repository. Codify keeps a per-Issue workspace so a follow-up Task does not clone from scratch. Stale workspaces are cleaned up on a retention schedule.
 - **Session** — the Harness conversation. Each Task records an input session and an output session, so a follow-up continues the same conversation instead of starting cold. `Continue session` inherits the current lineage; `Run in a new session` starts a new generation while keeping the workspace, branch, and history.
 - **Branch** — one working branch per Issue, generated as `codify/issue-{id}` from the Issue's **Starting Branch**. Every Task commits to that branch, and the Merge Request targets the Issue's **Merge Target**.
 
@@ -73,16 +63,16 @@ Because all three are shared, the appended-task hint is literal: appended tasks 
 
 ## Task snapshot and runtime bundle
 
-Creating a Task does not bind it to whatever the Worker Profile looks like at execution time. Instead Codify resolves the profile at creation and freezes an immutable **Task snapshot** that records the execution identity: image, runtime mode, mounts, environment variable references, skills, Harness constraints, and run-instruction defaults.
+Creating a Task does not bind it to whatever the Worker Profile looks like at execution time. Instead Codify resolves the profile at creation and freezes an immutable **Task snapshot** that records the execution identity: the Worker Profile it resolved, the Harness and its constraints, the enabled skills, and the run-instruction defaults.
 
-Alongside the snapshot, the Task is bound to a content-addressed **Runtime Bundle** — an immutable artifact identified by digest. The container loads the frozen bundle and the snapshot, so nothing changes underneath a running Task.
+Alongside the snapshot, the Task is bound to a content-addressed **Runtime Bundle** — an immutable artifact identified by digest. The run loads the frozen bundle and the snapshot, so nothing changes underneath a Task that is already running.
 
 This is why the following are true:
 
 - Editing a Worker Profile does not affect Tasks that already exist.
 - A **Retry** reuses the frozen snapshot and the session lineage, so a retry runs exactly the configuration of the Task it retries.
-- Secret values are never returned to the browser. The runtime summary panel reports configured status only, and environment variable values are never included.
-- If a snapshot's Worker Kit is not available on the frozen Docker target, the Task stays **Pending** and reports that scheduling is blocked until an administrator restores and rechecks the runtime.
+- Secret values are never returned to the browser. The runtime summary panel reports configured status only, and secret values are never included.
+- If the frozen runtime is not available when the Task is about to run, the Task stays **Pending** and reports that scheduling is blocked until an administrator restores and rechecks it.
 
 ## Delivery artifacts
 
@@ -100,12 +90,17 @@ A finished Task produces more than a status change. The delivery surface include
 
 Artifacts are per Issue as well as per Task: all Tasks deliver to one branch and one Merge Request, and the Issue page aggregates them into a **Delivery Overview**.
 
-## System architecture
+## Object model
 
-The control plane is three long-lived services plus one database, built from two images: nginx serves the frontend and proxies `/api` to the backend, the backend owns the API and state writes, and the scheduler is a separate orchestration process — the only component that creates containers. PostgreSQL holds the single authoritative state.
+Six objects carry a piece of work through Codify, and all of them hang off the Issue you describe at the start.
 
-Execution happens outside those services: the scheduler creates a Worker container through the Docker API on the daemon pinned by the task snapshot. The container loads the frozen Task Snapshot and Runtime Bundle, the Harness does the code work and pushes the branch to GitLab directly, and the control plane creates and updates the Merge Request through the GitLab API as the requester.
+![Object model](assets/diagrams/en/object-model.svg)
 
-![Codify system architecture](assets/architecture.svg)
+- **Issue** — the requirement container. It owns the workspace, the AI conversation session, and one branch with a single Merge Request lifecycle.
+- **Task** — one ordered turn of an Issue. An Issue can have as many Tasks as you append, and they run strictly in turn order.
+- **Branch** — one working branch per Issue, generated as `codify/issue-{id}`. Every Task commits to that branch, which is what lets a follow-up Task continue where its predecessor stopped.
+- **Merge Request** — one per Issue, created from that branch and targeting the Issue's **Merge Target**. Merging it is what closes the Issue.
+- **Task Snapshot** — the configuration frozen when the Task is created, so later edits never change a Task that already exists.
+- **Run archive** — one per Task, kept so you can inspect afterwards what a run produced.
 
-The diagram draws the forward path only. Two return paths matter just as much and are left out of it: the canonical events and logs a container produces are pulled back into the database by the scheduler (the container does not push them to a service), and the browser receives those updates over SSE; GitLab calls back into the backend by webhook when a Merge Request merges or a pipeline fails.
+None of these belongs to a single run: the Issue is where the branch, the Merge Request, and the aggregated **Delivery Overview** come together.

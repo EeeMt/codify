@@ -50,7 +50,7 @@ Analytics is a shared page. Access depends on your role or on the administrator 
 
 ## Monitor
 
-**Monitor** is the operational view. Its data is built from the latest visible task sample, global task stats, and the worker containers currently known to the backend, and it is explicitly a live view: the header exposes **Live** and **Clear** (to clear activity highlighting), and **Running Now**, **Queue Pressure**, **Active Containers**, and **System Health** appear as live counters.
+**Monitor** is the operational view. Its data is built from the latest visible task sample, global task stats, and the containers currently in the platform's inventory, and it is explicitly a live view: the header exposes **Live** and **Clear** (to clear activity highlighting), and **Running Now**, **Queue Pressure**, **Active Containers**, and **System Health** appear as live counters.
 
 Three tabs cover different questions:
 
@@ -73,7 +73,7 @@ Three tabs cover different questions:
 | **Task still marked running** | The task state and container state disagree |
 | **Historical** | The container belongs to an older run |
 
-Container rows show **Container ID**, **Docker target**, **Name**, **Status**, **Task ID**, and **Age**; when a Task is not in the sample, the row states **task not in latest sample**. If some Docker targets are unreachable, a banner reports that some Docker targets are unavailable, because inventory can only be trusted for targets that responded.
+Container rows show **Container ID**, **Docker target**, **Name**, **Status**, **Task ID**, and **Age**; when a Task is not in the sample, the row states **task not in latest sample**. If some targets are unreachable, a banner reports **Some Docker targets are unavailable**, because inventory can only be trusted for the targets that responded.
 
 **Health Signals** turns those signals into four checks:
 
@@ -114,4 +114,4 @@ Capacity is reported on the same page. **Full Slots** lists hours at capacity, w
 
 Counters summarise **Active Sessions** and **Refresh-Capable** sessions, and the known list is under **Known Sessions**. **Reload sessions** refreshes the list.
 
-The refresh caveat is stated on the page: if a session has no refresh token, GitLab access expiry will require a fresh sign-in even if the dashboard cookie still exists. Revoking a session invalidates it immediately; revoking the one you are using signs you out and redirects to login. When you cannot find a session you expected, or you see sessions you do not recognize, revoke them and check the deployment's login configuration — session management is a user-facing control, while sign-in policy is configured by an administrator.
+The refresh caveat is stated on the page: if a session has no refresh token, GitLab access expiry will require a fresh sign-in even if the dashboard cookie still exists. Revoking a session invalidates it immediately; revoking the one you are using signs you out and redirects to login. When you cannot find a session you expected, or you see sessions you do not recognize, revoke them and check the platform's login configuration — session management is a user-facing control, while sign-in policy is configured by an administrator.

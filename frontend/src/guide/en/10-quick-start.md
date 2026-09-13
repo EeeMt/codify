@@ -5,37 +5,21 @@ section: User Guide
 
 ## Prerequisites
 
-Codify is self-hosted, so most setup happens before you log in. You need:
+Almost everything is arranged before you log in. As a user you need three things:
 
-- A running Codify deployment with the backend, scheduler, nginx, and PostgreSQL services healthy.
-- A reachable GitLab instance, with a bot token configured by an administrator.
-- At least one AI Provider configured for the protocol your Harness uses.
-- At least one Worker Profile marked healthy, with its runtime verified.
 - A Codify account with the `platform_user` or `platform_admin` role.
+- A project you can reach, with a branch you are allowed to work on.
+- A Harness that an administrator has enabled for you — **Claude**, **Codex**, **Pi**, or **OpenCode**.
 
-Administrators configure all of these from **Configuration**. If a page reports that no project, Worker, or provider is available, the platform is not finished bootstrapping — see the Admin Guide.
+Administrators set all of these up from **Configuration**. If a page reports that no project or Harness is available, your account is not ready yet; ask an administrator, and see the Admin Guide.
 
-Sign-in methods are decided by your operator: local accounts, GitLab OIDC, or both. The login page is at `/login`, and a fresh deployment shows a one-time bootstrap screen until the first administrator exists.
+Your sign-in method is decided by whoever runs the platform: a local account, GitLab sign-in, or both. The login page is at `/login`, and a brand-new platform shows a one-time setup screen until the first administrator account exists.
 
 ## The three-step loop
 
 Every workflow in Codify follows the same loop: describe the work on an Issue, run a Task against it, then review what the Task delivered.
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant C as Control Plane
-    participant W as Container
-    participant G as GitLab
-    U->>C: Create Issue
-    U->>C: Create Task
-    C->>C: Freeze snapshot and runtime bundle
-    C->>W: Start task container
-    W->>G: Push commits to the Issue branch
-    W->>G: Create or update the Merge Request
-    W-->>C: Events, logs, and statistics
-    C-->>U: Status and delivery summary
-```
+![The three-step loop](assets/diagrams/en/three-step-loop.svg)
 
 1. **Create Issue** — pick the project and branches and write the description. The description becomes the default prompt for its tasks.
 2. **Create Task** — from the Issue page, choose a Task Mode and priority, then use **Execute Now** or **Schedule**. Codify queues the Task, starts a container, and streams events back.

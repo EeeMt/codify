@@ -6,19 +6,13 @@ section: User Guide
 
 开始之前，确认下面几件事已经就绪：
 
-- 一套已经部署并可访问的 Codify 实例。Compose 默认前端地址为 `http://localhost:8880`，后端 API 为 `http://localhost:8000`。
-- 一个可访问的 GitLab 实例，以及机器人账号的 `GITLAB_URL` 与 `GITLAB_BOT_TOKEN`。
-- 一个兼容 Harness 的模型服务端点：Claude 使用 Anthropic 协议，Codex 使用 OpenAI 协议。也可以在控制台的「系统配置」中打开「AI 模型服务」录入并在后续任务里选用。
 - 一个可登录的账号：GitLab OIDC，或管理员创建的本地账号。
-
-如果你还没有部署实例，可以在仓库的 `deploy` 目录一键启动：
-
-```bash
-cd deploy
-docker-compose up -d --build
-```
+- 一个你能够访问的 GitLab 项目，需求与工作分支都落在它上面。
+- 一个管理员已经启用的 Harness（Claude、Codex、Pi 或 OpenCode），创建任务时能选中它。
 
 首次登录时，登录页会按当前认证模式展示入口：启用 OIDC 时显示「使用 GitLab 继续」，本地认证模式下显示「使用密码登录」。
+
+平台本身由管理员维护。如果页面提示没有可用的项目、Worker 或模型服务，说明平台尚未完成初始化，相关章节在《管理指南》中。
 
 ## 三步循环
 
@@ -28,20 +22,7 @@ Codify 的主流程只有三步，所有页面都围绕它组织：
 2. 发起任务 — 在需求详情页点击「创建任务」，立即执行或预约到空闲时段。
 3. 查看结果 — 跟踪状态、翻阅日志、检查交付物（提交、合并请求、运行归档）。
 
-```mermaid
-sequenceDiagram
-    participant U as 用户
-    participant C as 控制平面
-    participant W as Worker 容器
-    participant G as GitLab
-    U->>C: 创建需求并发起任务
-    C->>C: 冻结任务快照并加入队列
-    C->>W: 启动隔离的 Worker 容器
-    W->>G: 克隆仓库并推送工作分支
-    W->>C: 上报事件流、日志与用量
-    C->>G: 创建或更新 Merge Request
-    C-->>U: 展示状态、日志与交付结果
-```
+![三步循环](assets/diagrams/zh-CN/three-step-loop.svg)
 
 任务结束后，需求详情页会给出「当前执行」与「执行记录」，任务详情页会给出日志、运行统计与交付信息。
 

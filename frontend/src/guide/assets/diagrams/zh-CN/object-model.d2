@@ -1,0 +1,50 @@
+# 章节：20-concepts（核心概念）· 对象模型
+# 读者要理解：Issue 拥有工作区、会话与分支，Task 是 Issue 的有序回合，
+# 同一需求的所有提交落在同一条分支上，最终合成一个 Merge Request。
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+issue: "Issue\n需求" { class: accent }
+task: "Task\n有序回合 1..N" { class: node }
+branch: "分支\n所有提交落在这里" { class: node }
+mr: "Merge Request\n一个 Issue 一个" { class: node }
+snapshot: "Task Snapshot\n创建时冻结" { class: node }
+archive: "运行归档\n每个 Task 一份" { class: node }
+
+issue -> task
+task -> branch
+branch -> mr
+task -> snapshot
+task -> archive

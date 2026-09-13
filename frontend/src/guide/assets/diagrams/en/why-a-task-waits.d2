@@ -1,0 +1,65 @@
+# Chapter: guide/en/60-scheduling.md — "Queue and priority arbitration",
+# "Concurrency and per-issue mutex".
+# Reader takeaway: a Task that is not running is held by one of three checks —
+# it is not its Issue's next turn, its reserved time has not arrived, or no
+# concurrency slot is free — and each refusal has a named reason in the UI.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  external: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#94A3B8"
+    style.stroke-dash: 4
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+chain: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 45
+  style.fill: transparent
+  style.stroke-width: 0
+
+  ready: "Task is ready\nnot running yet" { class: node }
+  head: "Head of its\nIssue?" { class: node }
+  due: "Scheduled time\ndue?" { class: node }
+  capacity: "Concurrency\nslot free?" { class: node }
+  below_gap: " " { style.fill: transparent; style.stroke-width: 0 }
+  waiting_issue: "Queued\nturn ahead running" { class: node }
+  waiting_slot: "Waiting for a slot\nby priority order" { class: node }
+  start: "Execution starts\nslot claimed" { class: accent }
+
+  ready -> head
+  head -> due: "yes"
+  head -> waiting_issue: "no"
+  due -> capacity: "arrived"
+  due -> waiting_slot: "not yet"
+  capacity -> start: "free"
+  capacity -> waiting_slot: "full"
+}

@@ -38,7 +38,6 @@ const zhCN = {
     dashboard: '仪表盘',
     tasks: '任务',
     issues: '需求',
-    guide: '指南',
     createIssue: '创建需求',
     createTask: '创建任务',
     sessions: '会话',

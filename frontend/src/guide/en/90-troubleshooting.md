@@ -21,19 +21,19 @@ Read the message by shape. Plain text is a human-readable cause. A JSON object i
 | `protocol_error: unknown Task terminal ...` | A terminal event the platform does not recognise |
 | `{"code": "worker_runtime_unavailable", ...}` | The Worker runtime could not be prepared |
 | `{"code": "harness_cli_unavailable", "harness_key": ..., "reason_code": ...}` | The selected harness CLI is absent from the Worker Kit |
-| `{"code": "worker_runtime_check_failed", ...}` | The Worker Kit runtime check failed before the container was dispatched |
+| `{"code": "worker_runtime_check_failed", ...}` | The Worker Kit runtime check failed before the run started |
 | `{"code": "execution_contract_mismatch", ...}` | The task's frozen execution contract cannot be honoured |
 | `{"reason": "usage_limit_exceeded", ...}` | A usage limit was exceeded before execution; see the detailed sections |
 | `Worker failed to start: ...` | The worker container could not be started |
 | `Container disappeared during resume: ...` | A resumed session lost its container |
-| `Task was running when scheduler restarted (container not found)` | Scheduler restart found the task running but its container gone |
-| `Task worker container was not runnable after scheduler recovery (status=...)` | Recovery found the container in a non-runnable state |
 
-Two related outcomes are not failures. A user cancellation ends as **Cancelled** with the message that the task was cancelled by the user, and a cancellation confirmed during recovery records that the worker container is confirmed absent.
+A platform restart can also end a run. A task that was running when the platform restarted is resumed while its container is still alive; when the container is gone, the task is recorded as **Failed** with the message that it was still running when the platform restarted. The same error panel reports a run whose container was not runnable after recovery.
+
+Two related outcomes are not failures. A user cancellation ends as **Cancelled** with the message that the task was cancelled by the user, and a cancellation confirmed during recovery records that no run was left to stop.
 
 ### Timeouts
 
-The task detail exposes `execution_timeout_seconds`, `execution_deadline_at`, and `started_at`. Compare them before changing anything: a timeout means the frozen limit was too small for the work, not that the scheduler stopped the task early. The limit is selected once, when the task enters RUNNING, from the peak or off-peak window configured on the Configuration page. Raising the peak or off-peak value affects tasks that start after the change, not the task that already timed out.
+The task detail exposes `execution_timeout_seconds`, `execution_deadline_at`, and `started_at`. Compare them before changing anything: a timeout means the frozen limit was too small for the work, not that the platform stopped the task early. The limit is selected once, when the task enters RUNNING, from the peak or off-peak window configured on the Configuration page. Raising the peak or off-peak value affects tasks that start after the change, not the task that already timed out.
 
 ### Missing logs
 
@@ -47,11 +47,11 @@ A task can be retried only from **Failed** or **Cancelled**. The retry creates a
 
 ## Container and scheduling anomalies
 
-Worker containers are named from the configured container prefix plus the task and issue ids, in the form `{prefix}-{task_id}-issue{issue_id}`; the prefix defaults to `codify`. Everything below depends on that mapping between a container and a task.
+Every run gets its own isolated container, and this section is about the cases where a Task and its container stop agreeing.
 
 ### The Monitor page
 
-**Monitor** reports the alignment between running tasks and live containers. Its two headline counts are **Orphan containers** — running containers without a matching running task — and **Task/container gaps** — running tasks with no visible running container. When a Docker target cannot be reached, the page warns that some Docker targets are unavailable and names the failing target instead of silently reporting zero containers.
+**Monitor** reports the alignment between running tasks and live containers. Its two headline counts are **Orphan containers** — running containers without a matching running task — and **Task/container gaps** — running tasks with no visible running container. When a target cannot be reached, the page warns **Some Docker targets are unavailable** and names the failing one instead of silently reporting zero containers.
 
 Each container row shows its **Relation**:
 
@@ -64,26 +64,26 @@ Each container row shows its **Relation**:
 | **Task still marked running** | The task is running but its container is not |
 | **Historical** | A finished container kept for reference |
 
-The page derives these from separate task and container samples, so a mismatch can be a transient sampling artifact. If a gap or an orphan persists across refreshes, the scheduler process is not running or cannot reach the daemon: the scheduler owns reconciliation, and nothing in the UI stops containers directly.
+The page derives these from separate task and container samples, so a mismatch can be a transient sampling artifact. If a gap or an orphan persists across refreshes, the platform is not reconciling state as it should: no action in the UI stops containers directly, so ask an administrator to look at the execution service.
 
-### What the scheduler does on restart
+### After a platform restart
 
-Crash recovery runs at scheduler startup and reconciles the database against the actual containers:
+A restart changes what running tasks report. What you see, in order:
 
-- A task still running with a live container is resumed.
-- A task still running whose container is confirmed absent is terminalized — as cancelled when a cancellation was requested, otherwise failed with the restart message.
-- A container with no matching task is removed as an orphan; the container's state decides whether the removal is forced.
-- When a Docker target is unreachable, recovery for its tasks is deferred and retried in the background; the tasks stay running in the meantime.
+- A running task whose container is still alive is resumed and keeps reporting.
+- A running task whose container is gone ends as **Cancelled** when a cancellation was requested, and as **Failed** otherwise, with the message that it was still running when the platform restarted.
+- A container left behind by a task that is no longer running disappears during cleanup, without touching the task record.
+- When a target is unreachable, the tasks on it keep reporting as running until recovery reaches that target, which happens in the background.
 
-A finished task that still holds a container reference blocks its issue until the container is reconciled. If an issue stays locked with nothing running, look for that retained container rather than assuming the queue is broken.
+A finished task that still holds a container reference keeps its Issue locked until the container is reconciled. If an Issue stays locked with nothing running, look for that retained container rather than assuming the queue is broken.
 
 ### Task stuck in Pending or Queued
 
 **Pending** means the task has not been promoted for this cycle. **Queued** means it is promoted and waiting for capacity. Check, in order:
 
-1. Is the scheduler process running, and is its health endpoint reporting the expected execution mode?
+1. Is anything executing at all? If every task in every project sits in **Pending** with nothing running, the execution service itself needs attention.
 2. Is the task's scheduled time in the future? A scheduled task remains pending until its window opens.
-3. Is the issue already holding a running task? The scheduler serializes work per issue.
+3. Is the issue already holding a running task? Only one task per issue runs at a time.
 4. Is **Max Concurrency** saturated by other projects, and is the hourly slot full when **Enforce Slot Limit** is on?
 5. Was the task parked because its worker runtime is unavailable? That transition is recorded and the task returns to pending until the runtime is healthy.
 6. Is a usage limit exceeded? The task fails at execution rather than waiting in the queue.
@@ -94,27 +94,7 @@ When a schedule is refused, the error name tells you which rule applied: earlier
 
 ### Cancelling a stuck task
 
-Cancellation is confirmed before the task leaves the active state. If the worker container has not been published yet, or the Docker daemon is unavailable, or the container state cannot be determined, the request returns a message saying the cancellation was recorded but the task remains active. Retry the cancellation once the container state is known; do not assume the task stopped.
-
-### Reading the deployment
-
-The operational checks in `docs/ops/DEPLOYMENT.md` cover the same ground from the host:
-
-```bash
-cd deploy
-docker-compose logs -f backend
-docker-compose logs -f scheduler
-```
-
-```sql
-SELECT id, status, error_message FROM tasks ORDER BY id DESC LIMIT 10;
-```
-
-```sql
-SELECT task_id, level, message, created_at FROM task_logs ORDER BY id DESC LIMIT 20;
-```
-
-Keep both backend and scheduler on the same image. They share it, and a rollout that restarts only one of them can leave the two processes running different code.
+Cancellation is confirmed before the task leaves the active state. If the run has not produced a container yet, or its container state cannot be determined, the request returns a message saying the cancellation was recorded but the task remains active. Retry the cancellation once the state is known; do not assume the task stopped.
 
 ## Permission and login problems
 
@@ -129,7 +109,7 @@ Two page-level causes are worth checking before assuming a bug:
 
 ### OIDC sign-in fails or loops
 
-Start with the **OIDC Diagnostics** checks rather than the environment files. They run against the effective configuration and report **OK**, **Warning**, or **Error** per item:
+Start with the **OIDC Diagnostics** checks. They run against the effective configuration and report **OK**, **Warning**, or **Error** per item:
 
 | Symptom | Likely cause reported by the diagnostics |
 | --- | --- |
@@ -143,22 +123,22 @@ Start with the **OIDC Diagnostics** checks rather than the environment files. Th
 
 The diagnostics also warn when the session TTL is longer than 24 hours, and when group-based admin bootstrap is enabled while GitLab does not return groups in the claims or userinfo response. The OAuth application must allow the scopes `openid profile email read_api`; the **Required scopes** section lists them and the authorization URL preview shows the request that will be sent.
 
-If OIDC configuration worked before and stopped after a redeploy, check whether the database volume and the encryption key both survived. Persisted secrets are only readable with the same key that wrote them; a changed key makes every stored secret undecryptable, and the fix is to enter the secrets again.
+If OIDC configuration worked before and stopped after a redeploy, check that the persisted settings and the encryption key both survived. Persisted secrets are only readable with the same key that wrote them; a changed key makes every stored secret undecryptable, and the fix is to enter the secrets again.
 
 ### Group-based admin access does not apply
 
-Administrators are granted by username or by GitLab group. Group grants only work when the login response actually carries groups; otherwise the grants silently do not apply and the condition is logged with the breakdown of where groups were expected. Verify with the diagnostics warning and with the identity provider's scope and claim configuration.
+Administrators are granted by username or by GitLab group. Group grants only work when the login response actually carries groups; otherwise the grants silently do not apply. Verify the warning in **OIDC Diagnostics** and check the identity provider's scope and claim configuration.
 
 ### The emergency administrator path
 
-Break-glass login is enabled only when all three environment values for it are present. When it is not fully configured, the request is refused and the sign-in page states that break-glass login is not enabled. When it is enabled, the sign-in page warns that it must be used only for OIDC recovery or administrator lockout. The emergency account is created on first successful use and is marked with the **Break-glass** role source; a username that already belongs to a different dashboard user is rejected as a conflict instead of being taken over.
+Break-glass login is available only where it has been fully configured. When it is not fully configured, the request is refused and the sign-in page states that break-glass login is not enabled. When it is enabled, the sign-in page warns that it must be used only for OIDC recovery or administrator lockout. The emergency account is created on first successful use and is marked with the **Break-glass** role source; a username that already belongs to a different dashboard user is rejected as a conflict instead of being taken over.
 
 Keep the path disabled during normal operation. It exists so that a broken OIDC configuration cannot lock every administrator out, and it should be closed again as soon as normal sign-in works.
 
 ## Frequently asked questions
 
 **Why is a task still Pending while the queue is empty?**
-The scheduler has not promoted it. Check that the scheduler process is running and healthy, that the scheduled time has arrived, and that the issue does not already own a running task.
+Nothing has promoted it yet. Check that the platform is executing other work at all, that the task's scheduled time has arrived, and that its Issue does not already own a running task.
 
 **Why did a failed task produce no container logs?**
 The container is gone, so the log view falls back to the raw chunks captured while it ran. A task that failed before its container started has nothing to show; its reason is in the error message instead.

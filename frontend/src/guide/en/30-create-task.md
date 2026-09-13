@@ -37,7 +37,7 @@ The **Task Mode** selector determines how the Harness treats your prompt. Open *
 
 Each option carries a one-line summary: **Codify guides implementation and code changes**, **Codify analyzes the project without retaining file changes**, and **Harness decides whether code changes are needed**.
 
-Mode changes the run instruction as well. Switching modes asks whether to use the new mode's default template, and the backend forces `require_changes` to false for **Analysis** and **Freeform**, because those modes are not expected to produce commits.
+Mode changes the run instruction as well. Switching modes asks whether to use the new mode's default template, and `require_changes` is fixed to false for **Analysis** and **Freeform**, because those modes are not expected to produce commits.
 
 **Require Changes** is the Implementation-mode guard: when enabled, the task is considered failed if no code commits are produced. Disable it for work that is genuinely optional, such as a spike or a question that might still touch files.
 
@@ -51,9 +51,9 @@ Priority is the **Priority** field in the **Execution Settings** section. It onl
 | `1` | **P1** | **Normal** |
 | `2` | **P2** | **Low** |
 
-The task table and Monitor reuse the same three words, so a task listed as **Urgent** there is a P0 task. The scheduler sorts by priority ascending — every eligible P0 head before any P1, and every P1 before any P2 — but a lower-priority Task that is the head of its own Issue's queue is not starved by higher-priority work queued elsewhere.
+The task table and Monitor reuse the same three words, so a task listed as **Urgent** there is a P0 task. Priority orders work between Issues, ascending — every eligible P0 head is picked before any P1, and every P1 before any P2 — but a lower-priority Task that is the head of its own Issue's queue is not starved by higher-priority work queued elsewhere.
 
-A rule of thumb that matches the scheduler: use P0 for work that must not wait behind anything else, P1 for normal feature and improvement work, and P2 for refactors and nice-to-haves that can absorb a delay.
+A rule of thumb that matches what you see in the queue: use P0 for work that must not wait behind anything else, P1 for normal feature and improvement work, and P2 for refactors and nice-to-haves that can absorb a delay.
 
 ## Run now or schedule
 
@@ -120,7 +120,7 @@ If your account is over its quota, submission is refused with **Usage limit exce
 
 - **Follow Worker defaults** uses the enabled default skills from the Worker Profile.
 - An explicit selection fully replaces the profile defaults; clearing it runs the task without managed skills.
-- Skills require a mounted Worker Kit (0.3.5 or newer). Baked-image workers do not support them.
+- Skills require the **Mounted worker kit** delivery mode (0.3.5 or newer); the **Baked image (deprecated)** mode does not support them.
 
 Skill versions are frozen into the Task snapshot. If the global catalogue later changes, the task page says the Skill snapshot or the profile Skill selection changed, and offers **Apply current available versions** to refresh. A snapshot that cannot be resolved is shown as **unavailable**, with an older frozen version marked as **older version**.
 
