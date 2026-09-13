@@ -540,7 +540,20 @@ def _translate_app_server(record: dict, raw_line: int) -> bool:
             _emit("diagnostic", {"code": "app_server_error", "message": message}, raw_line)
         return True
     if method == "thread/compacted":
-        _emit("context.compacted", {"evidence": "codex_app_server"}, raw_line)
+        # A child thread compacts its own context; attribution goes through the
+        # same current-agent seam every other notification uses (plan §5.3),
+        # so the row is never filed against root.
+        thread_id = params.get("threadId")
+        previous = _CURRENT_AGENT
+        globals()["_CURRENT_AGENT"] = (
+            _register_child_thread(thread_id)
+            if isinstance(thread_id, str) and thread_id and thread_id != _STATE["thread_id"]
+            else None
+        )
+        try:
+            _emit("context.compacted", {"evidence": "codex_app_server"}, raw_line)
+        finally:
+            globals()["_CURRENT_AGENT"] = previous
         return True
     # Status, config, heartbeat, reasoning delta and other notifications are
     # retained in the raw archive but have no canonical event in this contract.

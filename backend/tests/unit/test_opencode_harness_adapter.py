@@ -3752,3 +3752,37 @@ def test_opencode_child_usage_is_summed_once_into_the_attempt_total():
             state.pop("child_message_usage", None)
         else:
             state["child_message_usage"] = saved_messages
+
+
+def test_opencode_child_session_compaction_is_attributed_to_the_child(tmp_path, monkeypatch):
+    """A child session's compaction must not be filed against root."""
+    root = "ses_root"
+    child = "ses_child_compaction"
+    _emit(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate(
+        tmp_path,
+        [
+            # The bridge publishes the root session before any event flows;
+            # without it every session would look like the root.
+            _record("codify.root_session", {"sessionID": root}),
+            # The child session is then admitted and produces its own event,
+            # which is what registers its identity.
+            _record(
+                "session.created",
+                {"sessionID": child, "info": {"id": child, "parentID": root, "agent": "general"}},
+            ),
+            _record(
+                "message.updated",
+                {"sessionID": child, "info": {"id": "msg_child", "role": "assistant"}},
+            ),
+            _record(
+                "session.next.compaction.ended",
+                {"sessionID": child, "reason": "auto", "text": "summary"},
+            ),
+        ],
+    )
+
+    events = _events(tmp_path)
+    compacted = [event for event in events if event["type"] == "context.compacted"]
+    assert len(compacted) == 1
+    assert compacted[0]["payload"]["agent"]["id"] == child

@@ -1728,3 +1728,24 @@ def test_claude_nested_delegation_is_refused_and_progress_is_not_noise(tmp_path)
         for event in events
         if event["type"] == "tool.started" and event["payload"].get("tool_id") == "call_nested"
     ]
+
+
+def test_claude_child_compaction_is_attributed_to_the_child(tmp_path):
+    """A child's own context compaction must not be filed against root."""
+    _emit_v2(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate_stream_v2(
+        tmp_path,
+        [
+            {
+                "type": "system",
+                "subtype": "compact_boundary",
+                "session_id": "session-1",
+                "parent_tool_use_id": "call_child",
+            }
+        ],
+    )
+
+    events = _events(tmp_path)
+    compacted = [event for event in events if event["type"] == "context.compacted"]
+    assert len(compacted) == 1
+    assert compacted[0]["payload"]["agent"]["id"] == "call_child"

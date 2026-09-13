@@ -1154,3 +1154,20 @@ def test_codex_child_thread_usage_is_monotonic_and_added_to_the_attempt_total():
             events_module._STATE.pop("child_usage", None)
         else:
             events_module._STATE["child_usage"] = saved
+
+
+def test_codex_child_thread_compaction_is_attributed_to_the_child(tmp_path):
+    """A child thread's compaction must not be filed against root."""
+    _emit_v2(tmp_path, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate_raw_stream_v2(
+        tmp_path,
+        [
+            {"method": "thread/started", "params": {"thread": {"id": "thread-root"}}},
+            {"method": "thread/compacted", "params": {"threadId": "thread-child"}},
+        ],
+    )
+
+    events = _events(tmp_path)
+    compacted = [event for event in events if event["type"] == "context.compacted"]
+    assert len(compacted) == 1
+    assert compacted[0]["payload"]["agent"]["id"] == "thread-child"

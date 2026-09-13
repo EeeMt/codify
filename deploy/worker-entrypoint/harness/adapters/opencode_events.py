@@ -1879,7 +1879,21 @@ def _handle_message_part_updated(properties: dict, raw_line: int) -> None:
             "overflow": part.get("overflow"),
             "tail_start_id": part.get("tail_start_id"),
         }
-        _emit("context.compacted", {key: value for key, value in payload.items() if value is not None}, raw_line)
+        # A child session compacts its own context: attribution goes through the
+        # same current-agent seam every other event uses (plan §5.3), so the row
+        # is never filed against root.
+        session_id = payload.get("session_id")
+        previous = _CURRENT_AGENT
+        if isinstance(session_id, str) and session_id and session_id != _STATE["root_session_id"]:
+            globals()["_CURRENT_AGENT"] = _remember_agent(session_id, role=None)
+        try:
+            _emit(
+                "context.compacted",
+                {key: value for key, value in payload.items() if value is not None},
+                raw_line,
+            )
+        finally:
+            globals()["_CURRENT_AGENT"] = previous
     elif part_type not in {"step-start", "step-finish", "file", "patch", "snapshot", "agent", "subtask"}:
         _emit("diagnostic", {"code": "unknown_message_part", "type": part_type}, raw_line)
     usage = part.get("usage") if isinstance(part.get("usage"), dict) else part.get("tokens")

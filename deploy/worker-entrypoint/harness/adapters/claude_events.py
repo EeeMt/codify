@@ -418,7 +418,10 @@ def translate(record: dict, raw_line: int) -> None:
             raw_line,
         )
     elif record_type == "system" and subtype == "compact_boundary":
-        _emit("context.compacted", {"session_id": _session_id(record)}, raw_line)
+        # A child may compact its own context; the record identifies it through
+        # `parent_tool_use_id`, so the row must not be attributed to root
+        # (plan §5.3 lists context.compacted among the attributable types).
+        _emit("context.compacted", {"session_id": _session_id(record)}, raw_line, agent=agent)
     elif record_type == "system" and subtype == "task_started":
         # The native delegation start names the child's role; caching it here
         # keeps the role available even when the Agent tool_use block itself
