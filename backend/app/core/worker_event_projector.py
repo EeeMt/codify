@@ -72,6 +72,20 @@ def _parse_canonical_time(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _payload_timestamp(payload: dict, key: str) -> str | None:
+    """Return a valid adapter-supplied RFC3339 timestamp, if present."""
+    value = payload.get(key)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = _parse_canonical_time(value.strip())
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return value.strip()
+
+
 def _row_agent_id(metadata: dict) -> str:
     """Agent bucket of an already-projected row (legacy rows are root)."""
     agent = metadata.get("agent")
@@ -338,7 +352,6 @@ class WorkerEventProjector:
     ) -> None:
         tool_id = str(payload.get("tool_id") or "")
         name = str(payload.get("name") or "")
-        agent_key = self._agent_key(payload)
         agent = self._agent_metadata(payload)
         subagent = self._subagent_metadata(payload)
         input_text = self._sanitize_sensitive_data(_text(payload.get("input") or {}))
@@ -349,10 +362,11 @@ class WorkerEventProjector:
             text=input_text,
         )
         preview, truncated = _preview(input_text)
+        started_at = _payload_timestamp(payload, "started_at") or occurred_at
         metadata: dict[str, Any] = {
             "tool_use_id": tool_id,
             "name": name,
-            "started_at": occurred_at,
+            "started_at": started_at,
             "input": payload.get("input") or {},
             "input_payload_id": body.id,
             "input_preview": preview,
@@ -514,9 +528,13 @@ class WorkerEventProjector:
         subagent = self._subagent_metadata(payload)
         if subagent is not None:
             metadata["subagent"] = subagent
+        native_ended_at = _payload_timestamp(payload, "ended_at")
+        ended_at = native_ended_at or occurred_at
+        if native_ended_at is not None:
+            metadata["ended_at"] = ended_at
         started_at = metadata.get("started_at")
         duration = (
-            _duration_ms(started_at, occurred_at)
+            _duration_ms(started_at, ended_at)
             if isinstance(started_at, str)
             else None
         )

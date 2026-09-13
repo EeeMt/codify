@@ -323,6 +323,19 @@ def _settle_open_delegations(raw_line: int) -> None:
         _settle_delegation(delegation_id, status="cancelled", output="", raw_line=raw_line)
 
 
+def _tool_result_text(value: object) -> str:
+    """Flatten Anthropic text blocks for tool output and child summaries."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(_tool_result_text(part) for part in value)
+    if isinstance(value, dict):
+        if isinstance(value.get("text"), str):
+            return value["text"]
+        return _tool_result_text(value.get("content"))
+    return ""
+
+
 def _settle_delegation(
     delegation_id: str, *, status: str, output: object, raw_line: int
 ) -> None:
@@ -588,7 +601,7 @@ def translate(record: dict, raw_line: int) -> None:
                     _settle_delegation(
                         tool_id,
                         status="failed" if failed else "completed",
-                        output=block.get("content"),
+                        output=_tool_result_text(block.get("content")),
                         raw_line=raw_line,
                     )
                     continue
@@ -596,7 +609,7 @@ def translate(record: dict, raw_line: int) -> None:
                     "tool.completed",
                     {
                         "tool_id": tool_id,
-                        "output": block.get("content"),
+                        "output": _tool_result_text(block.get("content")),
                         "error": failed,
                     },
                     raw_line,

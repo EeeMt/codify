@@ -179,6 +179,43 @@ class EventProjectionTests(unittest.IsolatedAsyncioTestCase):
         assert metadata["output_payload_id"] == payloads[1].id
         assert payloads[1].content == b"file.txt"
 
+    async def test_tool_projection_uses_native_adapter_timestamps(self):
+        async with self.session_factory() as db:
+            await self._setup_attempt(db)
+            await self._project(
+                db,
+                [
+                    self._event(1, "run.started"),
+                    self._event(
+                        2,
+                        "tool.started",
+                        {
+                            "tool_id": "child-tool-1",
+                            "name": "Bash",
+                            "input": {"command": "echo marker"},
+                            "started_at": "2026-08-01T00:00:10Z",
+                        },
+                        occurred_at="2026-08-01T00:00:20Z",
+                    ),
+                    self._event(
+                        3,
+                        "tool.completed",
+                        {
+                            "tool_id": "child-tool-1",
+                            "output": "marker",
+                            "error": False,
+                            "ended_at": "2026-08-01T00:00:11.500Z",
+                        },
+                        occurred_at="2026-08-01T00:00:30Z",
+                    ),
+                ],
+            )
+            log = (await db.execute(select(TaskLog))).scalar_one()
+        metadata = json.loads(log.log_metadata)
+        assert metadata["started_at"] == "2026-08-01T00:00:10Z"
+        assert metadata["ended_at"] == "2026-08-01T00:00:11.500Z"
+        assert metadata["duration_ms"] == 1500
+
     async def test_context_compaction_and_diagnostic_are_compatible_logs(self):
         async with self.session_factory() as db:
             await self._setup_attempt(db)

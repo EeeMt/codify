@@ -29,6 +29,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 from result_builder import v2_harness_block
@@ -399,6 +400,19 @@ def _sanitize_value(value: object, *, depth: int = 0) -> object:
 def _display_tool_name(tool_name: object) -> str:
     raw_name = str(tool_name or "unknown").strip() or "unknown"
     return _TOOL_NAME_ALIASES.get(raw_name.lower(), raw_name)
+
+
+def _native_timestamp(value: object) -> str | None:
+    """Convert Pi AI's epoch timestamp (normally milliseconds) to RFC3339."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    try:
+        seconds = float(value)
+        if seconds > 100_000_000_000:
+            seconds /= 1000
+        return datetime.fromtimestamp(seconds, UTC).isoformat().replace("+00:00", "Z")
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _set_usage(record: dict, raw_line: int, *, emit_update: bool = False) -> None:
@@ -1096,16 +1110,41 @@ def _child_usage(result: dict) -> dict | None:
     return detail or None
 
 
-def _child_tool_rows(result: dict) -> list[str]:
-    """Bounded command texts the child actually ran, in native order."""
+def _child_tool_rows(result: dict) -> list[dict]:
+    """Return bounded native child-tool summaries in execution order.
+
+    The vendor patch keeps the plugin's own message transcript out of the
+    result, but carries the paired tool result through this bounded summary.
+    Older Kits only have ``text``; those entries intentionally keep the
+    command-only fallback below.
+    """
     rows = []
     tool_calls = result.get("toolCalls")
     if not isinstance(tool_calls, list):
         return rows
     for entry in tool_calls:
-        text = entry.get("text") if isinstance(entry, dict) else None
+        if not isinstance(entry, dict):
+            continue
+        text = entry.get("text")
         if isinstance(text, str) and text.strip():
-            rows.append(text.strip())
+            row = {"text": sanitize(text.strip())[:_TOOL_COMMAND_MAX_CHARS]}
+            expanded = entry.get("expandedText")
+            if isinstance(expanded, str) and expanded.strip():
+                row["expandedText"] = sanitize(expanded.strip())[:_TOOL_VALUE_MAX_CHARS]
+            for key in ("toolCallId", "toolName"):
+                value = entry.get(key)
+                if isinstance(value, str) and value.strip():
+                    row[key] = sanitize(value.strip())[:120]
+            output = entry.get("output")
+            if isinstance(output, str) and output:
+                row["output"] = output
+            if isinstance(entry.get("isError"), bool):
+                row["isError"] = entry["isError"]
+            for source_key, target_key in (("startedAt", "started_at"), ("endedAt", "ended_at")):
+                timestamp = _native_timestamp(entry.get(source_key))
+                if timestamp is not None:
+                    row[target_key] = timestamp
+            rows.append(row)
     return rows
 
 
@@ -1298,9 +1337,9 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
             delegation["rows"] = int(delegation.get("rows", 0)) + 1
         if status is None or child_state_flags["completed"]:
             continue
-        output = result.get("finalOutput")
+        child_output = result.get("finalOutput")
         complete = native_role is not None and (
-            isinstance(output, str) and output.strip()
+            isinstance(child_output, str) and child_output.strip()
         )
         if not complete and not is_final:
             # Usage, tool trace and final answer arrive with the terminal
@@ -1321,33 +1360,67 @@ def _handle_subagent_tool(record: dict, raw_line: int) -> None:
             "error": status == "failed",
             "subagent": subagent,
         }
-        if isinstance(output, str) and output:
-            completed_payload["output"] = output
-        _emit("tool.completed", completed_payload, raw_line)
+        if isinstance(child_output, str) and child_output:
+            completed_payload["output"] = child_output
         agent_ref = {"id": agent_id, "parent_id": "root", "role": role}
-        if isinstance(output, str) and output.strip():
-            # The child's final answer is its own row; it must never be folded
-            # into the root result (plan §5.4).
-            _emit(
-                "message.completed",
-                {"message_id": tool_id, "text": clean_message(sanitize(output))},
-                raw_line,
-                agent=agent_ref,
-            )
-        for position, command in enumerate(_child_tool_rows(result)):
-            command_id = f"{tool_id}:tool{position}"
+        for position, tool_row in enumerate(_child_tool_rows(result)):
+            native_id = tool_row.get("toolCallId")
+            if isinstance(native_id, str) and native_id.strip():
+                command_id = f"{tool_id}:tool:{native_id.strip()}"
+            else:
+                command_id = f"{tool_id}:tool{position}"
+            tool_name = _display_tool_name(tool_row.get("toolName") or "bash")
+            tool_name = sanitize(tool_name)[:120] or "Bash"
+            display_input = tool_row["text"]
+            if tool_name == "Bash":
+                input_payload = {"command": display_input}
+            else:
+                input_payload = {
+                    "summary": tool_row.get("expandedText") or display_input,
+                }
+            started_payload: dict = {
+                "tool_id": command_id,
+                "name": tool_name,
+                "input": input_payload,
+            }
+            if isinstance(tool_row.get("started_at"), str):
+                started_payload["started_at"] = tool_row["started_at"]
             _emit(
                 "tool.started",
-                {"tool_id": command_id, "name": "Bash", "input": {"command": command}},
+                started_payload,
                 raw_line,
                 agent=agent_ref,
             )
+            completed_tool_payload: dict = {
+                "tool_id": command_id,
+                "name": tool_name,
+                "error": bool(tool_row.get("isError", False)),
+            }
+            tool_output = tool_row.get("output")
+            if isinstance(tool_output, str) and tool_output:
+                completed_tool_payload["output"] = sanitize(tool_output)[:_TOOL_OUTPUT_MAX_CHARS]
+            if isinstance(tool_row.get("ended_at"), str):
+                completed_tool_payload["ended_at"] = tool_row["ended_at"]
             _emit(
                 "tool.completed",
-                {"tool_id": command_id, "name": "Bash", "error": False},
+                completed_tool_payload,
                 raw_line,
                 agent=agent_ref,
             )
+        if isinstance(child_output, str) and child_output.strip():
+            # The child's final answer is its own row; it must never be folded
+            # into the root result (plan §5.4). Emit it after the child's native
+            # tool rows so the canonical arrival order matches child execution.
+            _emit(
+                "message.completed",
+                {"message_id": tool_id, "text": clean_message(sanitize(child_output))},
+                raw_line,
+                agent=agent_ref,
+            )
+        # The delegation row is settled after the child facts it summarizes.
+        # Its TaskLog row is still updated in place by the projector, so this
+        # ordering fixes the visible sequence without creating a duplicate row.
+        _emit("tool.completed", completed_payload, raw_line)
     if is_final:
         # The call ended: any child it launched and never saw settle ends here,
         # at the call's own terminal, instead of waiting for the attempt to end.

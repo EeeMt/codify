@@ -53,6 +53,7 @@ _STATE: dict = {
     "delegation_tool_by_child": {},  # child thread id -> delegation tool id
     "closed_delegations": set(),     # child thread ids already settled
     "pending_spawn_prompt": {},      # spawn item id -> native prompt
+    "pending_spawn_start_line": {},  # spawn item id -> native started line
 }
 
 ROOT_AGENT_KEY = "root"
@@ -636,7 +637,9 @@ def _handle_collab_item(item: dict, raw_line: int) -> None:
         prompt = item.get("prompt")
         if isinstance(prompt, str) and prompt:
             _STATE["pending_spawn_prompt"][tool_id] = prompt
-        for child_id in item.get("receiver_thread_ids") or []:
+        receiver_thread_ids = item.get("receiver_thread_ids") or []
+        start_line = _STATE["pending_spawn_start_line"].get(tool_id, raw_line)
+        for child_id in receiver_thread_ids:
             agent = _register_child_thread(child_id)
             if agent is None:
                 continue
@@ -658,8 +661,10 @@ def _handle_collab_item(item: dict, raw_line: int) -> None:
                         "role": agent["role"],
                     },
                 },
-                raw_line,
+                start_line,
             )
+        if receiver_thread_ids:
+            _STATE["pending_spawn_start_line"].pop(tool_id, None)
     _apply_child_states(item.get("agents_states"), raw_line)
 
 
@@ -729,8 +734,16 @@ def translate(record: dict, raw_line: int) -> None:
             # Delegation structure is only complete on item.completed (the
             # child thread id arrives there); the started snapshot is kept as
             # raw evidence and reused for the display task text.
-            if item.get("prompt") and isinstance(item.get("id"), str):
-                _STATE["pending_spawn_prompt"][item["id"]] = item["prompt"]
+            item_id = item.get("id")
+            if isinstance(item_id, str) and item_id:
+                _STATE["pending_spawn_start_line"][item_id] = raw_line
+                if item.get("prompt"):
+                    _STATE["pending_spawn_prompt"][item_id] = item["prompt"]
+                # Some App Server versions include receiver ids in the start
+                # snapshot. Project it immediately; the completion snapshot is
+                # then an idempotent enrichment instead of a late start.
+                if item.get("receiver_thread_ids"):
+                    _handle_collab_item(item, raw_line)
     elif record_type == "item.completed":
         item = record.get("item") if isinstance(record.get("item"), dict) else {}
         item_type = item.get("type")

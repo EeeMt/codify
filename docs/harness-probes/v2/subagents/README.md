@@ -154,16 +154,17 @@ completed. The root called the native `task` tool twice and both children ran
 | child 2 tool | `Bash` | `{id: ses_f6b25ae9…, parent_id: root, role: general}` | – |
 
 Each child's id matches its own delegation row — the two concurrent children
-did not cross-pair. Served browser (`/tasks/621`) renders the same tree:
+did not cross-pair. Served browser (`/tasks/621`) renders one contiguous display
+block per direct child:
 
 ```text
 Subagent · general #1   [Completed]
-Subagent · general #2   [Completed]
-  └─ [Subagent · general #1] Thinking
-  └─ [Subagent · general #2] Thinking
-  └─ [Subagent · general #1] Bash
-  └─ [Subagent · general #2] Bash
+  ├─ [Subagent · general #1] Thinking
+  ├─ [Subagent · general #1] Bash
   └─ [Subagent · general #1] AI  marker-alpha
+Subagent · general #2   [Completed]
+  ├─ [Subagent · general #2] Thinking
+  ├─ [Subagent · general #2] Bash
   └─ [Subagent · general #2] AI  marker-beta
 ```
 
@@ -217,8 +218,8 @@ completed in 25 s. The root spawned two children in parallel; the projected
 | child 2 tool | `shell` | `{id: <UUID:f0d6b774>, parent_id: root, role: agent}` | – |
 
 Served browser (`/tasks/622`) renders `Subagent · agent #1/#2` with
-`Completed`, indented child `shell`/`AI` rows carrying the matching badge, the
-two children interleaved in real arrival order, and
+`Completed`, each delegation followed by its own indented child `shell`/`AI`
+rows carrying the matching badge, and
 `scrollWidth == clientWidth == 1512`.
 
 Codex reports no child role, so `role` stays the neutral `agent`; the child
@@ -241,7 +242,7 @@ the foreground path so the tool result carries the child inventory. Projected
 | child 2 message / tool | `AI` / `Bash` | `{id: <UUID:ee6104d0>, …}` | – |
 
 The served page shows `Subagent · delegate #1/#2` (Completed, `2.1k`/`2.0k`
-tokens) with indented child rows carrying the matching badge, and
+tokens), each followed by its own indented child rows carrying the matching badge, and
 `scrollWidth == clientWidth == 1512`.
 
 ### §10 criterion 5 — usage authority (verified, children included)
@@ -367,16 +368,16 @@ actually reports on its own stream. "Projected" means the adapter emits it with
 | child `context.compacted` | n/a | yes (attributed by `parent_tool_use_id`) | yes (by `threadId`) | yes (by session id) |
 | child `diagnostic` | yes (raw archive only, no timeline row) | yes | yes | yes |
 
-Two limits belong to the upstream streams, not to the projection:
+Pi-specific upstream limitation and Codify fix:
 
-1. **Pi child tool stdout is not in the payload.** A child result carries
-   `toolCalls[]` as `{"text": "<command>", "expandedText": "<command>"}` and
-   nothing else; the command's output appears only inside the same result's
-   `finalOutput`, which is projected as that child's message row and as its
-   delegation row's output (Task 650: `$ echo marker-alpha` on the tool row,
-   `marker-alpha` in the answer). The plugin's `transcriptPath` /
-   `artifactPaths.outputPath` would carry per-command output, but reading them is
-   the side channel §4 and §5.7 forbid.
+1. **Pi child tool output is now carried by the bounded result summary.** The
+   Codify vendor patch pairs the plugin's own child `assistant.toolCall` and
+   `toolResult` messages by native `toolCallId` while compacting the result.
+   `toolCalls[]` therefore carries bounded `toolCallId`/`toolName`, output,
+   error and optional native timestamps; the adapter projects those fields
+   directly and never reads `transcriptPath` or `artifactPaths.outputPath`.
+   A result without a matching native `toolResult` keeps the command row but
+   omits output, rather than copying the child's final answer into a tool row.
 2. **Pi child thinking is redacted upstream** (`<HIDDEN_REASONING_OMITTED>`), so
    no child reasoning row can exist without violating §5.7.
 

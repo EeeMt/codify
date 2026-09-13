@@ -52,41 +52,82 @@
             @scroll="onEventStreamScroll"
           >
             <div class="event-stream">
-              <template v-for="(row, index) in processRows" :key="row.event.id">
+              <template v-for="block in processBlocks" :key="blockKey(block)">
                 <div
-                  :ref="(el) => { collapseRefs[index] = el as HTMLElement }"
-                  :class="{ 'event-row--child': isChildRow(row) }"
+                  v-if="block.kind === 'subagent_group'"
+                  :class="['event-agent-group', `event-agent-group--tone-${block.tone}`]"
+                  :aria-label="t('taskView.subagentBadge', { name: agentDisplayName(block.agent) })"
                 >
-                  <TaskProcessTextRow
-                    v-if="isTextRow(row)"
-                    :row="asTextRow(row)"
-                    :expanded-text="getExpandedText(asTextRow(row).textEntry)"
-                    :loading="hasTextPayloadLoading(asTextRow(row).textEntry)"
-                    :show-content="shouldShowTextContent(asTextRow(row).textEntry)"
-                    :now-ms="nowMs"
-                    :task-active="props.isActive"
-                    @collapse-change="(names) => onCollapseChange(names, index)"
-                  />
-                  <TaskProcessToolRow
-                    v-else-if="isToolRow(row)"
-                    :row="asToolRow(row)"
-                    :input-loaded="isPayloadLoaded(asToolRow(row).toolCall.input_payload_id ?? null)"
-                    :output-loaded="isPayloadLoaded(asToolRow(row).toolCall.output_payload_id ?? null)"
-                    :input-loading="isPayloadLoading(asToolRow(row).toolCall.input_payload_id ?? null)"
-                    :output-loading="isPayloadLoading(asToolRow(row).toolCall.output_payload_id ?? null)"
-                    :input-failed="hasPayloadLoadError(asToolRow(row).toolCall.input_payload_id ?? null)"
-                    :output-failed="hasPayloadLoadError(asToolRow(row).toolCall.output_payload_id ?? null)"
-                    :input-expanded-text="getExpandedPayloadText(asToolRow(row).toolCall.input_payload_id ?? null)"
-                    :output-expanded-text="getExpandedPayloadText(asToolRow(row).toolCall.output_payload_id ?? null)"
-                    :task-active="props.isActive"
-                    @collapse-change="(names) => onCollapseChange(names, index)"
-                  />
-                  <div v-else-if="isCompactRow(row)" class="context-compact-divider">
-                    <span class="context-compact-label">{{ t('taskView.contextCompacted') }}</span>
+                  <div
+                    v-if="block.delegation"
+                    class="event-agent-group__header"
+                    :ref="(el) => setCollapseRef(block.delegation!, el)"
+                  >
+                    <TaskProcessEventRow
+                      :row="block.delegation"
+                      :input-loaded="isPayloadLoaded(block.delegation.toolCall.input_payload_id ?? null)"
+                      :output-loaded="isPayloadLoaded(block.delegation.toolCall.output_payload_id ?? null)"
+                      :input-loading="isPayloadLoading(block.delegation.toolCall.input_payload_id ?? null)"
+                      :output-loading="isPayloadLoading(block.delegation.toolCall.output_payload_id ?? null)"
+                      :input-failed="hasPayloadLoadError(block.delegation.toolCall.input_payload_id ?? null)"
+                      :output-failed="hasPayloadLoadError(block.delegation.toolCall.output_payload_id ?? null)"
+                      :input-expanded-text="getExpandedPayloadText(block.delegation.toolCall.input_payload_id ?? null)"
+                      :output-expanded-text="getExpandedPayloadText(block.delegation.toolCall.output_payload_id ?? null)"
+                      :task-active="props.isActive"
+                      :compact-label="t('taskView.contextCompacted')"
+                      @collapse-change="(names) => onCollapseChange(names, block.delegation!)"
+                    />
                   </div>
-                  <TaskProcessControlEventRow
-                    v-else-if="isControlEventRow(row)"
-                    :row="asControlEventRow(row)"
+                  <div v-if="block.rows.length" class="event-agent-group__body">
+                    <div
+                      v-for="row in block.rows"
+                      :key="row.event.id"
+                      class="event-row--child"
+                      :ref="(el) => setCollapseRef(row, el)"
+                    >
+                      <TaskProcessEventRow
+                        :row="row"
+                        :expanded-text="isTextRow(row) ? getExpandedText(row.textEntry) : undefined"
+                        :text-loading="isTextRow(row) ? hasTextPayloadLoading(row.textEntry) : false"
+                        :text-show-content="isTextRow(row) ? shouldShowTextContent(row.textEntry) : true"
+                        :now-ms="nowMs"
+                        :input-loaded="isToolRow(row) ? isPayloadLoaded(row.toolCall.input_payload_id ?? null) : false"
+                        :output-loaded="isToolRow(row) ? isPayloadLoaded(row.toolCall.output_payload_id ?? null) : false"
+                        :input-loading="isToolRow(row) ? isPayloadLoading(row.toolCall.input_payload_id ?? null) : false"
+                        :output-loading="isToolRow(row) ? isPayloadLoading(row.toolCall.output_payload_id ?? null) : false"
+                        :input-failed="isToolRow(row) ? hasPayloadLoadError(row.toolCall.input_payload_id ?? null) : false"
+                        :output-failed="isToolRow(row) ? hasPayloadLoadError(row.toolCall.output_payload_id ?? null) : false"
+                        :input-expanded-text="isToolRow(row) ? getExpandedPayloadText(row.toolCall.input_payload_id ?? null) : undefined"
+                        :output-expanded-text="isToolRow(row) ? getExpandedPayloadText(row.toolCall.output_payload_id ?? null) : undefined"
+                        :task-active="props.isActive"
+                        :compact-label="t('taskView.contextCompacted')"
+                        @collapse-change="(names) => onCollapseChange(names, row)"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div
+                  v-else
+                  :ref="(el) => setCollapseRef(block.row, el)"
+                  :class="{ 'event-row--child': isChildRow(block.row) }"
+                >
+                  <TaskProcessEventRow
+                    :row="block.row"
+                    :expanded-text="isTextRow(block.row) ? getExpandedText(block.row.textEntry) : undefined"
+                    :text-loading="isTextRow(block.row) ? hasTextPayloadLoading(block.row.textEntry) : false"
+                    :text-show-content="isTextRow(block.row) ? shouldShowTextContent(block.row.textEntry) : true"
+                    :now-ms="nowMs"
+                    :input-loaded="isToolRow(block.row) ? isPayloadLoaded(block.row.toolCall.input_payload_id ?? null) : false"
+                    :output-loaded="isToolRow(block.row) ? isPayloadLoaded(block.row.toolCall.output_payload_id ?? null) : false"
+                    :input-loading="isToolRow(block.row) ? isPayloadLoading(block.row.toolCall.input_payload_id ?? null) : false"
+                    :output-loading="isToolRow(block.row) ? isPayloadLoading(block.row.toolCall.output_payload_id ?? null) : false"
+                    :input-failed="isToolRow(block.row) ? hasPayloadLoadError(block.row.toolCall.input_payload_id ?? null) : false"
+                    :output-failed="isToolRow(block.row) ? hasPayloadLoadError(block.row.toolCall.output_payload_id ?? null) : false"
+                    :input-expanded-text="isToolRow(block.row) ? getExpandedPayloadText(block.row.toolCall.input_payload_id ?? null) : undefined"
+                    :output-expanded-text="isToolRow(block.row) ? getExpandedPayloadText(block.row.toolCall.output_payload_id ?? null) : undefined"
+                    :task-active="props.isActive"
+                    :compact-label="t('taskView.contextCompacted')"
+                    @collapse-change="(names) => onCollapseChange(names, block.row)"
                   />
                 </div>
               </template>
@@ -155,10 +196,8 @@ import { ChevronDownOutline, ChevronUpOutline } from '@vicons/ionicons5'
 import type { TaskLog, Task } from '../api'
 import TaskProcessSystemInitBanner from './task-process/TaskProcessSystemInitBanner.vue'
 import TaskProcessRawPane from './task-process/TaskProcessRawPane.vue'
-import TaskProcessTextRow from './task-process/TaskProcessTextRow.vue'
-import TaskProcessToolRow from './task-process/TaskProcessToolRow.vue'
-import TaskProcessControlEventRow from './task-process/TaskProcessControlEventRow.vue'
-import { normalizeTaskProcessRows, parseSystemInitEntry, isTextRow, isToolRow, isCompactRow, isControlEventRow, type NormalizedTextEventRow, type NormalizedToolEventRow, type NormalizedControlEventRow, type NormalizedTaskProcessRow, type ParsedTextEntry } from './task-process/taskProcessUtils'
+import TaskProcessEventRow from './task-process/TaskProcessEventRow.vue'
+import { agentDisplayName, groupTaskProcessRows, normalizeTaskProcessRows, parseSystemInitEntry, isTextRow, isToolRow, isCompactRow, type NormalizedTaskProcessBlock, type NormalizedTaskProcessRow, type ParsedTextEntry } from './task-process/taskProcessUtils'
 import { useTaskPayloadExpansion } from './task-process/useTaskPayloadExpansion'
 import { parseUtcDate } from '../utils/datetime'
 
@@ -194,14 +233,14 @@ const NAVIGATION_IDLE_HIDE_MS = 1800
 const rawPaneRef = ref<{ logContentRef: HTMLElement | null } | null>(null)
 const logContentRef = computed(() => rawPaneRef.value?.logContentRef ?? null)
 const activeTab = ref<ProcessTab>('events')
-const collapseRefs = ref<(HTMLElement | null)[]>([])
+const collapseRefs = reactive<Record<number, HTMLElement | null>>({})
 const scrollPositions = reactive<Record<ProcessTab, ScrollPosition>>({
   events: { atTop: true, atBottom: true },
   raw: { atTop: true, atBottom: true },
 })
 const elapsedMs = ref(0)
 const nowMs = ref(Date.now())
-const expandedRowIndex = ref<number | null>(null)
+const expandedRowId = ref<number | null>(null)
 const navigationRevealed = ref(false)
 
 const {
@@ -222,16 +261,18 @@ let isProgrammaticScroll = false
 let pointerOverScrollArea = false
 
 const processRows = computed(() => normalizeTaskProcessRows(props.taskLogs))
+const processBlocks = computed(() => groupTaskProcessRows(processRows.value))
 
-// vue-tsc does not narrow the type inside v-if/v-else-if chains when there are 3+ branches,
-// so we use explicit cast helpers that are safe because rendering is guarded by the matching v-if.
-function asTextRow(row: NormalizedTaskProcessRow): NormalizedTextEventRow { return row as NormalizedTextEventRow }
-function asToolRow(row: NormalizedTaskProcessRow): NormalizedToolEventRow { return row as NormalizedToolEventRow }
-function asControlEventRow(row: NormalizedTaskProcessRow): NormalizedControlEventRow { return row as NormalizedControlEventRow }
-// Child (subagent-attributed) rows get one indent level and a guide line. Root
-// rows and the delegation row itself stay flat.
+function blockKey(block: NormalizedTaskProcessBlock): string {
+  return block.kind === 'row' ? `row-${block.row.event.id}` : `subagent-${block.agent.id}`
+}
+
 function isChildRow(row: NormalizedTaskProcessRow): boolean {
   return row.kind !== 'control_event' && row.agent !== null
+}
+
+function setCollapseRef(row: NormalizedTaskProcessRow, element: unknown) {
+  collapseRefs[row.event.id] = element instanceof HTMLElement ? element : null
 }
 const systemInitEntry = computed(() => parseSystemInitEntry(props.taskLogs))
 const runtimeInfoEntry = computed(() => {
@@ -315,13 +356,14 @@ function hasPayloadLoadError(payloadId: number | null): boolean {
   return payloadId !== null && !!payloadLoadErrors[payloadId]
 }
 
-function onCollapseChange(expandedNames: (string | number)[], index: number) {
+function onCollapseChange(expandedNames: (string | number)[], eventRow: NormalizedTaskProcessRow) {
   const isExpanding = expandedNames.length > 0
-  expandedRowIndex.value = isExpanding ? index : null
+  expandedRowId.value = isExpanding ? eventRow.event.id : null
 
   if (!isExpanding) return
 
-  const isLastRow = index === processRows.value.length - 1
+  const lastRow = processRows.value[processRows.value.length - 1]
+  const isLastRow = lastRow?.event.id === eventRow.event.id
 
   nextTick(() => {
     if (isLastRow) {
@@ -334,27 +376,24 @@ function onCollapseChange(expandedNames: (string | number)[], index: number) {
         }
       }, 260)
     } else {
-      const collapseEl = collapseRefs.value[index]
+      const collapseEl = collapseRefs[eventRow.event.id]
       if (collapseEl && typeof collapseEl.scrollIntoView === 'function') {
         collapseEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
       }
     }
   })
 
-  const row = processRows.value[index]
-  if (!row) return
-
   const taskId = props.task?.id ?? 0
-  if (row.kind === 'tool_call') {
-    const inputPayloadId = row.toolCall.input_payload_id ?? null
-    const outputPayloadId = row.toolCall.output_payload_id ?? null
+  if (eventRow.kind === 'tool_call') {
+    const inputPayloadId = eventRow.toolCall.input_payload_id ?? null
+    const outputPayloadId = eventRow.toolCall.output_payload_id ?? null
     if (expandedNames.includes('input') && inputPayloadId) loadPayload(taskId, inputPayloadId)
     if (expandedNames.includes('output') && outputPayloadId) loadPayload(taskId, outputPayloadId)
     return
   }
 
-  if (expandedNames.includes('detail') && isTextRow(row) && row.textEntry.payloadId) {
-    loadPayload(taskId, row.textEntry.payloadId)
+  if (expandedNames.includes('detail') && isTextRow(eventRow) && eventRow.textEntry.payloadId) {
+    loadPayload(taskId, eventRow.textEntry.payloadId)
   }
 }
 
@@ -486,7 +525,8 @@ watch(processRows, async () => {
 
 // When payload content loads into an already-expanded last row, scroll to reveal it
 watch(expandedPayloads, async () => {
-  if (expandedRowIndex.value !== processRows.value.length - 1) return
+  const lastRow = processRows.value[processRows.value.length - 1]
+  if (expandedRowId.value !== lastRow?.event.id) return
   await nextTick()
   if (eventStreamRef.value) {
     setProgrammaticScroll()
@@ -575,7 +615,7 @@ defineExpose({
   border-radius: 10px;
 }
 .process-content {
-  height: clamp(320px, 52vh, 520px);
+  height: clamp(440px, 68vh, 720px);
   min-width: 0;
 }
 .process-content__pane {
@@ -595,15 +635,63 @@ defineExpose({
   flex-direction: column;
   min-width: 0;
 }
-/* One indent level plus a light guide line for subagent-attributed rows; the
-   DOM stays identical on desktop and mobile, only the indent tightens. */
+/* Keep each direct child stream contiguous while preserving root rows in the
+   same overall timeline. The group is a display projection, not a second
+   event model or a separate live state store. */
+.event-agent-group {
+  --agent-group-accent: #7c3aed;
+  --agent-group-surface: rgba(124, 58, 237, 0.045);
+  --agent-group-guide: rgba(124, 58, 237, 0.2);
+  min-width: 0;
+  margin: 4px 0 8px;
+  border-left: 2px solid color-mix(in srgb, var(--agent-group-accent) 58%, transparent);
+  border-radius: 0 6px 6px 0;
+  background: var(--agent-group-surface);
+  overflow: hidden;
+}
+.event-agent-group--tone-1 {
+  --agent-group-accent: #0f766e;
+  --agent-group-surface: rgba(13, 148, 136, 0.055);
+  --agent-group-guide: rgba(13, 148, 136, 0.2);
+}
+.event-agent-group--tone-2 {
+  --agent-group-accent: #b45309;
+  --agent-group-surface: rgba(245, 158, 11, 0.07);
+  --agent-group-guide: rgba(245, 158, 11, 0.22);
+}
+.event-agent-group--tone-3 {
+  --agent-group-accent: #2563eb;
+  --agent-group-surface: rgba(37, 99, 235, 0.05);
+  --agent-group-guide: rgba(37, 99, 235, 0.2);
+}
+.event-agent-group__header {
+  min-width: 0;
+  padding-left: 8px;
+}
+.event-agent-group__body {
+  min-width: 0;
+  margin-left: 20px;
+  padding-left: 8px;
+  border-left: 2px solid var(--agent-group-guide);
+}
+/* One indent level plus a light guide line for child rows that are not inside
+   a grouped stream (for example an incomplete live snapshot). */
 .event-row--child {
   margin-left: 20px;
   padding-left: 8px;
   border-left: 2px solid var(--n-border-color, rgba(128, 128, 128, 0.2));
   min-width: 0;
 }
+.event-agent-group__body > .event-row--child {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
 @media (max-width: 640px) {
+  .event-agent-group__body {
+    margin-left: 12px;
+    padding-left: 6px;
+  }
   .event-row--child {
     margin-left: 12px;
     padding-left: 6px;

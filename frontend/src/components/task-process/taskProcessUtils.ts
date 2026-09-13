@@ -130,6 +130,23 @@ export interface NormalizedControlEventRow {
 
 export type NormalizedTaskProcessRow = NormalizedTextEventRow | NormalizedToolEventRow | NormalizedCompactRow | NormalizedControlEventRow
 
+export interface NormalizedSubagentGroup {
+  kind: 'subagent_group'
+  agent: ProcessAgentRef
+  delegation: NormalizedToolEventRow | null
+  rows: NormalizedTaskProcessRow[]
+  firstSeenIndex: number
+  tone: number
+}
+
+export interface NormalizedTaskProcessRowBlock {
+  kind: 'row'
+  row: NormalizedTaskProcessRow
+  firstSeenIndex: number
+}
+
+export type NormalizedTaskProcessBlock = NormalizedTaskProcessRowBlock | NormalizedSubagentGroup
+
 export interface SkillUsageStat {
   name: string
   count: number
@@ -626,6 +643,57 @@ export function normalizeTaskProcessRows(taskLogs: TaskLog[]): NormalizedTaskPro
     }
   }
   return rows
+}
+
+/**
+ * Keep the event model flat for counting and raw persistence, but render each
+ * direct child stream as one contiguous block. This is a display projection
+ * only: root events keep their position relative to the first event of each
+ * child, while events belonging to the same agent cannot appear under another
+ * agent's header.
+ */
+export function groupTaskProcessRows(rows: NormalizedTaskProcessRow[]): NormalizedTaskProcessBlock[] {
+  const groups = new Map<string, NormalizedSubagentGroup>()
+  const rootBlocks: NormalizedTaskProcessRowBlock[] = []
+  const subagentToneCount = 4
+
+  const getGroup = (agent: ProcessAgentRef, index: number): NormalizedSubagentGroup => {
+    const existing = groups.get(agent.id)
+    if (existing) {
+      if (!existing.agent.role && agent.role) existing.agent.role = agent.role
+      return existing
+    }
+    const group: NormalizedSubagentGroup = {
+      kind: 'subagent_group',
+      agent,
+      delegation: null,
+      rows: [],
+      firstSeenIndex: index,
+      tone: groups.size % subagentToneCount,
+    }
+    groups.set(agent.id, group)
+    return group
+  }
+
+  rows.forEach((row, index) => {
+    if (row.kind === 'tool_call' && row.subagent && row.agent === null && row.subagent.parentId === 'root') {
+      getGroup(row.subagent, index).delegation = row
+      return
+    }
+
+    const agent = row.kind === 'control_event' ? null : row.agent
+    if (agent && agent.parentId === 'root') {
+      getGroup(agent, index).rows.push(row)
+      return
+    }
+
+    rootBlocks.push({ kind: 'row', row, firstSeenIndex: index })
+  })
+
+  return [
+    ...rootBlocks,
+    ...groups.values(),
+  ].sort((a, b) => a.firstSeenIndex - b.firstSeenIndex)
 }
 
 export function renderMarkdown(text: string): string {

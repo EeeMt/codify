@@ -1,6 +1,6 @@
 # Open-Harness V2 四 Harness Subagent 适配方案
 
-> 状态：Proposed
+> 状态：Implemented（Backend、Worker Kit 与 Task Process 分组展示已落地；真实 dev Host 已验收）
 >
 > 日期：2026-09-12
 >
@@ -306,7 +306,8 @@ Runtime Bundle 同时保存上游源码、lockfile、MIT license、审计记录�
 - 插件原生 child/run identity 映射为稳定 `agent.id`；不存在稳定 ID 时才用
   `delegation_tool_id:index` 派生。
 - 插件的前台 lifecycle、message、tool、usage 和最终摘要经父 Pi RPC 流进入 `pi_events.py`，
-  不扫描插件工作目录补事件。
+  不扫描插件工作目录补事件；结果压缩保留有界的 child `toolCalls[]`（原生 tool id/name、
+  output、error 和可选开始/结束时间），未匹配到原生 `toolResult` 时不伪造 output。
 - Task cancel 必须调用插件公开取消路径并等待 child 收敛；若上游前台路径不能证明进程树收敛，
   只补一个局部 vendor patch，不复制其调度器。
 
@@ -331,16 +332,28 @@ Parent Pi 仍由现有 `pi_owner.py` 独占 stdin/stdout；Extension 不直接�
 2. 按 agent identity 隔离 message delta、reasoning 和 tool 配对状态。
 3. Delegation tool row 保留 `payload.subagent` 的 role/status/usage。
 4. 回放、重连和重复 event 仍保持幂等。
+5. Adapter 只有在原生流提供可信时间时才携带 `payload.started_at` / `payload.ended_at`；
+   Projector 校验 RFC3339 后用其计算 tool duration，否则回退到 Canonical Event 的接收时间。
+   `TaskLog.id` 仍是唯一稳定到达顺序，不按时间戳重排并发 child。
 
 ### 7.2 Frontend
 
-首版不新增页面或第二套事件状态，只增强现有 `TaskProcessPanel` 单一时间线：
+首版不新增页面或第二套事件状态，只增强现有 `TaskProcessPanel` 单一事件流的展示投影：
+直接子代理按 `agent.id` 形成连续分组；root 事件仍留在同一条时间线，组内事件继续按
+`TaskLog.id` 展示顺序排列。
 
 ```text
-Subagent · reviewer #1   Review authentication      已完成 · 5.0s · 1.5k tokens   10:12:01
-  ├─ [Subagent · reviewer #1] Thinking              1.2s     10:12:02
-  ├─ [Subagent · reviewer #1] Read  backend/app/auth.py       10:12:03
-  └─ [Subagent · reviewer #1] Assistant  认证入口位于……        10:12:05
+Root event before delegation                                      10:12:00
+┌─ Subagent · reviewer #1       已完成 · 5.0s · 1.5k tokens      10:12:01
+│  ├─ Thinking                    1.2s                         10:12:02
+│  ├─ Read backend/app/auth.py                                  10:12:03
+│  └─ Assistant 认证入口位于……                                 10:12:05
+└─
+┌─ Subagent · reviewer #2       已完成 · 4.1s · 1.4k tokens      10:12:01
+│  ├─ Thinking                    0.9s                         10:12:02
+│  └─ Assistant 另一处入口位于……                               10:12:05
+└─
+Root continuation                                               10:12:06
 ```
 
 #### 7.2.1 前端归一化模型
@@ -369,15 +382,17 @@ interface ProcessSubagentState extends ProcessAgentRef {
   不新增第五种 row kind。
 - 同一 attempt 中只有一个相同 role 时显示 `Subagent · reviewer`；出现多个相同 role 时，按该
   agent/subagent ID 首次出现的 `TaskLog.id` 稳定编号为 `reviewer #1`、`reviewer #2`。默认页不暴露原生长 ID。
-- 时间线以 `TaskLog.id` 为稳定顺序；`created_at` 只用于显示时间。当前仅按 `created_at` 排序的实现
-  必须调整，避免并发 child 在同一时间戳下重排。已存在的 thinking/delegation row 更新仍保留原位置。
-- 不把 child 事件重新聚合成连续块；并发 child 和 root 事件按真实到达顺序交错展示。
+- 归一化输入以 `TaskLog.id` 为稳定顺序；`created_at` 只用于显示时间。并发 child 在同一时间戳下
+  不能重排。
+- 展示层把同一直接 child 的 delegation、message、reasoning 和 tool 行放入一个连续块；块按其中
+  事件首次出现的位置插入 root 时间线，组内仍按 `TaskLog.id` 排列。该操作不改写 TaskLog、
+  Canonical Event 或 Raw archive 的到达顺序。
 
 #### 7.2.2 行为与状态
 
 | Canonical Event | 事件页表现 |
 |---|---|
-| root `tool.started` + `subagent` | root 层 delegation row；显示角色、任务摘要、spinner 和“运行中” |
+| root `tool.started` + `subagent` | 对应 child 分组的 header；显示角色、任务摘要、spinner 和“运行中” |
 | child reasoning | 一级缩进的 Thinking row；保留现有进行中、完成、耗时行为 |
 | child tool | 一级缩进的 Tool row；保留现有输入/输出按需展开 |
 | child message | 一级缩进的 Assistant row；保留现有 preview 和全文展开 |
@@ -386,8 +401,8 @@ interface ProcessSubagentState extends ProcessAgentRef {
 
 - Delegation row 复用 `TaskProcessToolRow`：`Subagent` 使用现有 icon 集中的 branch/people 图标，
   输入摘要显示委派任务，完整输入和最终摘要继续使用现有展开区域。
-- Child row 在左侧增加一条轻量引导线并缩进一级，header 增加统一的
-  `Subagent · <display role>` badge；不为不同 child 生成颜色，身份始终靠文字区分。
+- Child row 在对应分组内增加一条轻量引导线并缩进一级，delegation header 使用统一的
+  `Subagent · <display role>` 标识；不为不同 child 生成颜色，身份始终靠文字区分。
 - Child 最终 Assistant row 正常展示；delegation output 默认折叠，避免同一摘要在页面上展开显示两次。
 - `failed` 使用现有 error tag；`cancelled` 使用中性 tag；`completed` 不增加高饱和绿色块。
   状态必须有文字，不能只靠颜色或图标。
@@ -398,8 +413,8 @@ interface ProcessSubagentState extends ProcessAgentRef {
 #### 7.2.3 组件落点
 
 - `taskProcessUtils.ts`：解析 agent/subagent、生成同 role 稳定编号、按 `TaskLog.id` 排序。
-- `TaskProcessPanel.vue`：继续负责单一时间线、payload expansion、自动滚动和事件计数；child row 只增加
-  wrapper class，不建立 agent store。
+- `TaskProcessPanel.vue`：继续负责单一事件流、payload expansion、自动滚动和事件计数；调用
+  `groupTaskProcessRows` 生成只读展示分组，不建立 agent store。
 - `TaskProcessTextRow.vue` / `TaskProcessToolRow.vue`：消费归一化后的 badge、缩进和 delegation 状态。
 - 新增一个无状态的 `TaskProcessAgentBadge.vue`，复用两种 row 的 badge 与无障碍标签；不承担数据归并。
 - `TaskLog` API shape 和 SSE endpoint 不变；`metadata` 中已有的 `agent` / `subagent` 是唯一新增输入。
@@ -411,8 +426,8 @@ interface ProcessSubagentState extends ProcessAgentRef {
 状态、时间和展开按钮不可被挤出容器。`390px` 和 `1512px` 下都必须满足页面级
 `scrollWidth == clientWidth`。
 
-不增加整棵 child 折叠、树形导航、agent tabs、拓扑图、agent 过滤器或独立统计面板；真实并发事件并不连续，
-为这些能力另建分组状态只会制造第二套事件模型。
+不增加整棵 child 折叠、树形导航、agent tabs、拓扑图、agent 过滤器或独立统计面板；分组只解决同一
+直接 child 的可读性，不引入第二套事件模型或持久化排序。
 
 ## 8. 取消、超时与失败
 

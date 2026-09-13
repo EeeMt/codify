@@ -895,6 +895,20 @@ def test_codex_app_server_collaboration_items_project_delegations(tmp_path):
             {"method": "turn/started", "params": {"threadId": root, "turn": {"id": "turn-root"}}},
             item("item/completed", root, {"type": "agentMessage", "id": "m-root-1", "text": "spawning"}),
             item(
+                "item/started",
+                root,
+                {
+                    "type": "collabAgentToolCall",
+                    "id": "call_spawn_a",
+                    "tool": "spawnAgent",
+                    "status": "inProgress",
+                    "senderThreadId": root,
+                    "receiverThreadIds": [],
+                    "prompt": "run echo marker-alpha",
+                    "agentsStates": {},
+                },
+            ),
+            item(
                 "item/completed",
                 root,
                 {
@@ -908,6 +922,20 @@ def test_codex_app_server_collaboration_items_project_delegations(tmp_path):
                     "model": "deepseek-flash",
                     "reasoningEffort": "medium",
                     "agentsStates": {child_a: {"status": "pendingInit", "message": None}},
+                },
+            ),
+            item(
+                "item/started",
+                root,
+                {
+                    "type": "collabAgentToolCall",
+                    "id": "call_spawn_b",
+                    "tool": "spawnAgent",
+                    "status": "inProgress",
+                    "senderThreadId": root,
+                    "receiverThreadIds": [],
+                    "prompt": "run echo marker-beta",
+                    "agentsStates": {},
                 },
             ),
             item(
@@ -998,6 +1026,11 @@ def test_codex_app_server_collaboration_items_project_delegations(tmp_path):
         "run echo marker-alpha",
         "run echo marker-beta",
     }
+    assert {
+        event["payload"]["tool_id"]: event["raw_ref"]["line"]
+        for event in events
+        if event["type"] == "tool.started" and "subagent" in event["payload"]
+    } == {"call_spawn_a": 4, "call_spawn_b": 6}
 
     completed = {
         event["payload"]["subagent"]["id"]: event["payload"]

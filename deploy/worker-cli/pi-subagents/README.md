@@ -24,11 +24,14 @@ Kit ships it, the adapter applies the ceiling into the Pi CLI home, and
 `pi_events.py` projects the `subagent` tool as per-child delegation rows.
 
 `vendor/force-foreground.patch` is the only deviation from upstream, and it has
-two parts:
+three parts:
 
 1. a depth-0 override that rewrites a launch to the foreground path, and
 2. a hard guard at the tool entry that **rejects** `async: true` at depth 0 with
    a message telling the model to retry without it.
+3. a bounded child-message compactor that pairs native tool calls with their
+   tool results, preserving output/error/timestamps without exposing the full
+   child transcript.
 
 The guard exists because a Model-chosen async launch was still observed after
 (1) alone — the workflow dispatch has its own detached route. Verified on the

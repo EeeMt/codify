@@ -1930,7 +1930,18 @@ def _subagent_details() -> dict:
                 "outputState": "present",
                 "usage": {"input": 421, "output": 248, "cacheRead": 3712, "turns": 2},
                 "finalOutput": "The command ran successfully. Exact stdout: `marker-alpha`",
-                "toolCalls": [{"text": "$ echo marker-alpha"}],
+                "toolCalls": [
+                    {
+                        "text": "$ echo marker-alpha",
+                        "expandedText": "$ echo marker-alpha",
+                        "toolCallId": "alpha-tool-1",
+                        "toolName": "bash",
+                        "output": "marker-alpha\n",
+                        "isError": False,
+                        "startedAt": 1700000000000,
+                        "endedAt": 1700000001250,
+                    },
+                ],
             },
             {
                 # The plugin repeats index 0 for a two-child fan-out, so the
@@ -1941,7 +1952,18 @@ def _subagent_details() -> dict:
                 "outputState": "present",
                 "usage": {"input": 400, "output": 200, "cacheRead": 0, "turns": 1},
                 "finalOutput": "could not run the command",
-                "toolCalls": [{"text": "$ echo marker-beta"}],
+                "toolCalls": [
+                    {
+                        "text": "$ echo marker-beta",
+                        "expandedText": "$ echo marker-beta",
+                        "toolCallId": "beta-tool-1",
+                        "toolName": "bash",
+                        "output": "marker-beta\n",
+                        "isError": True,
+                        "startedAt": 1700000010000,
+                        "endedAt": 1700000010500,
+                    },
+                ],
             },
         ],
         "totalChildUsage": {"input": 821, "output": 448, "cacheRead": 3712, "turns": 3},
@@ -2041,18 +2063,64 @@ def test_pi_subagent_tool_fans_out_to_one_delegation_row_per_child(tmp_path):
         "could not run the command",
     ]
     child_tools = [
-        (event["payload"]["agent"]["id"], event["payload"]["input"]["command"])
+        (
+            event["payload"]["agent"]["id"],
+            event["payload"]["input"]["command"],
+            event["payload"]["tool_id"],
+        )
         for event in events
         if event["type"] == "tool.started" and "agent" in event["payload"]
     ]
-    assert [command for _child, command in child_tools] == [
+    assert [command for _child, command, _tool_id in child_tools] == [
         "$ echo marker-alpha",
         "$ echo marker-beta",
+    ]
+    assert [tool_id for _child, _command, tool_id in child_tools] == [
+        "call_00_wf:alpha:tool:alpha-tool-1",
+        "call_00_wf:beta:tool:beta-tool-1",
+    ]
+    child_tool_starts = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.started" and "agent" in event["payload"]
+    ]
+    assert [payload["started_at"] for payload in child_tool_starts] == [
+        "2023-11-14T22:13:20Z",
+        "2023-11-14T22:13:30Z",
+    ]
+    child_tool_completions = [
+        event["payload"]
+        for event in events
+        if event["type"] == "tool.completed" and "agent" in event["payload"]
+    ]
+    assert [payload["output"] for payload in child_tool_completions] == [
+        "marker-alpha\n",
+        "marker-beta\n",
+    ]
+    assert [payload["error"] for payload in child_tool_completions] == [False, True]
+    assert [payload["ended_at"] for payload in child_tool_completions] == [
+        "2023-11-14T22:13:21.250000Z",
+        "2023-11-14T22:13:30.500000Z",
+    ]
+    # Native child tool facts precede the final message and the delegation
+    # completion that summarizes them; no output-less synthetic row is added.
+    alpha_events = [
+        event["type"]
+        for event in events
+        if event["payload"].get("agent", {}).get("id") == child_ids[0]
+        or event["payload"].get("subagent", {}).get("id") == child_ids[0]
+    ]
+    assert alpha_events == [
+        "tool.started",
+        "tool.started",
+        "tool.completed",
+        "message.completed",
+        "tool.completed",
     ]
     # The delegation row and its own child rows carry the identical id, which is
     # what the served timeline groups by.
     assert {payload["subagent"]["id"] for payload in completed} == set(child_ids)
-    assert {child for child, _command in child_tools} == set(child_ids)
+    assert {child for child, _command, _tool_id in child_tools} == set(child_ids)
 
     # Every surface of one child shares that child's identity: the delegation
     # row, its final message and its tool rows never cross-pair.
@@ -2063,7 +2131,7 @@ def test_pi_subagent_tool_fans_out_to_one_delegation_row_per_child(tmp_path):
             if "alpha" in delegation["output"]
             else "could not run the command"
         ] == child_id
-        assert any(candidate == child_id for candidate, _command in child_tools)
+        assert any(candidate == child_id for candidate, _command, _tool_id in child_tools)
     # Updates and the terminal repeat the same inventory: exactly one pair each.
     assert len(
         [e for e in events if e["type"] == "tool.completed" and "agent" in e["payload"]]
@@ -2264,7 +2332,6 @@ def test_pi_subagent_tool_without_child_inventory_emits_one_bare_row(tmp_path):
     assert [payload["error"] for payload in completed] == [False, True]
     assert completed[0]["output"] == "Spawn budget: 0/4 used"
     assert completed[1]["output"] == "Background delegation is disabled for this workspace."
-    import sys; print("STARTED1:", started[1], file=sys.stderr)
 
 
 def test_pi_cancelled_attempt_settles_open_delegations(tmp_path):

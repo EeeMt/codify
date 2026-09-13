@@ -1458,7 +1458,7 @@ def test_claude_two_children_keep_message_thinking_and_tool_state_separate(tmp_p
             "message": {"id": message_id, "role": "assistant", "content": blocks},
         }
 
-    def tool_result(tool_id: str, parent: str | None, content: str, error: bool = False) -> dict:
+    def tool_result(tool_id: str, parent: str | None, content: object, error: bool = False) -> dict:
         return {
             "type": "user",
             "session_id": "session-1",
@@ -1517,7 +1517,11 @@ def test_claude_two_children_keep_message_thinking_and_tool_state_separate(tmp_p
                 "description": "review auth",
                 "session_id": "session-1",
             },
-            tool_result("delegate-a", None, "alpha summary"),
+            tool_result(
+                "delegate-a",
+                None,
+                [{"type": "text", "text": "alpha summary"}],
+            ),
             tool_result("delegate-b", None, "beta summary", error=True),
             {
                 "type": "system",
@@ -1611,6 +1615,12 @@ def test_claude_two_children_keep_message_thinking_and_tool_state_separate(tmp_p
         "delegate-a": "completed",
         "delegate-b": "failed",
     }
+    delegation_outputs = {
+        event["payload"]["subagent"]["id"]: event["payload"].get("output")
+        for event in events
+        if event["type"] == "tool.completed" and "subagent" in event["payload"]
+    }
+    assert delegation_outputs["delegate-a"] == "alpha summary"
     assert {item["id"]: item["role"] for item in delegations} == {
         "delegate-a": "reviewer",
         "delegate-b": "explore",

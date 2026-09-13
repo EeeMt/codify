@@ -140,7 +140,7 @@ diff -r closure/node_modules/pi-subagents/src/runs/foreground/subagent-executor.
 diff -r closure/node_modules/pi-subagents/src/shared/types.ts w9/pkg/src/shared/types.ts
 --- closure/node_modules/pi-subagents/src/shared/types.ts	2026-09-12 15:57:54.234476008 +0800
 +++ w9/pkg/src/shared/types.ts	2026-09-13 11:54:49.158295724 +0800
-@@ -2585,6 +2585,8 @@
+@@ -2585,6 +2592,8 @@
  	/** Experimental observer: mirror each native subagent's progress into a new Orca tab. */
  	orcaProgressTabs?: OrcaProgressTabsConfig;
  	forceTopLevelAsync?: boolean;
@@ -149,3 +149,67 @@ diff -r closure/node_modules/pi-subagents/src/shared/types.ts w9/pkg/src/shared/
  	waitTool?: WaitToolConfig;
  	defaultSessionDir?: string;
  	singleRunOutputBaseDir?: string;
+diff -r closure/node_modules/pi-subagents/src/shared/types.ts w9/pkg/src/shared/types.ts
+--- closure/node_modules/pi-subagents/src/shared/types.ts	2026-09-12 15:57:54.234476008 +0800
++++ w9/pkg/src/shared/types.ts	2026-09-13 11:54:49.158295724 +0800
+
+@@ -968,0 +969,7 @@
++	/** Native child tool identity/result metadata; bounded by the compactor. */
++	toolCallId?: string;
++	toolName?: string;
++	output?: string;
++	isError?: boolean;
++	startedAt?: number;
++	endedAt?: number;
+diff -r closure/node_modules/pi-subagents/src/shared/utils.ts w9/pkg/src/shared/utils.ts
+--- closure/node_modules/pi-subagents/src/shared/utils.ts	2026-09-12 15:57:54.226719466 +0800
++++ w9/pkg/src/shared/utils.ts	2026-09-13 11:54:49.306879706 +0800
+@@ -324,18 +324,30 @@
+-function extractToolCallSummaries(messages: Message[] | undefined): ToolCallSummary[] {
+-	if (!messages?.length) return [];
+-	const summaries: ToolCallSummary[] = [];
+-	for (const msg of messages) {
+-		if (msg.role !== "assistant") continue;
+-		for (const part of msg.content) {
+-			if (part.type !== "toolCall") continue;
+-			const args = typeof part.arguments === "object" && part.arguments !== null && !Array.isArray(part.arguments)
+-				? part.arguments
+-				: {};
+-			summaries.push({
+-				text: formatToolCall(part.name, args),
+-				expandedText: formatToolCall(part.name, args, true),
+-			});
+-		}
+-	}
+-	return summaries;
+-}
++function extractToolCallSummaries(messages: Message[] | undefined): ToolCallSummary[] {
++	if (!messages?.length) return [];
++	const summaries: ToolCallSummary[] = [];
++	const toolResults = new Map<string, Extract<Message, { role: "toolResult" }>>();
++	for (const message of messages) {
++		if (message.role === "toolResult") toolResults.set(message.toolCallId, message);
++	}
++	for (const msg of messages) {
++		if (msg.role !== "assistant") continue;
++		for (const part of msg.content) {
++			if (part.type !== "toolCall") continue;
++			const args = typeof part.arguments === "object" && part.arguments !== null && !Array.isArray(part.arguments)
++				? part.arguments
++				: {};
++			const toolResult = toolResults.get(part.id);
++			const output = toolResult ? extractTextFromContent(toolResult.content) : "";
++			summaries.push({
++				text: formatToolCall(part.name, args),
++				expandedText: formatToolCall(part.name, args, true),
++				toolCallId: part.id,
++				toolName: part.name,
++				...(output ? { output: truncateDisplayText(output, 4000) } : {}),
++				...(toolResult ? { isError: toolResult.isError } : {}),
++				...(typeof msg.timestamp === "number" ? { startedAt: msg.timestamp } : {}),
++				...(toolResult && typeof toolResult.timestamp === "number" ? { endedAt: toolResult.timestamp } : {}),
++			});
++		}
++	}
++	return summaries;
++}

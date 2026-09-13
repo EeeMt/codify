@@ -4,7 +4,7 @@ import { mount } from '@vue/test-utils'
 import type { TaskLog } from '../../api'
 import TaskProcessPanel from '../TaskProcessPanel.vue'
 import TaskProcessToolRow from './TaskProcessToolRow.vue'
-import { controlEventStatusKey, formatInput, getInputSummary, normalizeTaskProcessRows, parseControlEntry, parseTextEntry, summarizeSkillUsage, type NormalizedControlEventRow } from './taskProcessUtils'
+import { controlEventStatusKey, formatInput, getInputSummary, groupTaskProcessRows, normalizeTaskProcessRows, parseControlEntry, parseTextEntry, summarizeSkillUsage, type NormalizedControlEventRow } from './taskProcessUtils'
 
 vi.mock('vue-i18n', () => ({
   createI18n: () => ({ global: { locale: { value: 'zh-CN' } } }),
@@ -707,5 +707,54 @@ describe('subagent attribution', () => {
       inputTokens: 1200,
       outputTokens: 300,
     })
+  })
+
+  it('keeps each direct child stream contiguous under its delegation row', () => {
+    const agent = (id: string) => ({ id, parent_id: 'root', role: 'delegate' })
+    const rows = normalizeTaskProcessRows([
+      createTaskLog({
+        id: 1,
+        log_type: 'tool_call',
+        metadata: { name: 'Subagent', input: { task: 'alpha' }, subagent: agent('alpha'), error: false },
+      }),
+      createTaskLog({
+        id: 2,
+        log_type: 'tool_call',
+        metadata: { name: 'Subagent', input: { task: 'beta' }, subagent: agent('beta'), error: false },
+      }),
+      createTaskLog({
+        id: 3,
+        log_type: 'tool_call',
+        metadata: { name: 'Bash', input: { command: 'beta' }, agent: agent('beta'), output: 'beta', error: false },
+      }),
+      createTaskLog({
+        id: 4,
+        log_type: 'assistant_text',
+        metadata: { text: 'alpha result', agent: agent('alpha') },
+      }),
+      createTaskLog({
+        id: 5,
+        log_type: 'assistant_text',
+        metadata: { text: 'beta result', agent: agent('beta') },
+      }),
+      createTaskLog({
+        id: 6,
+        log_type: 'assistant_text',
+        metadata: { text: 'root continuation' },
+      }),
+    ])
+
+    const blocks = groupTaskProcessRows(rows)
+
+    expect(blocks.map((block) => block.kind)).toEqual(['subagent_group', 'subagent_group', 'row'])
+    const alpha = blocks[0]
+    const beta = blocks[1]
+    expect(alpha.kind === 'subagent_group' && alpha.delegation?.event.id).toBe(1)
+    expect(alpha.kind === 'subagent_group' && alpha.tone).toBe(0)
+    expect(alpha.kind === 'subagent_group' && alpha.rows.map((row) => row.event.id)).toEqual([4])
+    expect(beta.kind === 'subagent_group' && beta.delegation?.event.id).toBe(2)
+    expect(beta.kind === 'subagent_group' && beta.tone).toBe(1)
+    expect(beta.kind === 'subagent_group' && beta.rows.map((row) => row.event.id)).toEqual([3, 5])
+    expect(blocks[2].kind === 'row' && blocks[2].row.event.id).toBe(6)
   })
 })

@@ -228,7 +228,7 @@ describe('TaskProcessPanel', () => {
 
   it('keeps event and raw tab content at the same height', () => {
     expect(taskProcessPanelSource).toContain('class="process-content"')
-    expect(taskProcessPanelSource).toContain('height: clamp(320px, 52vh, 520px);')
+    expect(taskProcessPanelSource).toContain('height: clamp(440px, 68vh, 720px);')
     expect(taskProcessPanelSource).toContain(':deep(.process-content .log-content)')
   })
 
@@ -290,6 +290,69 @@ describe('TaskProcessPanel', () => {
     expect(eventsTab?.text()).toContain('taskView.eventsTab')
     expect(eventsTab?.find('.event-count-badge').exists()).toBe(true)
     expect(eventsTab?.find('.event-count-badge').text()).toBe('2')
+  })
+
+  it('renders each direct child stream in its own contiguous group', () => {
+    const agent = (id: string) => ({ id, parent_id: 'root', role: 'delegate' })
+    const taskLogs: TaskLog[] = [
+      {
+        id: 1,
+        task_id: 1,
+        log_level: 'info',
+        log_type: 'tool_call',
+        metadata: JSON.stringify({ name: 'Subagent', input: { task: 'alpha' }, subagent: agent('alpha'), error: false }),
+        message: '',
+        created_at: '2026-04-23T10:00:00Z',
+      },
+      {
+        id: 2,
+        task_id: 1,
+        log_level: 'info',
+        log_type: 'tool_call',
+        metadata: JSON.stringify({ name: 'Subagent', input: { task: 'beta' }, subagent: agent('beta'), error: false }),
+        message: '',
+        created_at: '2026-04-23T10:00:00Z',
+      },
+      {
+        id: 3,
+        task_id: 1,
+        log_level: 'info',
+        log_type: 'assistant_text',
+        metadata: JSON.stringify({ text: 'beta result', agent: agent('beta') }),
+        message: '',
+        created_at: '2026-04-23T10:00:01Z',
+      },
+      {
+        id: 4,
+        task_id: 1,
+        log_level: 'info',
+        log_type: 'assistant_text',
+        metadata: JSON.stringify({ text: 'alpha result', agent: agent('alpha') }),
+        message: '',
+        created_at: '2026-04-23T10:00:01Z',
+      },
+    ]
+
+    const wrapper = mount(TaskProcessPanel, {
+      props: {
+        task: createTask('completed'),
+        taskLogs,
+        isActive: false,
+        terminalHtml: '',
+        taskStatus: 'completed',
+      },
+    })
+
+    const groups = wrapper.findAll('.event-agent-group')
+    expect(groups).toHaveLength(2)
+    expect(groups[0].classes()).toContain('event-agent-group--tone-0')
+    expect(groups[1].classes()).toContain('event-agent-group--tone-1')
+    expect(groups[0].text()).toContain('alpha result')
+    expect(groups[0].text()).not.toContain('beta result')
+    expect(groups[1].text()).toContain('beta result')
+    expect(groups[1].text()).not.toContain('alpha result')
+    expect(groups[0].findAll('.event-row--child')).toHaveLength(1)
+    expect(groups[1].findAll('.event-row--child')).toHaveLength(1)
   })
 
   it('keeps the running background glow subtle', () => {
