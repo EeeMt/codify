@@ -67,7 +67,7 @@ def main() -> int:
                 str(source.relative_to(REPO_ROOT)),
                 str(target.relative_to(REPO_ROOT)),
                 "--pad",
-                "24",
+                "36",
                 "--theme",
                 "0",
                 "--layout",

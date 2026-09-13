@@ -5,7 +5,9 @@ section: Admin Guide
 
 ## Configuration overview
 
-The Configuration page (`/configuration`, sidebar entry **Configuration**) is restricted to platform admins. It is the single place where you change scheduler behavior, GitLab connectivity, login, AI providers, worker runtimes, notifications, and cleanup — with no files to edit and nothing to restart.
+The Configuration page (`/configuration`, sidebar entry **Configuration**) is restricted to platform admins. It is the only place where you change scheduler behavior, GitLab connectivity, login, AI providers, worker runtimes, notifications, and cleanup. Nothing here needs a file edit or a restart.
+
+> [!info] **Configuration boundary**: saved values affect later runs. Tasks that already exist use their own frozen snapshot and do not change when an administrator edits the configuration afterwards.
 
 Settings are grouped into eleven tabs.
 
@@ -27,13 +29,13 @@ Settings are grouped into eleven tabs.
 
 Every control shows one of three origins. **DB override** means a value was saved here and wins over the environment. **env fallback** means no override exists and the value comes from the process environment. **default fallback** means neither is set, so the built-in default applies. A single page-level tag shows **Unsaved changes** or **In sync**.
 
-Saving a section writes the override, and the override is what the platform uses from then on. **Reset to env/defaults** on the **Maintenance** tab deletes every override and returns all sections to environment or default values after the confirmation **Reset all configuration sections to their environment variable / default values? Unsaved changes will be lost.**
+Saving a section writes the override, and from then on the platform uses that override. **Reset to env/defaults** on the **Maintenance** tab deletes every override and returns all sections to environment or default values, after the confirmation **Reset all configuration sections to their environment variable / default values? Unsaved changes will be lost.**
 
 ### Secrets
 
-The page banner **Secrets are stored server-side and never returned to the browser. Leave secret fields blank to keep their current stored values.** applies to every secret field. Secret values are encrypted before they are persisted, and the API only returns a boolean such as `gitlab_bot_token_configured`. Clearing a stored secret is a separate action from saving a new one.
+The page banner **Secrets are stored server-side and never returned to the browser. Leave secret fields blank to keep their current stored values.** applies to every secret field. Secret values are encrypted before the platform persists them, and the API returns only a boolean such as `gitlab_bot_token_configured`. Clearing a stored secret is a separate action from saving a new one.
 
-Encryption uses a key that is fixed for the instance. A missing key, or the placeholder value `change-me-in-production`, makes secret writes fail. Keep that key stable across restarts and upgrades: if the key that produced the stored ciphertext changes, existing secrets can no longer be decrypted and must be entered again. It is therefore deployment-time configuration, not something this page can change.
+Encryption uses a key that is fixed for the instance. A missing key, or the placeholder value `change-me-in-production`, makes secret writes fail. Keep that key stable across restarts and upgrades: if the key that produced the stored ciphertext changes, existing secrets can no longer be decrypted and must be entered again. The key belongs to deployment-time configuration, and this page cannot change it.
 
 ## Runtime and capacity
 
@@ -47,13 +49,13 @@ Raising concurrency increases pressure on the workers, the model endpoint, and G
 
 The panel shows the business timezone as **Business timezone: Asia/Shanghai**. **Peak start time** and **Peak end time** are strict 24-hour `HH:mm` values; start is inclusive and end is exclusive, and the two must differ. **Peak timeout (seconds)** and **Off-peak timeout (seconds)** accept 60 to 28800 seconds.
 
-Each task selects one limit when it enters RUNNING and keeps that limit for the rest of the run, as the hint **Each task selects one limit when it enters RUNNING and keeps it while running.** describes. A task that exceeds the limit fails with a message of the form `Task timed out after {timeout_seconds}s` followed by the tail of its sanitized logs.
+The panel hint states the rule for the limit: **Each task selects one limit when it enters RUNNING and keeps it while running.** A task that exceeds the limit fails with a message of the form `Task timed out after {timeout_seconds}s` followed by the tail of its sanitized logs.
 
 ### Retry and alerts
 
-**Max Retries** accepts 0 to 10 and **Retry Delay (seconds)** accepts 1 to 3600. Both values are stored and validated. Re-queuing a failed task is an explicit action from the task view: the retry creates a new task that references the failed one, so the original record keeps its error state.
+**Max Retries** accepts 0 to 10 and **Retry Delay (seconds)** accepts 1 to 3600. The platform stores and validates both values. Re-queuing a failed task is an explicit action from the task view: the retry creates a new task that references the failed one, so the original record keeps its error state.
 
-**Alert on Failure** sends a webhook notification when a task fails, using **Alert Webhook URL**. The stored URL is never returned to the browser — the panel shows **Alert Webhook Status** instead, and a blank field keeps the current value. Clearing the stored webhook is available as a separate action.
+**Alert on Failure** sends a webhook notification when a task fails, using **Alert Webhook URL**. The stored URL is never returned to the browser; the panel shows **Alert Webhook Status** instead, and a blank field keeps the current value. Clearing the stored webhook is a separate action.
 
 ### Slot capacity
 
@@ -61,7 +63,7 @@ Each task selects one limit when it enters RUNNING and keeps that limit for the 
 
 ### CI Auto-repair
 
-**Max CI Repair Attempts** limits how many automatic repair tasks may be created per tracked merge request; `0` disables automatic repair tasks. Automatic repair also depends on the project webhook being healthy: the webhook must exist and must have a managed secret, SSL verification enabled, merge request events enabled, and pipeline events enabled. If any of these is missing, repair tasks are not created for that project.
+**Max CI Repair Attempts** limits how many automatic repair tasks may be created per tracked merge request; `0` disables automatic repair tasks. Automatic repair also requires a healthy project webhook: the hook must exist, with a managed secret, SSL verification enabled, merge request events enabled, and pipeline events enabled. If any of these is missing, repair tasks are not created for that project.
 
 ### Page permissions
 
@@ -82,9 +84,9 @@ The page header summarizes how many of these are enabled under **Shared Pages**.
 
 **GitLab Connection** holds three values:
 
-- **GitLab URL** — the base URL used for API calls, links, and repository operations.
-- **GitLab Bot Token** — the token used to execute tasks. Only **GitLab Bot Token Status** is returned to the browser.
-- **GitLab Admin Token** — used only for project webhook management, under **Webhook automation**. Only **GitLab Admin Token Status** is returned.
+- **GitLab URL**: the base URL used for API calls, links, and repository operations.
+- **GitLab Bot Token**: the token used to execute tasks. Only **GitLab Bot Token Status** is returned to the browser.
+- **GitLab Admin Token**: used only for project webhook management, under **Webhook automation**. Only **GitLab Admin Token Status** is returned.
 
 **Test GitLab connection** validates the values currently in the form, including unsaved ones, by calling the GitLab version and user endpoints. A success reports the server version and the authenticated username. If the project list looks stale, **Invalidate project cache** forces the next request to fetch a fresh list.
 
@@ -92,7 +94,7 @@ The page header summarizes how many of these are enabled under **Shared Pages**.
 
 The callback URL Codify registers in GitLab is derived from the configured backend URL plus `/api/webhook/gitlab`. Setting up a webhook requires a valid http/https backend URL, **GitLab URL**, and **GitLab Admin Token**; a missing field is reported by name.
 
-Choose one project with **Select a GitLab project**, then use **Set up project webhook** to create or update the hook, or **View project webhook status** to inspect the existing one. The stored per-project secret is managed by Codify: the status reports **per-project managed secret** when one exists and **no local secret configured** when it does not. A rotating encryption key can leave a stored secret unreadable; in that case re-running the setup issues a new secret for the project.
+Choose one project with **Select a GitLab project**, then use **Set up project webhook** to create or update the hook, or **View project webhook status** to inspect the existing one. The stored per-project secret is managed by Codify: the status reports **per-project managed secret** when one exists, and **no local secret configured** when it does not. A rotating encryption key can leave a stored secret unreadable; in that case, re-running the setup issues a new secret for the project.
 
 ### Webhook overview
 
@@ -106,9 +108,9 @@ The overview scans every project visible to the configured admin token. The coun
 | **Checks** | Note events, SSL verification, merge request events, pipeline events |
 | **Detail** | The reason a project needs attention |
 
-A project counts as **Configured** only when the hook exists with SSL verification, merge request events, and pipeline events all enabled. Otherwise it is **Needs attention** with one of the recorded reasons, such as `SSL verification disabled`, `MR events disabled`, or `Pipeline events missing`. A disabled merge request event also shows **MR events disabled — re-configure webhook to enable auto-close**, because issue auto-close depends on it.
+A project counts as **Configured** only when the hook exists with SSL verification, merge request events, and pipeline events all enabled. Otherwise it is **Needs attention**, with one of the recorded reasons such as `SSL verification disabled`, `MR events disabled`, or `Pipeline events missing`. A disabled merge request event also shows **MR events disabled — re-configure webhook to enable auto-close**, because issue auto-close depends on it.
 
-If the table is empty, the panel reports that no projects were found and to ensure the GitLab admin token is configured.
+If the table is empty, the panel reports that it found no projects and reminds you to configure the GitLab admin token.
 
 ### Webhook Events
 
@@ -120,13 +122,13 @@ Results recorded by the handler include **Issue closed**, **Already closed**, **
 
 ### Provider basics
 
-**Enable OIDC Login** makes the dashboard require GitLab sign-in; the hint states that when it is enabled, dashboard APIs require GitLab sign-in. Enabling it requires all four provider fields to be present: **Issuer URL**, **Client ID**, **Client Secret**, and **Redirect URI**. The API refuses to enable OIDC while any of them is empty.
+**Enable OIDC Login** makes the dashboard require GitLab sign-in. As the hint notes, dashboard APIs also require GitLab sign-in once it is on. Enabling it requires all four provider fields to be present: **Issuer URL**, **Client ID**, **Client Secret**, and **Redirect URI**. The API refuses to enable OIDC while any of them is empty.
 
 **Client Secret Status** shows **Configured** or **Missing**; the actual secret is never returned to the browser, and leaving the field blank keeps the stored value. **Redirect URI** normally ends with `/api/auth/callback`.
 
 The OAuth application must allow the scopes the dashboard requests: `openid profile email read_api`.
 
-**Test OIDC connection** fetches the discovery document for the values in the form and reports the issuer, the authorization, token, and userinfo endpoints, the authorization URL preview, and any operator warnings — without enabling OIDC. Configure and test first, then enable.
+**Test OIDC connection** fetches the discovery document for the values in the form and reports the issuer, the authorization, token, and userinfo endpoints, the authorization URL preview, and any operator warnings. It does not enable OIDC. Configure and test first, then enable.
 
 ### Session and access
 
@@ -138,7 +140,7 @@ Session TTL values are clamped to the range 300 to 604800 seconds.
 
 **Admin Usernames** is a comma-separated list of GitLab usernames that are granted the platform admin role at login. **Admin GitLab Groups** optionally lists group names checked during login; a user in any listed group is granted the admin role.
 
-Bootstrap rules apply to accounts whose role has not been set manually. Changing a role on the **Access Management** page marks that account as a manual override, and later logins no longer recompute it. If group-based bootstrap is enabled while GitLab does not return groups in the claims or userinfo response, the grants never apply — the diagnostics panel warns about exactly this case.
+Bootstrap rules apply to accounts whose role has not been set manually. Changing a role on the **Access Management** page marks that account as a manual override, and later logins no longer recompute it. If group-based bootstrap is enabled while GitLab does not return groups in the claims or userinfo response, the grants never apply, and the diagnostics panel warns about exactly this case.
 
 ### OIDC diagnostics
 
@@ -153,7 +155,7 @@ Individual checks report **OK**, **Warning**, or **Error**. Typical warnings are
 
 When the discovery document cannot be fetched, the discovery check is the one that reports the error; treat that first, because the endpoint checks depend on it.
 
-Break-glass login is environment-controlled and is deliberately not editable from this page. Keep it disabled during normal operation and use it only for OIDC recovery or administrator lockout, as the sign-in page states.
+Break-glass login is environment-controlled and cannot be edited from this page. Keep it disabled during normal operation and use it only for OIDC recovery or administrator lockout, as the sign-in page states.
 
 ## AI providers
 
@@ -191,14 +193,14 @@ Exactly one provider is the **Default**. **Set as Default** promotes a provider 
 - The default provider cannot be disabled while it is the default.
 - A disabled provider cannot be set as the default.
 - The last remaining provider cannot be deleted.
-- A provider referenced by an active task — pending, queued, or running — cannot be deleted.
+- A provider referenced by an active task (pending, queued, or running) cannot be deleted.
 - Deleting the default provider promotes the lowest-id enabled provider, and is refused when no enabled provider remains.
 
 ### Connection test and advanced parameters
 
-**Test connection** builds the smallest authenticated request for the provider's wire protocol and reports the round-trip latency. It fails with an explicit message when the credential is not active, when the request times out, or when the upstream returns a non-2xx status. Connection errors are logged with the endpoint target and a redacted request detail, so a failure can be diagnosed without exposing the API key.
+**Test connection** builds the smallest authenticated request for the provider's wire protocol and reports the round-trip latency. It fails with an explicit message when the credential is not active, when the request times out, or when the upstream returns a non-2xx status. Connection errors are logged with the endpoint target and a redacted request detail, so you can diagnose a failure without exposing the API key.
 
-**Advanced request parameters** is a JSON object merged into every model request body for compatible harnesses. It is frozen into the task snapshot, which is non-sensitive, so never put API keys or other secrets there. The top level must be a JSON object, and fields owned by the harness are rejected — the error lists them by name.
+**Advanced request parameters** is a JSON object merged into every model request body for compatible harnesses. It is frozen into the task snapshot, which is non-sensitive, so never put API keys or other secrets there. The top level must be a JSON object, and fields owned by the harness are rejected; the error lists them by name.
 
 ## Worker profiles
 
@@ -206,14 +208,14 @@ The **Worker** tab separates the system baseline from the profiles built on top 
 
 ### Shared configuration and inheritance
 
-**Shared configuration** is the system baseline: **Worker Kit**, shared volume mounts, shared environment variables, shared scripts, and shared run instructions. Its revision — shown as **Revision {revision}** — increments on every save, and **Save shared configuration** validates every enabled profile's combined configuration before committing, so a shared change can never leave an inheriting profile invalid. If another admin saved a newer revision while you were editing, the save is rejected with **The shared configuration changed. Reload this page before saving again.** rather than overwriting their change.
+**Shared configuration** is the system baseline: **Worker Kit**, shared volume mounts, shared environment variables, shared scripts, and shared run instructions. The revision, shown as **Revision {revision}**, increments on every save. **Save shared configuration** validates every enabled profile's combined configuration before committing, so a shared change can never leave an inheriting profile invalid. If another admin saved a newer revision while you were editing, the save is rejected with **The shared configuration changed. Reload this page before saving again.**, so you do not overwrite their change.
 
 Profiles either follow the baseline or override individual entries. Each entry shows its **Source**:
 
-- **System** — inherited unchanged.
-- **Profile override** — replaced by this profile.
-- **Masked in profile** — overridden with an empty value, disabling the shared entry for this profile.
-- **Profile addition** — added by this profile only.
+- **System**: inherited unchanged.
+- **Profile override**: replaced by this profile.
+- **Masked in profile**: overridden with an empty value, disabling the shared entry for this profile.
+- **Profile addition**: added by this profile only.
 
 The actions **Override**, **Mask in this Profile**, **Restore system value**, and **Restore inheritance** move an entry between those states. Turning off **Follow system Worker Kit** makes delivery mode, version, and path an atomic group for the profile.
 
@@ -224,30 +226,30 @@ The actions **Override**, **Mask in this Profile**, **Restore system value**, an
 A profile defines:
 
 - **Profile name** and **Worker image**.
-- **Runtime delivery**: **Mounted worker kit** (the supported mode) or **Baked image (deprecated)**, which is deprecated and does not support Skills. **Worker kit version** and **Worker kit path** belong to the same group; the path hint states that it is an absolute path on the Docker host that Codify mounts to `/opt/codify-kit` along with its `nix/store` to `/nix/store`.
-- **Profile volume mounts** and **Profile environment variables**. A secret value is stored encrypted and never shown in the browser. Variable names must match `^[A-Z_][A-Z0-9_]*$`, and names reserved for the worker runtime are rejected — including the `ANTHROPIC_`, `CLAUDE_`, `CODEX_`, `CODIFY_`, `OPENAI_`, `OPENCODE_`, and `PI_` namespaces, which carry frozen provider, bundle, and harness state.
+- **Runtime delivery**: **Mounted worker kit** (the supported mode) or **Baked image (deprecated)**, which does not support Skills. **Worker kit version** and **Worker kit path** belong to the same group; the path hint states that it is an absolute path on the Docker host that Codify mounts to `/opt/codify-kit`, along with its `nix/store` to `/nix/store`.
+- **Profile volume mounts** and **Profile environment variables**. A secret value is stored encrypted and never shown in the browser. Variable names must match `^[A-Z_][A-Z0-9_]*$`, and names reserved for the worker runtime are rejected, including the `ANTHROPIC_`, `CLAUDE_`, `CODEX_`, `CODIFY_`, `OPENAI_`, `OPENCODE_`, and `PI_` namespaces, which carry frozen provider, bundle, and harness state.
 - **Custom Scripts**: **Pre Script** runs in `/workspace` after checkout and before AI execution; **Post Script** runs in `/workspace` after AI execution succeeds and before commit.
 - **CodeGraph**, which enables the local CodeGraph MCP server and project index for tasks on the profile.
 - **Harnesses** enabled for the profile, with **Default Harness** pre-selected for new tasks.
 - **Default Skills**, inherited by new tasks unless the task overrides the selection. Skills require mounted-kit 0.3.5 or newer.
 
-A profile that is still assigned to open issues cannot simply be disabled: **Disable** is refused while any non-closed issue points at the profile, and **Force disable** first asks for confirmation, naming the profile and warning that all its open issues will be closed. The default profile can neither be disabled nor deleted. Deletion is limited to disabled profiles that are not assigned to any issue.
+A profile that is still assigned to open issues cannot be disabled directly: **Disable** is refused while any non-closed issue points at the profile, and **Force disable** first asks for confirmation, naming the profile and warning that all its open issues will be closed. The default profile can neither be disabled nor deleted. Deletion is limited to disabled profiles that are not assigned to any issue.
 
 ### Docker target
 
-Each profile can run on the shared execution target or on one of its own. **Use system Docker target** keeps the profile on the target the platform already uses; turning it off exposes **Docker Host** and the optional **TLS CA path**, **TLS client certificate path**, and **TLS client key path**. **Test connection** verifies the target, and a remote TCP endpoint configured without TLS is flagged with **This remote TCP endpoint is configured without TLS.** Treat that combination as a finding, not a convenience.
+Each profile can run on the shared execution target or on one of its own. **Use system Docker target** keeps the profile on the target the platform already uses; turning it off exposes **Docker Host** and the optional **TLS CA path**, **TLS client certificate path**, and **TLS client key path**. **Test connection** verifies the target, and a remote TCP endpoint configured without TLS is flagged with **This remote TCP endpoint is configured without TLS.** Treat that combination as a finding.
 
 ### Runtime verification
 
-**Profile runtime verification** records whether the profile's image and Worker Kit were actually probed. **Verify runtime** runs a deterministic Kit probe and a verification container, then freezes the observed identity into the profile. The badge shows **Verified**, **Unverified**, or **Verifying…**, together with a **Last checked** timestamp; verification failure clears the state so a profile cannot keep claiming a runtime that no longer matches.
+**Profile runtime verification** records whether the profile's image and Worker Kit were actually probed. **Verify runtime** runs a deterministic Kit probe and a verification container, then freezes the observed identity into the profile. The badge shows **Verified**, **Unverified**, or **Verifying…**, together with a **Last checked** timestamp; a verification failure clears the state, so a profile cannot keep claiming a runtime that no longer matches.
 
-**Worker Kit readiness** reports the harness inventory of the kit: each harness is **available** or **unavailable**, and an unavailable harness is annotated with its reason — **not selected**, **missing payload**, or **reason unknown**. Readiness also reports **Ready**, **Not verified**, or **Runtime unavailable**.
+**Worker Kit readiness** reports the harness inventory of the kit: each harness is **available** or **unavailable**, and an unavailable harness is annotated with one of these reasons: **not selected**, **missing payload**, or **reason unknown**. Readiness also reports **Ready**, **Not verified**, or **Runtime unavailable**.
 
 ### Workspace cleanup and artifacts
 
 Two operational budgets sit above the profile list and apply to the whole platform.
 
-**Workspace Cleanup** sets where issue workspaces live and how long issue workspaces and CI evidence bundles survive without file updates. A retention value of `0` disables automatic cleanup. The location itself is deliberately deployment-time only: it cannot be changed from this page, and attempting to save a different path is refused rather than silently accepted, because the workers already running would not honor it.
+**Workspace Cleanup** sets where issue workspaces live and how long issue workspaces and CI evidence bundles survive without file updates. A retention value of `0` disables automatic cleanup. The location is deployment-time configuration: it cannot be changed from this page, and a save that submits a different path is refused rather than silently accepted, because workers that are already running would not honor it.
 
 **Task Artifacts** governs the artifact budget of a run: maximum total size in MiB, maximum single-file size in MiB, maximum files and directories, and how many days runtime archives are kept. The single-file limit cannot exceed the total limit; the panel reports **The single-file limit cannot exceed the total limit.** and the API rejects the pair. Expired runtime archives are deleted without deleting their Tasks or Issues.
 
@@ -257,9 +259,7 @@ Saving a profile does not change tasks that already exist. When a task is create
 
 ![You edit a Worker Profile; a task runs a frozen snapshot](assets/diagrams/en/profile-to-bundle.svg)
 
-The Task Snapshot records the resolved values — **Worker image**, runtime mode, Worker Kit version and path, **Profile volume mounts**, **Profile environment variables**, scripts, run instructions, harness key, and the model endpoint — together with the shared configuration revision it was resolved against and a digest of the effective configuration. The Runtime Bundle is stored by digest and holds the frozen runtime source and Harness identity. Because the binding is immutable, editing a profile, a shared script, a Skill, or a provider only affects tasks created afterwards; the hint on the shared configuration card states the same rule for the baseline: **Changes become the baseline for future tasks created from profiles that follow the system value. Existing task snapshots do not change.**
-
-This is also why a task keeps running when you disable or edit a Skill or a provider: the snapshot already carries what it needs.
+The Task Snapshot records the resolved values (**Worker image**, runtime mode, Worker Kit version and path, **Profile volume mounts**, **Profile environment variables**, scripts, run instructions, harness key, and the model endpoint), together with the shared configuration revision it was resolved against and a digest of the effective configuration. The Runtime Bundle is stored by digest and holds the frozen runtime source and Harness identity. Because the binding is immutable, editing a profile, a shared script, a Skill, or a provider only affects tasks created afterwards; the hint on the shared configuration card states the same rule for the baseline: **Changes become the baseline for future tasks created from profiles that follow the system value. Existing task snapshots do not change.** A task therefore keeps running when you disable or edit a Skill or a provider, because the snapshot already carries what it needs.
 
 ## Prompt templates and skills
 
@@ -310,7 +310,7 @@ Skills are executed by the worker kit, so a profile must use mounted-kit deliver
 
 ### Notification profiles
 
-**Notification Profiles** turns one connection into multiple delivery profiles — for example one channel notification and one initiator direct message. **Add profile** opens a modal grouped into **Profile basics**, **Target**, **Events**, and **Fields**.
+**Notification Profiles** turns one connection into multiple delivery profiles, for example one channel notification and one initiator direct message. **Add profile** opens a modal grouped into **Profile basics**, **Target**, **Events**, and **Fields**.
 
 - **Profile name** and **Profile enabled** identify the profile.
 - **Target** is either **Mattermost channel** or **Initiator direct message**. An initiator direct message is sent when the username can be matched in Mattermost.
@@ -324,4 +324,4 @@ Both validation errors are explicit: **Select at least one event** and **Select 
 
 **System Announcement** configures a system-wide message shown in the top bar for all authenticated users. **Enable Announcement** controls whether the banner appears; **Announcement Message** is the text, and the hint notes that HTML markup is supported. **Announcement Level** controls the style and color and accepts **Info**, **Warning**, **Error**, or **Success**.
 
-The banner is read through an endpoint available to every authenticated user, so it is a good channel for planned maintenance. Disable it when the message no longer applies instead of leaving a stale banner in place.
+The banner is read through an endpoint available to every authenticated user, so it is a good channel for planned maintenance. Disable it when the message no longer applies, rather than leaving a stale banner in place.

@@ -1,14 +1,28 @@
 <template>
   <section class="guide-page">
-    <div ref="headerRef" class="guide-page__header">
-      <PageHeader :title="t('guide.title')" :subtitle="t('guide.subtitle')">
-        <template #actions>
+    <header class="guide-page__header">
+      <div class="guide-page__header-art" aria-hidden="true" />
+      <div class="guide-page__header-content">
+        <div class="guide-page__header-copy">
+          <p class="guide-page__eyebrow">
+            <span class="guide-page__eyebrow-mark" aria-hidden="true">
+              <n-icon :component="BookOutline" size="15" />
+            </span>
+            {{ t('guide.tocLabel') }}
+          </p>
+          <h1 class="guide-page__title">{{ t('guide.title') }}</h1>
+          <p class="guide-page__subtitle">{{ t('guide.subtitle') }}</p>
+        </div>
+
+        <div class="guide-page__header-tool">
+          <span class="guide-search__label">{{ t('guide.searchPlaceholder') }}</span>
           <div class="guide-search">
             <n-input
               v-model:value="searchQuery"
               class="guide-search__input"
               size="small"
               clearable
+              :aria-label="t('guide.searchPlaceholder')"
               :placeholder="t('guide.searchPlaceholder')"
               @focus="searchFocused = true"
               @blur="searchFocused = false"
@@ -33,16 +47,24 @@
 
             <p v-else-if="searchActive" class="guide-search__empty">{{ t('guide.searchEmpty') }}</p>
           </div>
-        </template>
-      </PageHeader>
-    </div>
+          <p class="guide-page__tool-hint">{{ activeChapter?.title }}</p>
+        </div>
+      </div>
+
+      <div class="guide-page__header-rule" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+    </header>
 
     <div class="guide-page__body">
       <aside class="guide-nav" :aria-label="t('guide.tocLabel')">
-        <div
-          ref="navPanelRef"
-          class="guide-nav__panel"
-        >
+        <div class="guide-nav__panel">
+          <div class="guide-nav__topline">
+            <n-icon class="guide-nav__topline-icon" :component="BookOutline" size="14" aria-hidden="true" />
+            <span>{{ t('guide.tocLabel') }}</span>
+          </div>
           <div class="guide-nav__scroll">
             <template v-for="section in sections" :key="section.key">
               <p class="guide-nav__section">{{ t(SECTION_LABEL[section.key]) }}</p>
@@ -75,6 +97,16 @@
       </aside>
 
       <article class="guide-content">
+        <div class="guide-content__chapter-heading">
+          <span class="guide-content__chapter-index" aria-hidden="true">
+            <n-icon :component="activeChapterIcon" size="15" />
+            <span>{{ activeChapterNumber }}</span>
+          </span>
+          <div>
+            <p>{{ t('guide.title') }}</p>
+            <h2>{{ activeChapter?.title }}</h2>
+          </div>
+        </div>
         <div
           ref="contentRef"
           class="guide-content__body markdown-content"
@@ -88,7 +120,10 @@
             class="guide-pager__link"
             :to="{ name: 'Guide', params: { chapter: previousChapter.slug } }"
           >
-            <span class="guide-pager__direction">{{ t('guide.previous') }}</span>
+            <span class="guide-pager__direction">
+              <n-icon :component="ArrowBackOutline" size="13" />
+              {{ t('guide.previous') }}
+            </span>
             <span class="guide-pager__title">{{ previousChapter.title }}</span>
           </RouterLink>
           <span v-else />
@@ -97,7 +132,9 @@
             class="guide-pager__link guide-pager__link--next"
             :to="{ name: 'Guide', params: { chapter: nextChapter.slug } }"
           >
-            <span class="guide-pager__direction">{{ t('guide.next') }}</span>
+            <span class="guide-pager__direction">
+              {{ t('guide.next') }}<n-icon :component="ChevronForwardOutline" size="13" />
+            </span>
             <span class="guide-pager__title">{{ nextChapter.title }}</span>
           </RouterLink>
         </nav>
@@ -107,14 +144,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NIcon, NInput } from 'naive-ui'
-import { SearchOutline } from '@vicons/ionicons5'
+import {
+  ArrowBackOutline,
+  BookOutline,
+  ChevronForwardOutline,
+  SearchOutline,
+  SettingsOutline,
+  SparklesOutline,
+} from '@vicons/ionicons5'
 
-import PageHeader from '../components/PageHeader.vue'
-import { useBreakpoints } from '../composables/useBreakpoints'
 import { currentLocale, type AppLocale } from '../i18n'
 import { guideChapters, guideSections, type GuideSectionKey } from '../guide/guideContent'
 import { indexGuideChapter, renderGuideChapter, type GuideChapterIndex, type GuideHeading } from '../guide/renderGuideChapter'
@@ -129,8 +171,6 @@ const route = useRoute()
 const router = useRouter()
 
 const contentRef = ref<HTMLElement | null>(null)
-const navPanelRef = ref<HTMLElement | null>(null)
-const headerRef = ref<HTMLElement | null>(null)
 const searchQuery = ref('')
 const searchFocused = ref(false)
 const html = ref('')
@@ -139,111 +179,6 @@ const headings = ref<GuideHeading[]>([])
 // Guards against a slower render of a previous chapter overwriting a newer one.
 let renderToken = 0
 let hasRendered = false
-
-const { isMobile } = useBreakpoints()
-
-const NAV_STICKY_TOP = 20
-
-/**
- * The app shell nests every page inside layouts that clip overflow — both
- * `n-scrollbar` and `n-layout` set `overflow: hidden` — so `position: sticky`
- * has no scrollport of its own and never sticks. Translate the panel instead:
- * a transform is not constrained by an ancestor's overflow, and the panel stays
- * in flow so its column keeps its width.
- *
- * The host is only used for the reference viewport top; the scroll events
- * themselves are caught on the window (see onMounted).
- */
-function findScrollHost(): HTMLElement | null {
-  let el: HTMLElement | null = navPanelRef.value?.parentElement ?? null
-  while (el) {
-    const { overflowY } = getComputedStyle(el)
-    if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1) {
-      return el
-    }
-    el = el.parentElement
-  }
-  return null
-}
-
-let scrollHost: HTMLElement | null = null
-
-function resolveScrollHost(): HTMLElement | null {
-  if (scrollHost?.isConnected) return scrollHost
-  scrollHost = findScrollHost()
-  return scrollHost
-}
-
-function applyOffset(element: HTMLElement | null, offset: number): void {
-  if (!element) return
-  const value = `translateY(${offset}px)`
-  if (element.style.transform !== value) element.style.transform = value
-}
-
-/**
- * Writes the transforms straight to the elements instead of going through
- * reactive bindings: a scroll fires many times per frame, and a render cycle per
- * event lands out of step with the paint, which reads as jitter. One update per
- * animation frame, snapped to whole pixels, is stable.
- *
- * Both the sidebar and the page header float this way because `position: sticky`
- * cannot work here - the shell nests every page in wrappers that clip overflow,
- * so a sticky element has no scrollport of its own.
- */
-function syncFloating(): void {
-  const host = resolveScrollHost()
-  const hostTop = host ? host.getBoundingClientRect().top : 0
-
-  const panel = navPanelRef.value
-  const column = panel?.parentElement
-  if (!panel || !column || !host || isMobile.value) {
-    applyOffset(panel, 0)
-  } else {
-    const columnTop = column.getBoundingClientRect().top
-    const travel = Math.max(0, column.clientHeight - panel.offsetHeight)
-    applyOffset(panel, Math.round(Math.min(Math.max(0, hostTop + NAV_STICKY_TOP - columnTop), travel)))
-  }
-
-  const header = headerRef.value
-  const page = header?.parentElement
-  if (!header || !page || !host) {
-    applyOffset(header, 0)
-    header?.classList.remove('guide-page__header--pinned')
-    return
-  }
-  // The header pins to the top of the scroll viewport and stops at the end of
-  // the guide page, so it never covers the footer.
-  const pageTop = page.getBoundingClientRect().top
-  const travel = Math.max(0, page.clientHeight - header.offsetHeight)
-  const offset = Math.round(Math.min(Math.max(0, hostTop - pageTop), travel))
-  applyOffset(header, offset)
-  header.classList.toggle('guide-page__header--pinned', offset > 0)
-}
-
-let floatFrame = 0
-
-function scheduleFloating(): void {
-  if (floatFrame) return
-  floatFrame = requestAnimationFrame(() => {
-    floatFrame = 0
-    syncFloating()
-  })
-}
-
-onMounted(() => {
-  // Scroll events do not bubble, and the element the shell actually scrolls is
-  // not reliably the first scrolling ancestor. A capture-phase listener on the
-  // window sees the event from whichever element scrolls.
-  window.addEventListener('scroll', scheduleFloating, { capture: true, passive: true })
-  window.addEventListener('resize', scheduleFloating)
-  syncFloating()
-})
-
-onBeforeUnmount(() => {
-  if (floatFrame) cancelAnimationFrame(floatFrame)
-  window.removeEventListener('scroll', scheduleFloating, { capture: true })
-  window.removeEventListener('resize', scheduleFloating)
-})
 
 interface GuideSearchHit {
   slug: string
@@ -370,6 +305,10 @@ const activeIndex = computed(() =>
     ? chapters.value.findIndex((chapter) => chapter.slug === activeChapter.value?.slug)
     : -1,
 )
+const activeChapterNumber = computed(() => String(Math.max(activeIndex.value, 0) + 1).padStart(2, '0'))
+const activeChapterIcon = computed(() =>
+  activeChapter.value?.section === 'admin' ? SettingsOutline : SparklesOutline,
+)
 const previousChapter = computed(() =>
   activeIndex.value > 0 ? chapters.value[activeIndex.value - 1] : null,
 )
@@ -379,14 +318,19 @@ const nextChapter = computed(() =>
     : null,
 )
 
+function findHeading(id: string): HTMLElement | null {
+  const target = document.getElementById(id)
+  return target && contentRef.value?.contains(target) ? target : null
+}
+
 function revealHeading(id: string): void {
-  const target = contentRef.value?.querySelector<HTMLElement>(`#${CSS.escape(id)}`)
+  const target = findHeading(id)
   target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
 }
 
 function revealChapterStart(): void {
   const id = route.hash.replace(/^#/, '')
-  const target = id ? contentRef.value?.querySelector<HTMLElement>(`#${CSS.escape(id)}`) : null
+  const target = id ? findHeading(id) : null
   if (target) {
     target.scrollIntoView({ block: 'start' })
     return
@@ -482,7 +426,6 @@ watch(
     await nextTick()
     if (token !== renderToken) return
     revealChapterStart()
-    syncFloating()
     hasRendered = true
   },
   { immediate: true },
@@ -768,6 +711,485 @@ watch(
     width: min(92vw, 380px);
   }
 }
+
+/* The guide is a reading surface, not another settings form. Keep the
+   navigation quiet and spend the visual contrast on the current chapter. */
+.guide-page {
+  --guide-ink: #13233f;
+  --guide-blue: #3164e8;
+  --guide-mint: #5eead4;
+  --guide-line: rgba(19, 35, 63, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+  color: var(--guide-ink);
+}
+
+.guide-page__header {
+  position: relative;
+  isolation: isolate;
+  z-index: 2;
+  overflow: visible;
+  padding: 32px 34px 22px;
+  border: 1px solid rgba(19, 35, 63, 0.16);
+  border-radius: 24px;
+  background: var(--guide-ink);
+  box-shadow: 0 20px 44px rgba(19, 35, 63, 0.16);
+  color: #fff;
+}
+
+.guide-page__header-art {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.guide-page__header-art::before {
+  position: absolute;
+  right: -100px;
+  bottom: -180px;
+  width: 560px;
+  height: 560px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(49, 100, 232, 0.72) 0%, rgba(49, 100, 232, 0) 68%);
+  content: '';
+}
+
+.guide-page__header-art::after {
+  position: absolute;
+  inset: 0 0 0 42%;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+  content: '';
+  mask-image: linear-gradient(90deg, transparent, #000 35%);
+  opacity: 0.7;
+}
+
+.guide-page__header-content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 48px;
+  align-items: end;
+}
+
+.guide-page__header-copy {
+  max-width: 700px;
+}
+
+.guide-page__eyebrow,
+.guide-search__label,
+.guide-page__tool-hint,
+.guide-nav__topline,
+.guide-content__chapter-heading p {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.guide-page__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.guide-page__eyebrow-mark {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--guide-mint);
+  color: var(--guide-ink);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.guide-page__title {
+  margin: 16px 0 10px;
+  color: #fff;
+  font-size: clamp(36px, 4vw, 50px);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.guide-page__subtitle {
+  max-width: 680px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.guide-page__header-tool {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+
+.guide-search__label {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.guide-search {
+  position: relative;
+  width: 100%;
+}
+
+.guide-search__input :deep(.n-input) {
+  --n-border: transparent !important;
+  --n-border-hover: transparent !important;
+  --n-border-focus: transparent !important;
+  --n-box-shadow-focus: 0 0 0 3px rgba(94, 234, 212, 0.25) !important;
+  min-height: 46px;
+  border: 0;
+  border-radius: 13px;
+  background: #f7fbff;
+  box-shadow: 0 8px 20px rgba(5, 15, 35, 0.16);
+}
+
+.guide-search__input :deep(.n-input__input-el) {
+  color: var(--guide-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.guide-search__input :deep(.n-input__placeholder) {
+  color: rgba(19, 35, 63, 0.48);
+}
+
+.guide-search__input :deep(.n-input__prefix) {
+  color: var(--guide-blue);
+}
+
+.guide-page__tool-hint {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.guide-page__header-rule {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 6px;
+  margin-top: 28px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.guide-page__header-rule span {
+  display: block;
+  width: 22px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.guide-page__header-rule span:first-child {
+  width: 48px;
+  background: var(--guide-mint);
+}
+
+.guide-search__results {
+  top: calc(100% + 10px);
+  right: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid rgba(19, 35, 63, 0.1);
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(19, 35, 63, 0.2);
+}
+
+.guide-search__hit {
+  padding: 10px 11px;
+  border-radius: 9px;
+}
+
+.guide-search__hit:hover,
+.guide-search__hit:focus-visible {
+  background: #edf3ff;
+}
+
+.guide-search__hit-label {
+  color: var(--guide-ink);
+}
+
+.guide-search__hit-meta {
+  color: rgba(19, 35, 63, 0.48);
+}
+
+.guide-search__hit-snippet {
+  color: rgba(19, 35, 63, 0.64);
+}
+
+.guide-search__empty {
+  top: calc(100% + 10px);
+  right: 0;
+  border-color: rgba(19, 35, 63, 0.1);
+  border-radius: 10px;
+  color: rgba(19, 35, 63, 0.58);
+}
+
+.guide-page__body {
+  grid-template-columns: 236px minmax(0, 1fr);
+  gap: 44px;
+}
+
+.guide-nav__panel {
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
+  padding: 17px 12px 14px;
+  border: 1px solid var(--guide-line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 12px 28px rgba(19, 35, 63, 0.07);
+}
+
+.guide-nav__topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 14px;
+  border-bottom: 1px solid var(--guide-line);
+  color: rgba(19, 35, 63, 0.56);
+  font-size: 10px;
+}
+
+.guide-nav__topline-mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--guide-blue);
+  box-shadow: 4px 0 0 rgba(94, 234, 212, 0.9);
+}
+
+.guide-nav__scroll {
+  margin-top: 9px;
+  padding-right: 2px;
+}
+
+.guide-nav__section {
+  margin: 16px 0 6px;
+  padding: 0 10px;
+  color: rgba(19, 35, 63, 0.42);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.guide-nav__chapter {
+  position: relative;
+  padding: 8px 10px;
+  border-radius: 9px;
+  color: rgba(19, 35, 63, 0.7);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.guide-nav__chapter:hover {
+  background: #f0f4fb;
+  color: var(--guide-ink);
+}
+
+.guide-nav__chapter--active {
+  background: #eaf0ff;
+  box-shadow: none;
+  color: var(--guide-blue);
+  font-weight: 700;
+}
+
+.guide-nav__chapter--active::before {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: var(--guide-blue);
+  content: '';
+}
+
+.guide-nav__headings {
+  margin: 4px 0 10px 10px;
+  padding-left: 10px;
+  border-left-color: rgba(49, 100, 232, 0.2);
+}
+
+.guide-nav__heading {
+  padding: 4px 7px;
+  border-radius: 6px;
+  color: rgba(19, 35, 63, 0.55);
+  font-size: 11.5px;
+}
+
+.guide-nav__heading:hover {
+  background: #f4f7fc;
+  color: var(--guide-blue);
+}
+
+.guide-nav__heading--level-3 {
+  color: rgba(19, 35, 63, 0.44);
+}
+
+.guide-content {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 42px 50px 34px;
+  border: 1px solid rgba(19, 35, 63, 0.08);
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(19, 35, 63, 0.05);
+}
+
+.guide-content__chapter-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  max-width: 860px;
+  margin-bottom: 10px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--guide-line);
+}
+
+.guide-content__chapter-index {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  border-radius: 11px;
+  background: #eaf0ff;
+  color: var(--guide-blue);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.guide-content__chapter-heading p {
+  margin: 2px 0 6px;
+  color: rgba(19, 35, 63, 0.42);
+  font-size: 10px;
+}
+
+.guide-content__chapter-heading h2 {
+  margin: 0;
+  color: var(--guide-ink);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.guide-pager {
+  max-width: 860px;
+  margin-top: 34px;
+  padding-top: 20px;
+  border-top-color: var(--guide-line);
+}
+
+.guide-pager__link {
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.guide-pager__link:hover {
+  background: #f3f6fb;
+}
+
+.guide-pager__direction {
+  color: rgba(19, 35, 63, 0.42);
+}
+
+.guide-pager__title {
+  color: var(--guide-blue);
+}
+
+@media (max-width: 1023px) {
+  .guide-page__header-content {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+    gap: 28px;
+  }
+
+  .guide-nav__panel {
+    position: static;
+    max-height: none;
+  }
+
+  .guide-nav__scroll {
+    max-height: 280px;
+  }
+
+  .guide-content {
+    padding: 34px 36px 30px;
+  }
+}
+
+@media (max-width: 767px) {
+  .guide-page {
+    gap: 20px;
+  }
+
+  .guide-page__header {
+    padding: 26px 22px 19px;
+    border-radius: 20px;
+  }
+
+  .guide-page__header-content {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 27px;
+  }
+
+  .guide-page__title {
+    font-size: 38px;
+  }
+
+  .guide-page__subtitle {
+    font-size: 13px;
+  }
+
+  .guide-content {
+    padding: 28px 20px 25px;
+    border-radius: 20px;
+  }
+
+  .guide-content__chapter-heading h2 {
+    font-size: 24px;
+  }
+
+  .guide-pager {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .guide-pager__link--next {
+    align-items: flex-start;
+    text-align: left;
+  }
+}
 </style>
 
 <style>
@@ -985,5 +1407,261 @@ watch(
 .guide-code:hover .guide-code__copy,
 .guide-code__copy:focus-visible {
   opacity: 1;
+}
+
+/* Naive UI places a second, non-scrolling scrollbar around page content. Let
+   the outer app scrollbar remain the guide's scrollport so CSS sticky has one
+   stable reference instead of a scroll-event transform loop. */
+.app-shell--guide .app-shell__content,
+.app-shell--guide .app-shell__content > .n-scrollbar,
+.app-shell--guide .app-shell__content .n-scrollbar-container,
+.app-shell--guide .app-shell__content .n-scrollbar-content {
+  overflow: visible !important;
+}
+
+.guide-content__body img,
+.guide-content__body pre.md-code-block {
+  box-sizing: border-box;
+}
+
+.guide-content__body table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.guide-content__body th,
+.guide-content__body td {
+  overflow-wrap: anywhere;
+}
+
+/* Small, intentional iconography helps the guide read like a product surface:
+   the chapter badge names the audience, and navigation affordances stay quiet. */
+.guide-nav__topline-icon {
+  flex: 0 0 auto;
+  color: var(--guide-blue);
+}
+
+.guide-content__chapter-index {
+  height: 44px;
+  width: 42px;
+  gap: 1px;
+  align-content: center;
+  color: var(--guide-blue);
+}
+
+.guide-content__chapter-index > span {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.guide-pager__direction {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Figures are a distinct reading unit. The full-size link keeps dense diagrams
+   useful without letting them create a second page-level scroll surface. */
+.guide-content__body figure.guide-figure {
+  position: relative;
+  max-width: 860px;
+  margin: 30px 0 36px;
+  padding: 14px;
+  border: 1px solid rgba(49, 100, 232, 0.13);
+  border-radius: 18px;
+  background: linear-gradient(145deg, #fbfdff 0%, #f5f8ff 100%);
+  box-shadow: 0 12px 28px rgba(19, 35, 63, 0.06);
+}
+
+.guide-content__body figure.guide-figure::before {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 1;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid rgba(49, 100, 232, 0.16);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--guide-blue);
+  content: '↗';
+  font-size: 13px;
+  line-height: 1;
+}
+
+.guide-figure__image-link {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.guide-figure__image-link:hover img {
+  border-color: rgba(49, 100, 232, 0.28);
+}
+
+.guide-content__body figure.guide-figure img {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid rgba(19, 35, 63, 0.08);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: none;
+  transition: border-color 0.15s ease;
+}
+
+.guide-figure__caption {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 2px 1px;
+  color: rgba(19, 35, 63, 0.58);
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.guide-figure__caption::before {
+  flex: 0 0 auto;
+  color: var(--guide-blue);
+  content: '↗';
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* Tables scroll inside their own frame on small screens instead of widening
+   the reading surface. The minimum width preserves column rhythm. */
+.guide-content__body .guide-table {
+  max-width: 100%;
+  margin: 16px 0 26px;
+  overflow-x: auto;
+  border: 1px solid rgba(19, 35, 63, 0.08);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.guide-content__body .guide-table table {
+  min-width: 560px;
+  margin: 0;
+}
+
+/* [!kind] blockquotes in the source become these lightweight semantic cards. */
+.guide-content__body blockquote.guide-callout {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  max-width: 680px;
+  margin: 20px 0 26px;
+  padding: 14px 18px 14px 14px;
+  border: 1px solid rgba(49, 100, 232, 0.16);
+  border-left: 3px solid var(--guide-blue);
+  border-radius: 14px;
+  background: #f5f8ff;
+  color: rgba(19, 35, 63, 0.78);
+}
+
+.guide-content__body blockquote.guide-callout::before {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 9px;
+  background: #e7efff;
+  color: var(--guide-blue);
+  content: 'i';
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.guide-content__body blockquote.guide-callout p {
+  grid-column: 2;
+  max-width: none;
+  margin: 0 0 8px;
+}
+
+.guide-content__body blockquote.guide-callout p:last-child {
+  margin-bottom: 0;
+}
+
+.guide-content__body blockquote.guide-callout--tip {
+  border-color: rgba(13, 148, 136, 0.2);
+  border-left-color: #0f9f91;
+  background: #f0fdfa;
+}
+
+.guide-content__body blockquote.guide-callout--tip::before {
+  background: #ccfbf1;
+  color: #0f766e;
+  content: '✦';
+}
+
+.guide-content__body blockquote.guide-callout--warning {
+  border-color: rgba(217, 119, 6, 0.22);
+  border-left-color: #d97706;
+  background: #fffaf0;
+}
+
+.guide-content__body blockquote.guide-callout--warning::before {
+  background: #fef3c7;
+  color: #b45309;
+  content: '!';
+}
+
+.guide-content__body blockquote.guide-callout--success {
+  border-color: rgba(22, 163, 74, 0.2);
+  border-left-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.guide-content__body blockquote.guide-callout--success::before {
+  background: #dcfce7;
+  color: #15803d;
+  content: '✓';
+}
+
+.guide-content__body blockquote.guide-callout--route {
+  border-color: rgba(124, 58, 237, 0.18);
+  border-left-color: #7c3aed;
+  background: #faf5ff;
+}
+
+.guide-content__body blockquote.guide-callout--route::before {
+  background: #ede9fe;
+  color: #6d28d9;
+  content: '↗';
+}
+
+@media (max-width: 767px) {
+  .guide-content__body figure.guide-figure {
+    margin: 24px 0 30px;
+    padding: 10px;
+    border-radius: 15px;
+  }
+
+  .guide-content__body figure.guide-figure img {
+    padding: 6px;
+  }
+
+  .guide-content__body .guide-table table {
+    min-width: 520px;
+  }
+
+  .guide-content__body blockquote.guide-callout {
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 9px;
+    padding: 12px 13px 12px 11px;
+  }
+
+  .guide-content__body blockquote.guide-callout::before {
+    width: 26px;
+    height: 26px;
+  }
 }
 </style>

@@ -55,7 +55,7 @@ const zhCN = {
   },
   guide: {
     title: '指南',
-    subtitle: '从创建需求到评审合并请求的完整操作说明，以及管理员负责的平台配置。',
+    subtitle: '说明 Codify 的工作方式，涵盖从创建需求到评审合并请求的流程，以及管理员负责的平台配置。',
     tocLabel: '指南目录',
     searchPlaceholder: '搜索指南',
     searchChapter: '章节',

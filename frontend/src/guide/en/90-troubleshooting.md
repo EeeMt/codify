@@ -7,9 +7,11 @@ section: Admin Guide
 
 ![Read the failure reason first; the rest only confirms it](assets/diagrams/en/failure-triage.svg)
 
+> [!tip] **Triage order**: read the failure kind on the task first, use Events to confirm the order, use Raw Logs to inspect the container, then download the run archive for complete evidence.
+
 A failed task shows the status **Failed** on the Task page. The failure reason is stored on the task itself: the detail view returns the message plus the failure kind reported by the harness, and the same message is written into the task log.
 
-Read the message by shape. Plain text is a human-readable cause. A JSON object is a structured rejection and names its own code.
+The message shape tells you what to expect. Plain text is a human-readable cause; a JSON object is a structured rejection that names its own code.
 
 | Message | What it means |
 | --- | --- |
@@ -31,7 +33,7 @@ Read the message by shape. Plain text is a human-readable cause. A JSON object i
 
 A platform restart can also end a run. A task that was running when the platform restarted is resumed while its container is still alive; when the container is gone, the task is recorded as **Failed** with the message that it was still running when the platform restarted. The same error panel reports a run whose container was not runnable after recovery.
 
-Two related outcomes are not failures. A user cancellation ends as **Cancelled** with the message that the task was cancelled by the user, and a cancellation confirmed during recovery records that no run was left to stop.
+Neither a user cancellation nor a cancellation confirmed during recovery is a failure. The first ends as **Cancelled** with the message that the task was cancelled by the user; the second records that no run was left to stop.
 
 ### Timeouts
 
@@ -45,15 +47,15 @@ Stored logs and error messages are sanitized before they are written: GitLab per
 
 ### Retrying
 
-A task can be retried only from **Failed** or **Cancelled**. The retry creates a new task with `is_retry` set and a reference to the original one, and it starts from **Pending**; the original keeps its error state, which makes the pair easy to compare. A second retry is refused while an active retry of the same task already exists.
+A task can be retried only from **Failed** or **Cancelled**. The retry creates a new task with `is_retry` set and a reference to the original one, and it starts from **Pending**; the original keeps its error state so the two can be compared side by side. A second retry is refused while an active retry of the same task already exists.
 
 ## Container and scheduling anomalies
 
-Every run gets its own isolated container, and this section is about the cases where a Task and its container stop agreeing.
+Every run gets its own isolated container, but a Task and its container can still stop agreeing about what is running.
 
 ### The Monitor page
 
-**Monitor** reports the alignment between running tasks and live containers. Its two headline counts are **Orphan containers** — running containers without a matching running task — and **Task/container gaps** — running tasks with no visible running container. When a target cannot be reached, the page warns **Some Docker targets are unavailable** and names the failing one instead of silently reporting zero containers.
+**Monitor** reports the alignment between running tasks and live containers. Its two counts are **Orphan containers** (running containers without a matching running task) and **Task/container gaps** (running tasks with no visible running container). When a target cannot be reached, the page warns **Some Docker targets are unavailable** and names the failing one instead of silently reporting zero containers.
 
 Each container row shows its **Relation**:
 
@@ -70,7 +72,7 @@ The page derives these from separate task and container samples, so a mismatch c
 
 ### After a platform restart
 
-A restart changes what running tasks report. What you see, in order:
+A restart changes what running tasks report. The outcomes, in order:
 
 - A running task whose container is still alive is resumed and keeps reporting.
 - A running task whose container is gone ends as **Cancelled** when a cancellation was requested, and as **Failed** otherwise, with the message that it was still running when the platform restarted.
@@ -92,7 +94,7 @@ A finished task that still holds a container reference keeps its Issue locked un
 
 ### Scheduled time rejected
 
-When a schedule is refused, the error name tells you which rule applied: earlier than the previous task's floor, later than the next task's ceiling, no valid window for the issue queue, or a lineage mismatch when the selected session does not belong to the issue's current tail. A sequence that needs manual repair is reported as such — fix the issue queue before scheduling again.
+When a schedule is refused, the error name tells you which rule applied: earlier than the previous task's floor, later than the next task's ceiling, no valid window for the issue queue, or a lineage mismatch when the selected session does not belong to the issue's current tail. A sequence that needs manual repair is reported as such. Fix the issue queue before scheduling again.
 
 ### Cancelling a stuck task
 
@@ -102,9 +104,9 @@ Cancellation is confirmed before the task leaves the active state. If the run ha
 
 ### The dashboard refuses access
 
-An expired or revoked session returns to the sign-in page with an explanation: the session expired, the session was revoked, or access was denied for the required permissions. Signing in again resolves the first two. If a permission was revoked, the action itself is what needs to change — a platform user cannot reach an admin page.
+An expired or revoked session returns to the sign-in page with an explanation: the session expired, the session was revoked, or access was denied for the required permissions. Signing in again resolves the first two. If a permission was revoked, the action itself is what needs to change: a platform user cannot reach an admin page.
 
-Two page-level causes are worth checking before assuming a bug:
+Two page-level causes can produce the same symptom:
 
 - The read-only pages **Monitor**, **Schedule Overview**, **Analytics**, and **OIDC Diagnostics** are admin-only until the matching switch under **Shared Page Access** is enabled for platform users.
 - A disabled account is rejected on every request, with the message that the dashboard account is disabled. Re-enable the account on **Access Management** if that was not intended.
@@ -135,7 +137,7 @@ Administrators are granted by username or by GitLab group. Group grants only wor
 
 Break-glass login is available only where it has been fully configured. When it is not fully configured, the request is refused and the sign-in page states that break-glass login is not enabled. When it is enabled, the sign-in page warns that it must be used only for OIDC recovery or administrator lockout. The emergency account is created on first successful use and is marked with the **Break-glass** role source; a username that already belongs to a different dashboard user is rejected as a conflict instead of being taken over.
 
-Keep the path disabled during normal operation. It exists so that a broken OIDC configuration cannot lock every administrator out, and it should be closed again as soon as normal sign-in works.
+Leave the path disabled during normal operation. It exists so that a broken OIDC configuration cannot lock every administrator out; close it again as soon as normal sign-in works.
 
 ## Frequently asked questions
 
@@ -161,13 +163,13 @@ Task execution is frozen in a Task Snapshot and Runtime Bundle at creation time.
 The page is admin-only until **Allow Monitor for platform users** is enabled under **Shared Page Access**. The same applies to Schedule Overview, Analytics, and OIDC Diagnostics.
 
 **Why is a project flagged as Needs attention in the webhook overview?**
-Its hook is missing, or it is missing SSL verification, merge request events, or pipeline events. Re-run the project webhook setup, then refresh the statuses.
+Its hook is missing, or the hook lacks SSL verification, merge request events, or pipeline events. Re-run the project webhook setup, then refresh the statuses.
 
 **Why is my project missing from the project list, and why could a task not push to it?**
-The picker only offers what the account behind it can see. When you sign in through GitLab that is your own account; on a local account, or as a platform administrator, the list comes from the Codify bot account that does the work. A project the bot cannot see is missing from the list entirely, while a project the bot can see but not write to is offered and then fails later: the Task clones the repository and generates the change, and the push or the Merge Request creation fails. Both symptoms have the same fix — make the bot a member of the project with enough access to push a branch and open a Merge Request. An internal or public project is visible to the bot without membership, but visibility alone grants no write access. If the bot was just added, allow a few minutes before rechecking: the platform caches the visible project list for five minutes.
+The picker only offers what the account behind it can see. When you sign in through GitLab that is your own account; on a local account, or as a platform administrator, the list comes from the Codify bot account that does the work. A project the bot cannot see is missing from the list entirely, while a project the bot can see but not write to is offered and then fails later: the Task clones the repository and generates the change, and the push or the Merge Request creation fails. Both symptoms have the same fix: make the bot a member of the project with enough access to push a branch and open a Merge Request. An internal or public project is visible to the bot without membership, but visibility alone grants no write access. If the bot was just added, allow a few minutes before rechecking: the platform caches the visible project list for five minutes.
 
 **Why did a task fail instead of waiting for its quota window to reset?**
 An exceeded limit does not delay the task; it rejects creation, or fails the queued task before a container starts.
 
 **Can a deleted task be restored?**
-No. Data deleted before the coverage start cannot be recovered, deleted records appear as sanitized snapshots without detail links, and cleanup removes the task's logs, archives, and workspace. Treat cleanup as irreversible.
+No. Data deleted before the coverage start cannot be recovered, deleted records appear as sanitized snapshots without detail links, and cleanup removes the task's logs, archives, and workspace, so treat cleanup as irreversible.

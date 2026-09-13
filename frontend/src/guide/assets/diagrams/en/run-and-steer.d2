@@ -1,0 +1,55 @@
+# Chapter: guide/en/40-run-and-steer.md — "Live process log" and task actions.
+# Reader takeaway: observe the current run first, then choose a control that fits
+# its outcome; follow-ups continue the Issue while retries preserve the snapshot.
+# Render: python3 scripts/guide/render-diagrams.py (from the repository root).
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+flow: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 42
+  style.fill: transparent
+  style.stroke-width: 0
+
+  run: "Run\nWorker container" { class: accent }
+  observe: "Observe\nEvents + Raw Logs" { class: node }
+  guide: "Guide\nSteer / Follow-up" { class: node }
+  finish: "Finish\nCompleted / Failed / Cancelled" { class: node }
+  append: "Continue\nAppend a Task" { class: node }
+  retry: "Recover\nRetry Task" { class: node }
+  archive: "Keep evidence\nRun archive" { class: node }
+  gap: " " { style.fill: transparent; style.stroke-width: 0 }
+
+  run -> observe
+  observe -> guide
+  guide -> finish
+  finish -> append
+  finish -> retry
+  finish -> archive
+}

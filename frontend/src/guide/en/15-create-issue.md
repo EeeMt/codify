@@ -7,10 +7,12 @@ section: User Guide
 
 An Issue is the container for a piece of work in Codify. Everything else hangs off one: its description becomes the default prompt for the Tasks you run, its branch strategy decides where the change lands, its execution environment decides where it runs, and every Task you launch or append to it belongs to it.
 
-- **Fixed when you submit:** the project, the starting branch, the merge target, the **Worker** — its hint reads "Fixed after creation; tasks run on this Worker." — and the repository clone settings, which cannot be changed afterwards.
+- **Fixed when you submit:** the project, the starting branch, the merge target, the **Worker** (hint: "Fixed after creation; tasks run on this Worker."), and the repository clone settings. None of them can be changed afterwards.
 - **Still editable later** from the Issue page: the title, the description, the **MR pipeline failure auto-repair** switch, and the **Default AI Provider**.
 - **The form itself, in five parts:** **Project**, **Issue content**, **Branch Strategy**, **Execution environment**, and the collapsed **Advanced settings**. **Reset** returns every field to its default, **Create Issue** submits, and **Cancel** in the header leaves without saving.
 - **Scope:** every value here belongs to the Issue, not to one Task. Task Mode, priority, schedule, and run instruction live in the Task form.
+
+> [!warning] **Decide these before submitting:** the project, starting branch, merge target, Worker, and repository clone settings are frozen on the Issue. If those choices need to differ, create a separate Issue.
 
 Open **Issues** and select **Create Issue**, or go straight to `/issues/create`. A Task takes its execution environment from the Issue and freezes what it inherited into its own snapshot, so changing the Issue later reaches only the Tasks created after the change.
 
@@ -18,13 +20,13 @@ Open **Issues** and select **Create Issue**, or go straight to `/issues/create`.
 
 ![Five parts, one Issue: some values fixed, some editable](assets/diagrams/en/create-issue-form.svg)
 
-The tables below list every field the form renders, grouped the way the form groups them. **Default** is what a freshly opened form contains. **Applies to** states whether the value is stored on the Issue or belongs to a single Task — in this form, always the Issue.
+Each table lists the fields of one form group. **Default** is what a freshly opened form contains. **Applies to** states whether the value is stored on the Issue or belongs to a single Task; in this form, always the Issue.
 
 ### Project
 
 | Label | What it controls | Default | Applies to |
 |---|---|---|---|
-| **Project** | The GitLab repository the Issue works in, chosen from a card grid. **Search projects...** filters by name, namespace path, or description, and your most recent projects are listed first with a **Recent** pill. An empty result reads **No projects found**. | Nothing selected. Required — the form reports **Please select a project**. | Issue, and fixed: the project is not editable afterwards. |
+| **Project** | The GitLab repository the Issue works in, chosen from a card grid. **Search projects...** filters by name, namespace path, or description, and your most recent projects are listed first with a **Recent** pill. An empty result reads **No projects found**. | Nothing selected. Required; the form reports **Please select a project**. | Issue, and fixed: the project is not editable afterwards. |
 
 ### Issue content
 
@@ -47,7 +49,7 @@ The section carries the hint "Worker is required and fixed for this issue; AI Pr
 
 | Label | What it controls | Default | Applies to |
 |---|---|---|---|
-| **Worker** | The Worker Profile that runs the Issue. Only enabled profiles are offered. Hint: "Fixed after creation; tasks run on this Worker." | Nothing selected. Required — the form reports **Please select a worker**. | Issue, and fixed after creation. |
+| **Worker** | The Worker Profile that runs the Issue. Only enabled profiles are offered. Hint: "Fixed after creation; tasks run on this Worker." | Nothing selected. Required; the form reports **Please select a worker**. | Issue, and fixed after creation. |
 | **Default AI Provider** | The model service Tasks on this Issue use. Hint: "Default model service for tasks; can be changed later on the issue detail page." Clearing the selection falls back to the system default. | The system default provider, preselected. Placeholder when cleared: **System Default**. | Issue default. A Task may override it, and the Issue page can change it later. |
 | **Default Harness** | Which Harness new sessions start with. Hint: "Changeable for new-session tasks; leave empty to follow the Worker default." Options are limited to the selected Worker's enabled harnesses. | Set from the Worker's own default harness as soon as you pick one; if the profile names none, its first enabled harness is used. | Issue default for Tasks that do not choose one. A continuing session keeps the harness it started with. |
 
@@ -69,12 +71,12 @@ Two automation cards follow:
 
 | Label | What it controls | Default | Applies to |
 |---|---|---|---|
-| **Branch cleanup** | Whether the working branch is deleted when an MR merge webhook auto-closes the Issue. The card states which of the two will happen. | On — "AI working branch will be deleted when an MR merge webhook auto-closes this issue". | Issue |
+| **Branch cleanup** | Whether the working branch is deleted when an MR merge webhook auto-closes the Issue. The card states which of the two will happen. | On: "AI working branch will be deleted when an MR merge webhook auto-closes this issue". | Issue |
 | **MR pipeline failure auto-repair** | Whether Codify creates a repair task when the tracked Merge Request's pipeline fails. | Off, and disabled unless **Create Merge Request** is on and the project's webhook is healthy. When the webhook cannot be used, the card shows **Unavailable** followed by the reason, such as the webhook not being configured, a missing verification secret, disabled SSL verification, or disabled merge request or pipeline events. | Issue |
 
 ## Writing the description
 
-The description is the default requirement of every Task on the Issue — the Task form's requirement box opens prefilled from it and tells you so: "Enter task requirement (defaults to issue description)". Write it as the brief you would hand to a colleague: the outcome, the scope, the constraints, and what must not change. A thin description is not fatal, because you can rewrite the requirement on any individual Task, but it does become the starting point for all of them.
+The description is the default requirement of every Task on the Issue. The Task form's requirement box opens prefilled from it and tells you so: "Enter task requirement (defaults to issue description)". Write it as the brief you would hand to a colleague: the outcome, the scope, the constraints, and what must not change. A thin description is not fatal, because you can rewrite the requirement on any individual Task, but it becomes the starting point for all of them.
 
 Plain text is enough, and `{{variable}}` placeholders are supported. **Use Requirement Template** opens a **Select Template** drawer listing the shared requirement templates. Each entry shows its name, tags, and a preview; **Filter by tags** narrows the list, and the empty states read **No requirement templates available** and **No templates match the selected tags**. Picking a template replaces the whole description, so if you had already written something the drawer asks "Current description will be replaced by the template. Continue?" first, and you confirm or cancel.
 
@@ -82,39 +84,39 @@ Placeholders a template leaves unfilled are not expanded for you. While the desc
 
 ## Branch and delivery settings
 
-The branch panel previews the whole flow before you commit to it:
+The branch panel previews the whole flow before you submit:
 
 - **AI checks out from** the **Starting Branch**.
-- **AI Working Branch (auto-generated)** is the branch the AI actually commits to. Codify always generates it as `codify/issue-{id}`; you never name it, and every Task on the Issue — including appended ones — works on that same branch.
+- **AI Working Branch (auto-generated)** is the branch the AI actually commits to. Codify always generates it as `codify/issue-{id}`; you never name it, and every Task on the Issue, including appended ones, works on that same branch.
 - **MR merges into** the **Merge Target**, but only while **Create Merge Request** is on.
 
-**Starting Branch** and **Merge Target** answer different questions, which is why they are two fields. The starting branch is the state of the repository the work begins from. The merge target is where that work is meant to land. Leaving both on the project's default branch is the ordinary case; **Use starting branch** sets the target to match the source in one click. They only need to differ when the work should start from one branch and be merged into another.
+**Starting Branch** and **Merge Target** answer different questions. The starting branch is the state of the repository the work begins from. The merge target is where that work is meant to land. Leaving both on the project's default branch is the ordinary case; **Use starting branch** sets the target to match the source in one click. They only need to differ when the work should start from one branch and be merged into another.
 
-**Create Merge Request** decides whether a Merge Request exists at all, and with it whether the delivery is reviewable:
+**Create Merge Request** decides whether a Merge Request exists at all:
 
-- **On** — Codify opens one draft Merge Request for the Issue against the **Merge Target**, labelled `Codify`, and reuses it for every later Task. The Issue page then links the Merge Request, and the Delivery chapter covers what happens to it during a run.
-- **Off** — the **Merge Target** field is disabled and reads **No MR**, the CI auto-repair switch is turned off and disabled, and the Task pushes the working branch without opening a Merge Request.
+- **On:** Codify opens one draft Merge Request for the Issue against the **Merge Target**, labelled `Codify`, and reuses it for every later Task. The Issue page then links the Merge Request, and the Delivery chapter covers what happens to it during a run.
+- **Off:** the **Merge Target** field is disabled and reads **No MR**, the CI auto-repair switch is turned off and disabled, and the Task pushes the working branch without opening a Merge Request.
 
 The switch is disabled until a project is chosen, because the branch list and the default branch used to prefill both fields come from the project.
 
-The clone controls explain themselves through their hints. Reach for **Shallow clone** and **History depth** when a large repository makes startup slow and the work does not need deep history. Reach for **Defer historical file contents** when the repository is large mostly because of old file contents and the tasks touch only a small part of it — file contents are then downloaded only when a task actually needs them.
+Choose **Shallow clone** with **History depth** when a large repository makes startup slow and the work does not need deep history. **Defer historical file contents** helps when the repository is large mostly because of old file contents and the tasks touch only a small part of it; file contents are then downloaded only when a task needs them.
 
 ## After creation
 
 Submitting validates the form first. If a field is rejected, the page scrolls to it, opens **Advanced settings** when the offending field is hidden inside the collapsed section, and focuses the control. Otherwise the Issue is created, a confirmation toast appears, and you are taken to the Issue page.
 
-The new Issue starts as **Open**, with no runs yet — the run history says there is nothing to show and points you at the first Task. The working branch name `codify/issue-{id}` is already assigned, but nothing has been cloned or pushed yet; the branch appears in GitLab when the first Task delivers it. The project you used is remembered in the **Recent** list and the title is remembered for the title suggestions, both stored in your browser rather than on the server.
+The new Issue starts as **Open**, with no runs yet: the run history says there is nothing to show and points you at the first Task. The working branch name `codify/issue-{id}` is already assigned, but nothing has been cloned or pushed yet; the branch appears in GitLab when the first Task delivers it. The project you used is remembered in the **Recent** list and the title is remembered for the title suggestions, both stored in your browser rather than on the server.
 
-From here the next step is **Create Task** — or **Create First Task** while the Issue is empty. That is where Task Mode, priority, and the choice between **Execute Now** and a schedule are made. The Issue page is also where you can later edit the title, the description, the CI auto-repair switch, and the **Default AI Provider** through **Edit Issue**; the **Worker** is displayed there but cannot be changed.
+The next step is **Create Task**, or **Create First Task** while the Issue is empty. There you choose Task Mode, priority, and either **Execute Now** or a schedule. The Issue page is also where you can later edit the title, the description, the CI auto-repair switch, and the **Default AI Provider** through **Edit Issue**; the **Worker** is displayed there but cannot be changed.
 
-Closing the Issue asks what should happen to the working branch — **Close and Keep Branch** or **Close and Delete Branch** — and an MR merge webhook closes the Issue on its own, applying whatever **Branch cleanup** was set to. Only one Task per Issue runs at a time, so a second Task waits for the first to finish, or you use **Append Task** to continue in the same workspace, session, and branch.
+Closing the Issue asks what should happen to the working branch: **Close and Keep Branch** or **Close and Delete Branch**. An MR merge webhook closes the Issue on its own, applying whatever **Branch cleanup** was set to. Only one Task per Issue runs at a time, so a second Task waits for the first to finish, or you use **Append Task** to continue in the same workspace, session, and branch.
 
 ## Common mistakes
 
 - **Leaving the Worker unset.** It is required, and it cannot be changed later; you would have to close the Issue and create a new one.
 - **Disabling a Worker that an open Issue uses.** A profile assigned to open Issues refuses a plain disable, and force-disabling it closes those Issues.
 - **Choosing a Worker that cannot do what you asked for.** **Shallow clone** and **Defer historical file contents** require the mounted worker kit at 0.3.0 or newer. Pick a different Worker or leave the clone mode on **Full clone**.
-- **Expecting an MR after switching it off.** With **Create Merge Request** off there is no Merge Target, no Merge Request, and no pipeline auto-repair — the branch is pushed and nothing else happens.
+- **Expecting an MR after switching it off.** With **Create Merge Request** off there is no Merge Target, no Merge Request, and no pipeline auto-repair; the branch is pushed and nothing else happens.
 - **Reading the collapsed Advanced settings as "nothing to see".** Full clone of a very large repository is the default and is the usual reason a Task takes a long time to start. The summary line always shows the clone mode, the branch cleanup behaviour, and the repair switch.
 - **Forgetting the Merge Target.** With the switch on it prefills from the project's default branch, so on a repository whose default branch is not where you want the change to land, set it explicitly before submitting.
 - **Leaving template placeholders in the description.** They are not filled in for you and are passed to the model verbatim.

@@ -1,0 +1,55 @@
+# 章节：40-run-and-steer（运行与引导）· 观察运行并选择后续操作。
+# 读者要理解：先观察当前运行，再根据结果选择合适的操作；追加任务继续推进
+# 同一需求，重试任务复用冻结快照，运行归档保留完整证据。
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）。
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+flow: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 42
+  style.fill: transparent
+  style.stroke-width: 0
+
+  run: "执行任务\nWorker 容器" { class: accent }
+  observe: "观察运行\n事件流 + 原始日志" { class: node }
+  guide: "实时引导\n转向 / 续接指令" { class: node }
+  finish: "任务结束\n已完成 / 失败 / 已取消" { class: node }
+  append: "继续推进\n追加后续任务" { class: node }
+  retry: "恢复执行\n重试任务" { class: node }
+  archive: "保留证据\n运行归档" { class: node }
+  gap: " " { style.fill: transparent; style.stroke-width: 0 }
+
+  run -> observe
+  observe -> guide
+  guide -> finish
+  finish -> append
+  finish -> retry
+  finish -> archive
+}

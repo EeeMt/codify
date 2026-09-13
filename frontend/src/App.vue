@@ -8,7 +8,14 @@
 
       <router-view v-else-if="!showShell" />
 
-      <n-layout v-else has-sider position="absolute" style="top: 0; bottom: 0" :native-scrollbar="false" class="app-shell">
+      <n-layout
+        v-else
+        has-sider
+        position="absolute"
+        style="top: 0; bottom: 0"
+        :native-scrollbar="false"
+        :class="['app-shell', { 'app-shell--guide': route.name === 'Guide' }]"
+      >
         <n-layout-sider
           v-if="!isMobile"
           bordered

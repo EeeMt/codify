@@ -3,7 +3,7 @@
 # repeated turn on that same Issue — create or append a Task, let the turn run,
 # review the result, then either start the next turn or take the single Merge
 # Request that closes the Issue.
-# Render: d2 issue-loop.d2 issue-loop.svg --pad 24 --theme 0 --layout elk, then set
+# Render: d2 issue-loop.d2 issue-loop.svg --pad 36 --theme 0 --layout elk, then set
 # width and height on the root <svg> to the viewBox size so the asset also renders
 # 1:1 outside the guide's <img>.
 # 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
@@ -47,25 +47,32 @@ classes: {
 # pair sits to its right.
 loop: {
   label: ""
-  grid-rows: 2
+  grid-rows: 3
   grid-columns: 4
-  grid-gap: 50
+  grid-gap: 48
   style.fill: transparent
   style.stroke-width: 0
 
-  issue: "Create the Issue\nonce" { class: accent }
-  task: "Create or append\nTask" { class: node }
-  run: "Turn runs\non the Issue" { class: node }
-  gap1: " " { style.fill: transparent; style.stroke-width: 0 }
-  gap2: " " { style.fill: transparent; style.stroke-width: 0 }
-  review: "Review the result\ncommit + MR" { class: node }
-  mr: "Merge Request\nmerges" { class: node }
-  closed: "Issue closes" { class: node }
+  # Decision words live inside the branch cards instead of on edges. This keeps
+  # arrows clear and prevents labels from sitting on card borders.
+  issue: "Create the Issue\nonce; workspace + branch" { class: accent }
+  task: "Create or append\nTask; shared context" { class: node }
+  run: "Run the turn\nin an isolated Worker" { class: node }
+  review: "Review the result\nchoose what is next" { class: node }
+  gap_a: " " { style.fill: transparent; style.stroke-width: 0 }
+  continue_turn: "Continue the loop\nappend a Task" { class: accent }
+  gap_b: " " { style.fill: transparent; style.stroke-width: 0 }
+  mr: "When satisfied\nmerge the one MR" { class: node }
+  gap_c: " " { style.fill: transparent; style.stroke-width: 0 }
+  gap_d: " " { style.fill: transparent; style.stroke-width: 0 }
+  gap_e: " " { style.fill: transparent; style.stroke-width: 0 }
+  closed: "Issue closes\nwork is complete" { class: node }
 
-  issue -> task: "once"
+  issue -> task
   task -> run
   run -> review
-  review -> task: "another turn"
-  review -> mr: "done"
-  mr -> closed: "closes"
+  review -> continue_turn
+  continue_turn -> task
+  review -> mr
+  mr -> closed
 }

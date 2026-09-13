@@ -64,6 +64,22 @@ describe('renderGuideChapter', () => {
     expect(html).not.toContain('<figure')
   })
 
+  it('renders semantic callouts without exposing the markdown marker', () => {
+    const { html } = renderGuideChapter('> [!tip] **Tip** — keep one Issue for one line of work.', ENV)
+
+    expect(html).toContain('class="guide-callout guide-callout--tip"')
+    expect(html).toContain('data-guide-callout="tip"')
+    expect(html).toContain('<strong>Tip</strong>')
+    expect(html).not.toContain('[!tip]')
+  })
+
+  it('wraps guide tables so wide reference rows can scroll independently', () => {
+    const { html } = renderGuideChapter('| Field | Meaning |\n| --- | --- |\n| Issue | Work unit |', ENV)
+
+    expect(html).toContain('<div class="guide-table"><table>')
+    expect(html).toContain('</table></div>')
+  })
+
   it('wraps a code fence with a copy button and escapes its content', () => {
     const { html } = renderGuideChapter('```bash\nmake test-unit\n```\n', ENV)
 

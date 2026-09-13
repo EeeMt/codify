@@ -55,6 +55,32 @@ interface InlineLike {
   content?: string
 }
 
+type GuideCalloutKind = 'info' | 'tip' | 'warning' | 'success' | 'route'
+
+const CALLOUT_MARKER = /^\[!(info|note|tip|warning|success|route)\]\s*/i
+
+function calloutKind(inline: InlineLike | undefined): { kind: GuideCalloutKind; length: number } | null {
+  const match = CALLOUT_MARKER.exec(inline?.content ?? '')
+  if (!match) return null
+  const rawKind = match[1].toLowerCase()
+  return {
+    kind: rawKind === 'note' ? 'info' : (rawKind as GuideCalloutKind),
+    length: match[0].length,
+  }
+}
+
+function removeCalloutMarker(inline: InlineLike, length: number): void {
+  inline.content = (inline.content ?? '').slice(length)
+  let remaining = length
+  for (const child of inline.children ?? []) {
+    if (remaining <= 0) break
+    if (child.type !== 'text') continue
+    const removed = Math.min(remaining, child.content.length)
+    child.content = child.content.slice(removed)
+    remaining -= removed
+  }
+}
+
 /** Plain text of a heading, with inline markup flattened to its text. */
 function inlineText(token: InlineLike | undefined): string {
   const children = token?.children
@@ -95,8 +121,29 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const image = self.renderToken(tokens, idx, options)
   const caption = token.content.trim()
   if (!guideEnv.inFigure || !caption) return image
-  return `${image}<figcaption class="guide-figure__caption">${md.utils.escapeHtml(caption)}</figcaption>`
+  const fullSizeImage = resolved
+    ? `<a class="guide-figure__image-link" href="${md.utils.escapeHtml(resolved)}" target="_blank" rel="noopener noreferrer" aria-label="${md.utils.escapeHtml(caption)}">${image}</a>`
+    : image
+  return `${fullSizeImage}<figcaption class="guide-figure__caption">${md.utils.escapeHtml(caption)}</figcaption>`
 }
+
+md.renderer.rules.blockquote_open = (tokens, idx, options, _env, self) => {
+  const inline = tokens[idx + 2] as unknown as InlineLike | undefined
+  const marker = calloutKind(inline)
+  if (marker && inline) {
+    removeCalloutMarker(inline, marker.length)
+    const existing = tokens[idx].attrGet('class')
+    tokens[idx].attrSet(
+      'class',
+      [existing, 'guide-callout', `guide-callout--${marker.kind}`].filter(Boolean).join(' '),
+    )
+    tokens[idx].attrSet('data-guide-callout', marker.kind)
+  }
+  return self.renderToken(tokens, idx, options)
+}
+
+md.renderer.rules.table_open = () => '<div class="guide-table"><table>'
+md.renderer.rules.table_close = () => '</table></div>'
 
 md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
   const href = tokens[idx].attrGet('href') ?? ''

@@ -55,7 +55,7 @@ const en = {
   },
   guide: {
     title: 'Guide',
-    subtitle: 'How Codify works and how to operate it — from creating an issue to reviewing a merge request, plus the platform settings administrators own.',
+    subtitle: 'How Codify works from creating an issue to reviewing a merge request, and which platform settings administrators own.',
     tocLabel: 'Guide contents',
     searchPlaceholder: 'Search the guide',
     searchChapter: 'Chapter',
