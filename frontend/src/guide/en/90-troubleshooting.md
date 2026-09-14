@@ -6,7 +6,7 @@ tier: core
 
 ## Task failed
 
-![Read the failure reason first; the rest only confirms it](assets/diagrams/en/failure-triage.svg)
+![Evidence of a failed run: failure reason, events, raw logs, runtime archive](assets/diagrams/en/failure-triage.svg)
 
 > [!tip] **Triage order**: read the failure kind on the task first, use Events to confirm the order, use Raw Logs to inspect the container, then download the run archive for complete evidence.
 

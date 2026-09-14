@@ -6,7 +6,7 @@ tier: core
 
 ## 任务失败
 
-![按错误卡片、事件流、原始日志、运行归档的顺序排查](assets/diagrams/zh-CN/failure-triage.svg)
+![一次失败运行留下的证据：错误卡片、事件流、原始日志与运行归档](assets/diagrams/zh-CN/failure-triage.svg)
 
 > [!tip] **排查顺序**：先读错误卡片里的失败类型，再用事件流确认发生顺序，用原始日志定位容器细节，最后从运行归档取完整证据。
 
