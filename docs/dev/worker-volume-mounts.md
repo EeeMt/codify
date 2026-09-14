@@ -63,7 +63,7 @@ Profile 自定义 volume 的 `host_path` 同样由目标 Docker host 解释，�
 
 ### 路径构建
 
-`build_issue_workspace_paths()`（`worker_workspace.py:19`）基于 `{host_path}/project-{project_id}/issue-{issue_id}` 生成：
+`build_issue_workspace_paths()`（`worker_workspace.py:29`）基于 `{host_path}/project-{project_id}/issue-{issue_id}` 生成：
 
 ```
 /opt/codify-workspaces/
@@ -226,7 +226,7 @@ codify-runtime/task-prompt.md
 /tmp/codify-runtime/task-prompt.md
 ```
 
-容器环境变量 `CODIFY_TASK_PROMPT_FILE` 只携带上述稳定路径。`entrypoint.worker.sh` 要求文件存在且非空，然后复制到 `/tmp/claude_prompt.txt` 供 `claude-run.sh` 使用；不会根据 `USER_PROMPT` 或 `TASK_MODE` 回退拼装主提示词。`USER_PROMPT` 仍保留用于任务元数据、MR 描述和后处理。
+容器环境变量 `CODIFY_TASK_PROMPT_FILE` 只携带上述稳定路径。`task-environment.sh` 要求文件存在且非空，然后复制到 `/tmp/codify-harness-prompt.txt`（`CODIFY_HARNESS_PROMPT_FILE`）供当前 Harness 的 runner 使用；不会根据 `USER_PROMPT` 或 `TASK_MODE` 回退拼装主提示词。`USER_PROMPT` 仍保留用于任务元数据、MR 描述和后处理。
 
 这项协议要求 Backend/Scheduler 与匹配的 Worker image 作为一个兼容版本协同部署。Scheduler 必须先完成 pending/queued 历史任务的提示词回填，再允许新 Worker 执行任务。
 
@@ -390,7 +390,7 @@ Maven 缓存和 `settings.xml` 不再有专用配置项。需要时使用通用
 
 ### CA 证书自动挂载
 
-`worker_volume_mounts_parsed` 属性（`config.py:201`）自动将 `worker_ca_cert_host_path` 追加为：
+`worker_volume_mounts_parsed` 属性（`config.py:328`）自动将 `worker_ca_cert_host_path` 追加为：
 
 ```python
 {
@@ -414,6 +414,8 @@ daemon 解析，不要求挂载进 Backend/Scheduler，也不要求不同 Worker
 | `${CI_FAILURE_BUNDLE_HOST_PATH:-/opt/codify-ci-failures}` | `${WORKER_WORKSPACE_HOST_PATH}/ci-failures` | Backend、Scheduler | 暂存控制面收集的 CI failure bundle |
 | `/opt/codify-archives` | `/opt/codify-archives` | Backend | 写入运行时归档文件 |
 | `/var/run/docker.sock` | `/var/run/docker.sock` | Backend、Scheduler | 访问本机 Docker；远程 Worker 使用 Profile 的 endpoint |
+| `${DOCKER_CERTS_HOST_PATH:-/opt/codify-docker-certs}` | `/opt/codify-docker-certs`（ro） | Backend、Scheduler | 远程 Docker daemon 的 TLS CA/证书/私钥，按 daemon 分目录 |
+| `/opt/ca.crt` | `/etc/ssl/certs/custom-ca.crt`（ro） | Backend、Scheduler | 控制面自己出网用的自定义 CA 证书 |
 
 CI bundle 会被打入任务 runtime tar，再通过 Docker API 上传到目标容器，因此
 `ci-failures/` 也不需要与 Worker daemon 共享。

@@ -4,22 +4,22 @@ Guidance for Claude Code in this repo. Full doc index: [docs/README.md](docs/REA
 
 ## Overview
 
-Codify runs each task in an isolated Docker container that executes an AI Harness — **Claude CLI or Codex CLI** — to generate code, commit, push, and open a GitLab MR. Backend: FastAPI + async SQLAlchemy. Frontend: Vue 3 + Naive UI. Worker scripts live in `deploy/worker-entrypoint/`.
+Codify runs each task in an isolated Docker container that executes an AI Harness — one of **Claude, Codex, Pi, or OpenCode** — to generate code, commit, push, and open a GitLab MR. Backend: FastAPI + async SQLAlchemy. Frontend: Vue 3 + Naive UI. Worker scripts live in `deploy/worker-entrypoint/`.
 
 ## Non-negotiables (worker/task code)
 
-- **Never hardcode a harness.** Execution facts (adapter, CLI path, bundle, session, `harness_key`) come from the frozen Task snapshot / runtime bundle manifest. Canonical events (`codify.worker.event/v1`) are the only event protocol the backend consumes; adapters translate engine raw output.
+- **Never hardcode a harness.** Execution facts (adapter, CLI path, bundle, session, `harness_key`) come from the frozen Task snapshot / runtime bundle manifest. Canonical events are the only event protocol the backend consumes (`codify.worker.event/v1`, or `/v2` when the task runs under the V2 contract); adapters translate engine raw output.
 - **Runtime Bundles are immutable.** A task freezes a bundle digest at creation; `retry` reuses it. After changing `deploy/worker-entrypoint/**`, rebuild the backend image **and** recreate the scheduler — then verify with a **new** task (retry keeps the old bundle).
 - **Use `get_effective_settings()`**, not `get_settings()` — DB overrides from `system_config` must take effect at runtime.
 - **Async SQLAlchemy:** never read a lazy-loaded relationship (e.g. `task.worker_profile_snapshot`) without an `sa_inspect(...)` unloaded check — it raises `MissingGreenlet`. Prefer explicit `selectinload`.
-- **Sanitize before storing logs** (`harness/adapters/sanitize.py`; backend `worker.py::sanitize_sensitive_data`) — strips `glpat-*` tokens and `sk-ant-*` keys.
+- **Sanitize before storing logs** (`deploy/worker-entrypoint/harness/adapters/sanitize.py`; backend `backend/app/core/worker.py::sanitize_sensitive_data`) — strips `glpat-*` tokens and `sk-ant-*` keys.
 - **Credential-aware sessions:** session namespace excludes the credential, so rotation does not reset a conversation.
 
 ## Dev environment gotchas
 
 - Docker runs on a **remote host** via context `remote` (`ssh://root@192.168.50.129`); every `make`/compose target acts on it. Addresses/credentials: gitignored `deploy/dev-env-info.md`.
 - `docker run -v <local-path>:/x` mounts the **remote** path, not local; use `--entrypoint cat <image> <path>` to read files out of images.
-- Dev env = `make up` → backend/scheduler/nginx/postgres on the remote host; backend **and** scheduler both run `AUTO_MIGRATE=true`.
+- Dev env = `make up` → backend/scheduler/nginx/postgres on the remote host. The scheduler runs `AUTO_MIGRATE=true` and owns migrations; the backend container runs `AUTO_MIGRATE=false`. `deploy/docker-compose.yml` also has a `migrate` service under the `maintenance` profile.
 
 ## Commands
 
@@ -51,8 +51,8 @@ Key modules:
 | `backend/app/core/harness_registry.py` | harness allowlist, capability policy, manifest validation |
 | `backend/app/core/harness_sessions.py` / `harness_attempts.py` | session lineage, idempotent canonical-event ingest |
 | `backend/app/core/model_credentials.py` | per-provider credentials (active/retired lifecycle) |
-| `deploy/worker-entrypoint/harness/` | worker-side adapters + event translators + runner (claude/codex) |
-| `backend/app/migrations.py` + `alembic/versions/NNN_*.py` | migrations (head: `072`) |
+| `deploy/worker-entrypoint/harness/` | worker-side adapters + event translators + runner (claude, codex, opencode, pi) |
+| `backend/app/migrations.py` + `alembic/versions/NNN_*.py` | migrations (head: `080_task_command_created_by`) |
 
 Worker containers: `{worker_container_prefix}-{task_id}-issue{issue_id}` (prefix defaults to `codify`, e.g. `codify-670-issue183`) — scheduler crash recovery matches `^{prefix}-(\d+)-issue(\d+)$`.
 

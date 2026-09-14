@@ -14,7 +14,7 @@ What an appended Task inherits, and what it does not:
 |---|---|
 | Workspace | The same issue-scoped working copy on the same branch. Nothing is cloned again between rounds. |
 | Session | The Harness conversation, while the Task keeps the default **Continue session** mode and the Issue's lineage still has a session recorded. The task page reports this in the **Session mode** row. |
-| Previous-task summaries | A file describing earlier Tasks on the Issue, mounted for every run. The model sees it only if the run instruction asks for it. |
+| Previous-task summaries | A file describing earlier Tasks on the Issue, written into the container for every run. The model sees it only if the run instruction asks for it. |
 | Prompt and run instruction | New for every Task, never inherited. |
 
 **Run in a new session** is the control that cuts the conversation while everything else stays. Its hint reads: "Do not inherit the current conversation context. The workspace, Git branch, and previous session records are preserved." Use it when the Issue has moved on to a different question and you no longer want that conversation carried forward, or when you need a different Harness, since a continue-session Task must keep the one it started with.
@@ -25,7 +25,7 @@ A new Issue is the only way to get a separate workspace, a separate branch, and 
 
 ## Look without touching the branch
 
-**Analysis** mode runs against a live branch without moving it. The run discards its changes when it ends, and the Task still completes successfully: an analysis Task is not expected to produce commits, `require_changes` is fixed to false, and Codify collects no commit or Merge Request.
+**Analysis** mode runs against a live branch without moving it. The run discards its changes when it ends, and the Task still completes successfully: an analysis Task is not expected to produce commits, `require_changes` is fixed to false, and Codify records no commit for it.
 
 Use it for questions you want answered against the real code, such as what the current implementation does or where a failure comes from. The branch stays where it was, so an Implementation Task on the same Issue afterwards starts from the same tip.
 
@@ -36,20 +36,20 @@ Task Mode is stored per Task, so one Issue can run different modes across its ro
 | Mode | Run instruction | Changes at the end of the run | Delivery |
 |---|---|---|---|
 | **Implementation** | The mode's default template, or a template you supply | Committed by the worker | Branch pushed, Merge Request created or reused |
-| **Analysis** | The mode's default template, or a template you supply | Discarded | None |
+| **Analysis** | The mode's default template, or a template you supply | Discarded | Nothing pushed |
 | **Freeform** | Fixed to `{{user_prompt}}` | Whatever the Harness produced | A Merge Request only when the run produced a commit |
 
 Freeform rejects any template other than `{{user_prompt}}`, so the Harness receives your requirement without a wrapper. Use it when the Harness should decide whether to answer, analyse, or edit, and accept that the run may end with nothing to merge; with **Require Changes** off, that outcome is a success. **Require Changes** exists for Implementation only, where turning it on fails a Task that produced no commits.
 
-Run Analysis first to pin down the problem and the intended change, then append an Implementation Task to carry it out on the same branch. Switching mode in the form asks whether to take the new mode's default template, so a template you edited under the previous mode does not carry over by accident.
+Run Analysis first to pin down the problem and the intended change, then append an Implementation Task to carry it out on the same branch. Each mode keeps its own template, so a template you edited under Implementation is waiting when you switch back to it, and it is never applied to a mode you have not touched.
 
 ## Previous-task summaries in context
 
-Codify writes a summaries file for every run and mounts it at `/tmp/codify-runtime/previous-task-summaries.md`, exposed to run instructions as `{{previous_task_summaries_path}}`. The built-in Implementation and Analysis templates never reference it, so the file goes unread unless you add the placeholder yourself.
+Every run that belongs to an Issue gets a summaries file inside the container at `/tmp/codify-runtime/previous-task-summaries.md`, exposed to run instructions as `{{previous_task_summaries_path}}`. The built-in Implementation and Analysis templates never reference it, so the file goes unread unless you add the placeholder yourself.
 
 To do that, open **Advanced** in the task form, edit the **Run Instruction Template** of an Implementation or Analysis Task, place `{{previous_task_summaries_path}}` where the instruction should consult the earlier rounds, and check the result in **Preview**. The rendered prompt is stored on the Task, so you can confirm afterwards what the Harness received. Freeform does not accept the placeholder, since its template has to be `{{user_prompt}}`.
 
-The file holds one entry per earlier Task on the Issue, with its status, goal, commit, and execution summary. It is a summary of the earlier rounds; for the conversation itself, use **Continue session**.
+The file starts with the Issue title and description, then holds one entry per earlier Task, with its status, goal, commit message, and execution summary. When the Issue has no earlier Task, the file says so. It is a summary of the earlier rounds; for the conversation itself, use **Continue session**.
 
 ## Continuing across Issues
 
@@ -72,4 +72,4 @@ What goes wrong:
 
 The history has to stay a straight line. A diverged local and remote, a remote that was rewound, a remote branch deleted while the workspace still remembers it, and a workspace whose uncommitted changes meet a remote that has moved on are each refused: preparation fails before the Harness starts, and neither side is overwritten. Under a shallow clone some ancestry cannot be proven, and that is refused in the same way. Adding commits on top is fine; rewriting the branch is not.
 
-To move work to a different branch, Codify offers nothing: there is no cherry-pick and no cross-branch copy. Those commits are ordinary git history, so cherry-pick them from that branch in your own clone when you need them elsewhere. Inside Codify, work moves forward by pushing at the tip and letting the next Task build on it.
+Codify itself offers no way to move commits to a different branch: there is no cross-branch copy inside the platform. Those commits are ordinary git history, so cherry-pick them from that branch in your own clone when you need them elsewhere.

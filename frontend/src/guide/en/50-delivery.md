@@ -14,7 +14,7 @@ The working branch is named `codify/issue-{id}`, where `id` is Codify's internal
 
 Nothing creates the branch in advance. The worker creates it locally on the first run that needs it: it checks out the local branch when one exists, otherwise it creates one from the branch of that name on the remote, otherwise it creates a new branch from the base branch. The branch appears on the remote only when the first successful publish creates it. The base branch is the Issue's **Starting Branch** when it has one, otherwise the target branch, otherwise the project's default branch.
 
-The **Branch Config** panel on a task names three roles:
+The **Branch Config** row of the Task overview panel names three roles:
 
 | Role | Label |
 |---|---|
@@ -30,7 +30,7 @@ The **Commit Record** section lists what the Task produced. Commits added by the
 
 - **This task commits ({count})**: commits created by this run.
 - **Previous task commits ({count})**: commits from earlier runs that were picked up.
-- Each row shows its **Commit** SHA along with the message.
+- Each row carries the shortened commit SHA and the commit subject.
 
 The push result is recorded as one of:
 
@@ -48,13 +48,12 @@ Whether the result becomes a Merge Request depends on how the Issue was configur
 
 - **Will create MR**: the default. Commits are pushed and a Merge Request is opened or updated.
 - **No MR**: the Issue was created without **Create Merge Request**, so only the branch is pushed.
-- **Direct Push** and **Manual** appear on the branch panel for tasks whose branch flow does not go through the automated MR path.
 
-The **Branch Config** panel names the mode next to the branch roles, so a task's MR intent is visible without opening the Issue.
+A task that has no Issue behind it shows **Direct Push** where the working branch would be, and its **Source** row reads **Manual**.
 
 ## Merge request
 
-One Merge Request serves the whole Issue. Codify creates it as a draft MR when the branch first needs one, labelled `Codify`, authored as the requester, and updated with the run summary afterwards.
+One Merge Request serves the whole Issue. Codify creates it as a draft MR when the branch first needs one, labelled `Codify` and owned by the task initiator's GitLab identity when an admin token lets Codify impersonate that account, falling back to the bot account otherwise.
 
 The **Task overview** panel carries the Merge Request state for the Issue:
 
@@ -62,9 +61,7 @@ The **Task overview** panel carries the Merge Request state for the Issue:
 - Before it exists but a merge target is set, the row reads **Will create MR** followed by the target branch.
 - When the Issue has no merge target configured, the row reads **No MR**.
 
-The **Branch Config** row above it names the branch roles and the delivery mode.
-
-Each subsequent Task updates the same MR instead of opening a new one, and its description carries a per-task table of status, commit message, and change line counts, plus the Issue context. A failed delivery is marked as failed in the MR body.
+Each subsequent Task updates the same MR instead of opening a new one, and its description carries a per-task table of status, commit message, and change line counts, plus the Issue context. A failed delivery is recorded in the MR body.
 
 Both directions are automatic:
 
@@ -73,11 +70,11 @@ Both directions are automatic:
 
 Closing an Issue by hand asks first and offers the branch choice: **Close and Keep Branch** or **Close and Delete Branch**, with the prompt naming the branch. A branch can also be deleted from the Issue page with **Delete Branch** after confirmation; an already deleted branch reports **Branch already deleted**.
 
-**MR pipeline failure auto-repair** is opt-in per Issue. When enabled, Codify creates a repair task if the tracked MR pipeline fails; when disabled, pipeline failures are still recorded but no repair task is created automatically. The Issue page tracks this under **CI Automation** with the pipeline, repair tasks, failed jobs, and the processing timeline. Auto-created repair tasks are capped per MR; once the cap is reached, further failures are recorded as **Max attempts reached** and ignored.
+**MR pipeline failure auto-repair** is opt-in per Issue. When enabled, Codify creates a repair task if the tracked MR pipeline fails; when disabled, pipeline failures are still recorded but no repair task is created automatically. The Issue page tracks this under **CI Automation**, with counters for **Failed pipelines**, **Repair tasks**, and **Root cause jobs**, and a **Processing timeline** for each recorded run. Auto-created repair tasks are capped per MR; once the cap is reached, further failures are recorded as **Max attempts reached** and ignored.
 
 ## Change and usage statistics
 
-Statistics answer two questions: how much code changed, and what it cost. Change statistics come from the Git delivery record:
+Statistics cover how much code changed and what it cost. Change statistics come from the Git delivery record:
 
 | Field | Label |
 |---|---|
@@ -89,7 +86,7 @@ Statistics answer two questions: how much code changed, and what it cost. Change
 
 A run that changed nothing reports **No net file changes**; a run whose statistics could not be collected is marked **Change stats not collected** instead of showing zeros. The Issue overview aggregates the same data across its Tasks as **Changes** (with `+additions` and `-deletions` detail), alongside **Total Duration** and a combined **Tokens** figure.
 
-Token usage is captured per Task as input and output tokens. The **Run Statistics** panel on the Task Result shows a **Token Usage** total with **Input** and **Output** breakdowns. Analytics adds derived metrics over a time window:
+Token usage is captured per Task as input and output tokens. The **Run Statistics** panel on the task page shows a **Token Usage** total with **Input** and **Output** breakdowns. Analytics adds derived metrics over a time window:
 
 - **Total Tokens**, annotated as `In {input} / Out {output}` for the tasks that reported token data.
 - **Avg Tokens / Task** across tasks that have token data, with **Max {value}**.
@@ -100,4 +97,4 @@ Statistics cover finished work only: tasks still running are excluded from the f
 
 ## Run archive
 
-The **Runtime Archive** panel on a Task offers **Download runtime archive**; the entries it holds, its size limits, and its retention are described in the Delivery Internals chapter.
+The **Actions** area of a **completed** or **failed** task offers **Download runtime archive**; the entries the archive holds, its size limits, and its retention are described in the Delivery Internals chapter.

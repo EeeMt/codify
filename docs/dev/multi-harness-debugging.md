@@ -36,7 +36,7 @@
 
 - **现象**：`Harness Adapter command is unavailable: .../legacy/codex-run.sh`。
 - **根因**：adapter 返回的路径带 `deploy/` 前缀，而 bundle 内映射已去掉（`.../worker-entrypoint/legacy/...`）。
-- **修复**：adapter 返回 `${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/legacy/<run-script>`；同时设置对应 translator 路径（与 claude.sh 一致）。
+- **修复**：adapter 返回 `${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/runners/<run-script>`；同时设置对应 translator 路径（与 claude.sh 一致）。
 
 ### 1.4 懒加载关系导致 greenlet 错误
 
@@ -67,11 +67,11 @@
 ### 1.8 Session 隔离与 resume
 
 - **跨 Harness 隔离**（Task 514/515/516）：claude fresh 产生 session A，codex continue 的 `input_session_id` 为空（不复用 claude session）。修复 `record_task_output_session` 懒加载 fallback 导致 session 误记到错误 lineage 的 bug（显式 `db.refresh` snapshot + 仅在 claude 时写 `issue.claude_session_id`）。
-- **resume**（Task 521/522）：注入 `CODIFY_RESUME_SESSION`（仅 continue），run 脚本用 `codex exec resume <session>`；**CLI home 挂 issue-shared 持久目录**（如 `/opt/codify-issue-shared/codex-home`）使 session transcript 跨任务保存（`rollout-*.jsonl` 可见）；resume 任务 `input_session` 非空且 `run.completed(success)`。
+- **resume**（Task 521/522）：注入 `CODIFY_RESUME_SESSION`（仅 continue），Codex 走 App Server bridge，以 JSON-RPC `thread/resume` 复用同一 thread；**CLI home 挂 issue-shared 持久目录**（如 `/opt/codify-issue-shared/codex-home`）使 session transcript 跨任务保存（`rollout-*.jsonl` 可见）；resume 任务 `input_session` 非空且 `run.completed(success)`。
 
 ### 1.9 Harness 切换约束（决策 4）
 
-- `session_mode=continue` 且显式传 `harness_key` 时，后端校验必须等于 issue 最近 lineage 的 `harness_key`（`get_issue_latest_harness_key`），否则 422「续跑会话必须沿用原 Harness；切换请勾选使用新会话执行」。
+- `session_mode=continue` 且显式传 `harness_key` 时，后端校验必须等于 issue 最近 lineage 的 `harness_key`（`get_issue_latest_harness_key`），否则 422「续跑会话必须沿用原 Harness；切换 Harness 请勾选“使用新会话执行”」。
 - 前端 `TaskFormDrawer` 在非新会话且有现有 lineage 时禁用 harness 选择器（`harnessLocked`）；Issue 详情返回 `current_harness` 供前端默认。
 
 ### 1.10 取消 / 超时路径与 harness 无关

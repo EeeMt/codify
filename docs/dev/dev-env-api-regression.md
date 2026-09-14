@@ -26,7 +26,7 @@ curl -s -c /tmp/codify_cookies.txt \
   -d '{"username":"<user>","password":"<pass>"}'
 ```
 
-之后所有请求带上 `-b /tmp/codify_cookies.txt`。cookie 名为 `codify_session`，TTL 默认 5 天。
+之后所有请求带上 `-b /tmp/codify_cookies.txt`。cookie 名为 `codify_session`，`session_ttl_seconds` 默认 28800 秒。
 
 **注意：**
 - 不要把真实口令写进仓库或文档；用完后删除 cookie 文件：`rm -f /tmp/codify_cookies.txt`。
@@ -87,7 +87,7 @@ python3 - <<'PY'
 import json
 lines=[l for l in open('event.jsonl') if l.strip()]
 seqs=[json.loads(l)['seq'] for l in lines]
-assert all(json.loads(l)['schema']=='codify.worker.event/v1' for l in lines)
+assert all(json.loads(l)['schema']=='codify.worker.event/v2' for l in lines)
 assert seqs==list(range(1,len(lines)+1)), "seq 必须连续无缺口无重复"
 types=[json.loads(l)['type'] for l in lines]
 assert types.count('run.completed')+types.count('run.failed')==1, "只能有一个 Task terminal"
@@ -148,12 +148,12 @@ docker run --rm --entrypoint cat <image> /opt/codify/runtime-source/deploy/.../f
 让任务 prompt 执行 `id -u` 并把结果写入仓库文件（如 uid-probe.txt），提交后三重确认运行用户：
 - workspace 上该文件**内容 + 属主**（codify 应写 1000:1000）
 - archive 里 `harness-events/<harness>.jsonl` 的 `aggregated_output`（`id -u` → `1000`）
-- 任务 RUNNING 时现场 `docker exec <worker> ps -eo pid,user,uid,args | grep -E "[c]odex exec"`
+- 任务 RUNNING 时现场 `docker exec <worker> ps -eo pid,user,uid,args | grep -E "[c]odex app-server"`
 
 顺带 `find /workspace/.git -user root` 查旧 run 遗留的 root-owned 对象（条件 chown 只在这些存在时才归一化）。
 
 ### `session_mode=continue` 的 harness 约束
 
 continue 必须沿用 issue 当前 lineage 的 harness；传不匹配的 `harness_key` 返回 422
-「续跑会话必须沿用原 Harness；切换 Harness 请勾选"使用新会话执行"」。issue 混用过 claude/codex
+「续跑会话必须沿用原 Harness；切换 Harness 请勾选“使用新会话执行”」。issue 混用过 claude/codex
 时 continue 会被拒，改用 lineage 干净的 issue 或 `session_mode=fresh`。

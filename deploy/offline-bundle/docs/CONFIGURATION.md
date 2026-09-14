@@ -15,7 +15,8 @@ This document explains the configuration items required by `config/.env.offline`
   ```bash
   mkdir -p /opt/codify-workspaces /opt/codify-ci-failures
   ```
-- (Optional) If your environment uses a custom CA, place the PEM file at `/opt/ca.crt`
+- (Optional) If your environment uses a custom CA, place the PEM file at `/opt/ca.crt`. The compose file mounts this file into `backend` and `scheduler` with `create_host_path: false`, so the stack fails to start while the file is missing.
+- (Optional) `docker-compose.yml` also binds `${DOCKER_CERTS_HOST_PATH:-/opt/codify-docker-certs}` read-only into both services. It stays unused while `DOCKER_TLS_CA`, `DOCKER_TLS_CERT`, and `DOCKER_TLS_KEY` are empty.
 
 ## 2. Network prerequisites
 
@@ -43,9 +44,11 @@ If the environment is fully offline, both endpoints must exist inside the intran
 
 ### Application secrets
 
-- `SECRET_KEY`: application signing secret
-- `SESSION_SECRET`: session signing secret; should differ from `SECRET_KEY`
-- `CONFIG_ENCRYPTION_KEY`: used to encrypt sensitive runtime config stored in the database
+- `SESSION_SECRET`: signs dashboard session tokens. Generate a long random value.
+- `CONFIG_ENCRYPTION_KEY`: encrypts sensitive configuration stored in the database. When left empty the app falls back to `SESSION_SECRET`; if both are missing or still hold the built-in default, saving a secret from the Config page fails.
+- `SECRET_KEY`: the application never reads it, and the template no longer ships it. `SESSION_SECRET` is the value that matters.
+
+Values written through the dashboard Config page are encrypted with Fernet before they reach `system_config`. The encrypted keys are `gitlab_bot_token`, `gitlab_admin_token`, `anthropic_api_key`, `oidc_client_secret`, `mattermost_bot_token`, and `alert_webhook_url`. Every other key in `system_config` is stored as plain text.
 
 ### URLs
 
@@ -62,23 +65,38 @@ If the environment is fully offline, both endpoints must exist inside the intran
 ### Worker/scheduler
 
 - `WORKER_IMAGE`: must match the loaded worker image tag
-- `WORKER_WORKSPACE_HOST_PATH`: absolute daemon-local Issue workspace path (default `/opt/codify-workspaces`). Each Worker host owns its own directory; it is not mounted into Backend/Scheduler and does not require NFS.
-- `CI_FAILURE_BUNDLE_HOST_PATH`: Backend/Scheduler-local CI input staging path (default `/opt/codify-ci-failures`). Runtime bundles are uploaded to Worker containers through the Docker API.
-- `MAX_CONCURRENCY`: max number of concurrent tasks
-- `TASK_TIMEOUT_PEAK_SECONDS`: max seconds a task may run during the peak window
-- `TASK_TIMEOUT_OFF_PEAK_SECONDS`: max seconds a task may run outside the peak window
-- `TASK_TIMEOUT_PEAK_START`: peak window start in `HH:mm` (`Asia/Shanghai`)
-- `TASK_TIMEOUT_PEAK_END`: peak window end in `HH:mm` (`Asia/Shanghai`)
-- `SCHEDULER_INTERVAL`: polling interval
-- `DEFAULT_TARGET_BRANCH`: fallback branch when a task does not specify one
-- `SESSION_STORAGE_ROOT`: legacy compatibility setting. New Issue sessions persist under the daemon-local `WORKER_WORKSPACE_HOST_PATH`.
+- `WORKER_WORKSPACE_HOST_PATH`: absolute Issue workspace root (default `/opt/codify-workspaces`). Worker containers get this path as their workspace root on the Docker host, and every host in the deployment must use the same value. In `docker-compose.yml` it also anchors the CI staging bind, which `backend` and `scheduler` mount at `<path>/ci-failures`.
+- `CI_FAILURE_BUNDLE_HOST_PATH`: control-plane staging directory for CI failure inputs (default `/opt/codify-ci-failures`). It is bound into `backend` and `scheduler`; worker containers receive runtime bundles through the Docker API instead.
+- `MAX_CONCURRENCY`: max number of concurrent tasks (default `3`)
+- `TASK_TIMEOUT_PEAK_SECONDS`: max seconds a task may run during the peak window (default `1800`)
+- `TASK_TIMEOUT_OFF_PEAK_SECONDS`: max seconds a task may run outside the peak window (default `3600`)
+- `TASK_TIMEOUT_PEAK_START`: peak window start in `HH:mm` (`Asia/Shanghai`, default `09:00`)
+- `TASK_TIMEOUT_PEAK_END`: peak window end in `HH:mm` (`Asia/Shanghai`, default `18:00`)
+- `SCHEDULER_INTERVAL`: polling interval in seconds (default `5`)
+- `DEFAULT_TARGET_BRANCH`: fallback branch when a task does not specify one (default `main`)
+- `HARNESS_EXECUTION_MODE`: not in the template. `v2_only` is the only accepted value, and both `backend` and `scheduler` fall back to it.
+- `SESSION_STORAGE_ROOT`: fallback location for Issue session data when no workspace path can be derived (default `/var/codify/sessions`). Issues created with a workspace persist under `WORKER_WORKSPACE_HOST_PATH` instead.
 
 ### Slot capacity
 
 - `SLOT_MAX_TASKS`: max tasks allowed per 1-hour time window (default `0` = unlimited)
 - `SLOT_MAX_TASKS_ENFORCE`: when `true`, new tasks are rejected once the slot is full; when `false`, only a warning is logged (default `false`)
 
-These limits are also configurable at runtime via the dashboard Config page.
+These limits are also configurable at runtime via the dashboard Config page, and a value stored there wins over the environment.
+
+### How the compose file reads this file
+
+`scripts/start.sh` runs `docker compose --env-file config/.env.offline -f docker-compose.yml up -d`, so `${...}` references in the compose file resolve from `config/.env.offline`. Start the stack through that script; a bare `docker compose up` falls back to the `${VAR:-default}` values in the compose file.
+
+Variables listed under a service's `environment:` take precedence over `env_file`. Most of them interpolate from the same file, so editing `config/.env.offline` still changes the container value. These are pinned outright and cannot be changed from the env file:
+
+| Pinned value | Services |
+|---|---|
+| `DOCKER_HOST=unix:///var/run/docker.sock` | `backend`, `scheduler` |
+| `AUTO_MIGRATE=false` | `backend` (the `migrate` service also forces `false`) |
+| `AUTO_MIGRATE=true` | `scheduler` (single startup migration owner) |
+| `COOKIE_SECURE=false` | `backend` |
+| `CUSTOM_CA_BUNDLE=/etc/ssl/certs/custom-ca.crt` | `backend`, `scheduler` |
 
 ## 4. Optional configuration
 
@@ -103,7 +121,7 @@ These are optional. Configure them if you want Mattermost integration available 
 
 ### Custom CA certificate
 
-- `CUSTOM_CA_BUNDLE`: path inside the container to a PEM-encoded CA certificate file (default `/etc/ssl/certs/custom-ca.crt`)
+- `CUSTOM_CA_BUNDLE`: path inside the container to a PEM-encoded CA certificate file. The setting itself has no default; `docker-compose.yml` pins it to `/etc/ssl/certs/custom-ca.crt`, the path the host certificate is mounted at
 
 Use this when GitLab, the LLM gateway, Mattermost, or any other service uses a certificate signed by an internal or self-signed CA.
 
@@ -120,15 +138,19 @@ volumes:
 
 **Setup:** place your PEM CA certificate at `/opt/ca.crt` on the Docker host. If the path differs, edit `docker-compose.yml` to match. If no CA is needed, comment out the bind mount block and remove `CUSTOM_CA_BUNDLE` from the environment block.
 
+`CUSTOM_CA_BUNDLE` is pinned to `/etc/ssl/certs/custom-ca.crt` by the `environment:` blocks of `backend` and `scheduler`, which override `env_file`. Setting the variable in `config/.env.offline` does not move the path the containers use; change the compose value together with the bind target if you need a different one.
+
 When this variable is set, the following components inside every spawned **worker container** will trust the CA:
 
 | Component | Mechanism |
 |-----------|-----------|
-| System (curl, wget, etc.) | `update-ca-certificates` installs the cert to the system store |
+| System (curl, wget, etc.) | `update-ca-certificates` installs the cert to the system store; skipped when the container runs with a mounted Kit |
 | git | `http.sslCAInfo` |
 | Python (requests / httpx) | `REQUESTS_CA_BUNDLE` + `SSL_CERT_FILE` env vars |
 | Node.js / Claude CLI | `NODE_EXTRA_CA_CERTS` env var |
-| JDK (Maven, Gradle, Java) | `keytool -importcert` into `$JAVA_HOME/lib/security/cacerts` |
+| JDK (Maven, Gradle, Java) | `keytool -importcert` into `$JAVA_HOME/lib/security/cacerts`; skipped when the container runs with a mounted Kit, where the runtime image owns its truststore |
+
+The entrypoint applies this only when the file exists inside the worker container. If `CUSTOM_CA_BUNDLE` is unset, or it points at a path that is not mounted into the worker, the entrypoint falls back to `git config http.sslVerify=false`.
 
 The **backend and scheduler** HTTP clients (GitLab API, Mattermost, OIDC) also use `CUSTOM_CA_BUNDLE` as the `verify=` parameter for all requests.
 
@@ -136,21 +158,25 @@ The **backend and scheduler** HTTP clients (GitLab API, Mattermost, OIDC) also u
 
 Only configure these if the dashboard will use GitLab OIDC in the offline environment:
 
-- `OIDC_ENABLED`
+- `OIDC_ENABLED` (default `false`)
 - `OIDC_ISSUER_URL`
 - `OIDC_CLIENT_ID`
-- `OIDC_CLIENT_SECRET`
+- `OIDC_CLIENT_SECRET` (encrypted at rest when saved from the Config page)
 - `OIDC_REDIRECT_URI`
-- `COOKIE_SECURE`
-- `COOKIE_SAMESITE`
-- `SESSION_COOKIE_NAME`
-- `SESSION_TTL_SECONDS`
+- `COOKIE_SECURE` (default `true`; the `backend` service pins it to `false`)
+- `COOKIE_SAMESITE` (default `lax`)
+- `SESSION_COOKIE_NAME` (default `codify_session`)
+- `SESSION_TTL_SECONDS` (default `28800`)
+
+These keys are also persisted in `system_config` when changed from the Config page, and the stored value wins over the env file.
 
 ### Break-glass admin login
 
-- `AUTH_BREAK_GLASS_ENABLED`
+All three values are required; `break_glass_enabled` resolves to false when the username or the hash is empty.
+
+- `AUTH_BREAK_GLASS_ENABLED` (default `false`)
 - `AUTH_BREAK_GLASS_USERNAME`
-- `AUTH_BREAK_GLASS_PASSWORD_HASH`
+- `AUTH_BREAK_GLASS_PASSWORD_HASH`: accepts `sha256$<hex_digest>` or `pbkdf2_sha256$<iterations>$<salt_hex>$<digest_hex>`
 
 ### Optional admin / page access defaults
 
@@ -172,9 +198,7 @@ Only configure these if the dashboard will use GitLab OIDC in the offline enviro
 4. Load the exported images (`./scripts/load-images.sh`).
 5. If using an internal CA, place the cert at `/opt/ca.crt` (or adjust the bind mount in `docker-compose.yml`). If not, comment out the bind mount and `CUSTOM_CA_BUNDLE`.
 6. Start the stack: `./scripts/start.sh`.
-7. Confirm health:
-   - `http://host:8000/health` returns `200`
-   - `http://host:8880/` opens
+7. Confirm health with `./scripts/health-check.sh`, which reads `BACKEND_URL` and `FRONTEND_URL` from `config/.env.offline` and prints the status code of `/health` and `/`. Both should print `200`. `./scripts/stop.sh` stops the stack against the same env file.
 8. Log into the dashboard and verify runtime config.
 9. Configure GitLab project webhooks if they are not already present.
 
@@ -184,5 +208,5 @@ Only configure these if the dashboard will use GitLab OIDC in the offline enviro
 - Dashboard loads successfully
 - Backend can list GitLab projects
 - Scheduler is running without crash recovery errors
-- A test task can create a worker container
+- A test task can create a worker container named `codify-<task_id>-issue<issue_id>`
 - The worker can clone/push to GitLab and reach the LLM endpoint

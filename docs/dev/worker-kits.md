@@ -1,12 +1,12 @@
 # Mounted Worker Kits
 
-Codify supports two worker delivery modes:
+Codify runs every task from a mounted worker kit:
 
-- `baked_image`: deprecated legacy mode where the image contains both Codify tools and project
-  runtimes. It remains available for existing non-Skill profiles, but Claude Skills are not
-  supported.
 - `mounted_kit`: the profile image contains only the project runtime. Codify mounts a
   versioned worker kit when each task container starts.
+- `baked_image`: the retired mode where the image contained both Codify tools and project
+  runtimes. It is a historical read value only: profiles and task snapshots that still carry it
+  stay readable, write APIs reject it, and it never executes.
 
 The mounted mode separates ownership: project teams own Java, Node.js, C++, and other
 toolchains, while system operators distribute one audited Codify kit per platform.
@@ -72,14 +72,16 @@ Version `0.4.0` moves Harness CLI ownership into the Worker Kit: the Project Run
 ships project toolchains only, `harness_runtimes` sources become `worker_kit|host_mount`
 (`image` is removed), and the release overlay no longer mounts any CLI artifact lock.
 Versions `0.3.x` notes below describe the retired image-owned CLI era and are kept as
-historical reference only.
+historical reference only. The current build default is `0.6.17`, set by `WORKER_KIT_VERSION` in
+`deploy/Dockerfile.worker-kit` and by the same variable's fallback in
+`deploy/worker-kit/export.sh`.
 
 ## Build and export
 
 On a connected build machine:
 
 ```bash
-make worker-kit-export WORKER_KIT_VERSION=0.3.10 WORKER_KIT_PLATFORM=linux/amd64
+make worker-kit-export WORKER_KIT_VERSION=0.6.17 WORKER_KIT_PLATFORM=linux/amd64
 ```
 
 This creates an archive and checksum under `deploy/offline-bundle/kits/`. Kit versions are
@@ -117,9 +119,8 @@ preparation from the common task environment and keeps it behind the Claude Adap
 The actual Claude
 Adapter version and digest come only from each Task's immutable Runtime Bundle manifest; the Kit
 does not carry or declare a current Adapter. Existing mounted-kit profiles remain pinned to their
-configured path: install `0.3.10`
-on every eligible Docker host, verify it,
-and then update the profile version and path. Merely deploying the Backend does not replace an
+configured path: install the new version on every eligible Docker host, verify it, and then
+update the profile version and path. Merely deploying the Backend does not replace an
 already installed kit.
 
 Version `0.3.10` is the Claude + Codex production candidate. Its manifest declares both harness
@@ -130,9 +131,9 @@ version/digest still comes only from each Task's immutable Runtime Bundle manife
 verification runs once per enabled harness (`--harness-key claude|codex`) and checks the effective
 CLI binary, version, and binary digest on the target Host.
 
-## Phase 3 production baseline
+## Phase 3 production baseline (the 0.3.10 cutover)
 
-The Phase 3 release is a coordinated hard cutover on every target Host:
+The Phase 3 release was a coordinated hard cutover on every target Host:
 
 1. Stop scheduling and close every Issue created before the release. Its existing Tasks remain
    readable but cannot execute or retry because they have no immutable Runtime Bundle.
@@ -221,39 +222,43 @@ before terminating the CLI process group and stopping the stream processor.
 
 ## Offline installation
 
-Copy the bundle into the offline environment, then run this on every Docker Engine host that
-can execute mounted-kit profiles:
+Copy the bundle into the offline environment, then run this from the extracted bundle root on
+every Docker Engine host that can execute mounted-kit profiles:
 
 ```bash
 sudo ./scripts/install-worker-kit.sh \
-  kits/codify-worker-kit-0.3.10-linux-amd64-<manifest-prefix>.tar.gz
+  kits/codify-worker-kit-0.6.17-linux-amd64-<manifest-prefix>.tar.gz
 ```
 
 The default installation path is:
 
 ```text
-/opt/codify/worker-kits/0.3.10-linux-amd64-<manifest-prefix>
+/opt/codify/worker-kits/0.6.17-linux-amd64-<manifest-prefix>
 ```
+
+The `<manifest-prefix>` is the first 12 hex digits of the kit manifest SHA-256; the installer
+derives the directory name from the archive name and refuses an existing identity directory.
 
 For remote Docker targets, this is a path on the Docker Engine host, not on the Backend or
 Scheduler container. Install the kit at the profile's configured absolute path on each target.
 
 Runtime images are not included in the offline Docker archive by default. List all project
-runtime images in `config/worker-images.txt` before running `make offline-bundle-export`; those
-images are then included explicitly. This also applies to the reference
-`codify-worker/java21-maven:2026.07` image built from
+runtime images in `deploy/offline-bundle/config/worker-images.txt` before running
+`make offline-bundle-export`; those images are then included explicitly. This also applies to
+the reference `codify-worker/java21-maven:2026.07` image built from
 `deploy/Dockerfile.worker-java21-maven`.
 
 ## Runtime verification
 
-Verify the kit inventory and one project runtime image before creating a profile. Without
-`--harness-*` overrides the verifier walks the kit's `harness_inventory`: every `present` key
-gets integrity checks plus a functionality gate (`--version`, self-check, Adapter smoke), and
-every `absent` key is recorded with its reason code:
+Verify the kit inventory and one project runtime image before creating a profile. Run the
+verifier from the extracted bundle root. Without `--harness-*` overrides it walks the kit's
+`harness_inventory`: every `present` key gets integrity checks plus a functionality gate
+(`--version`, self-check, Adapter smoke), and every `absent` key is recorded with its reason
+code:
 
 ```bash
 ./scripts/verify-worker-runtime.sh \
-  --kit /opt/codify/worker-kits/0.4.0-linux-amd64 \
+  --kit /opt/codify/worker-kits/0.6.17-linux-amd64-<manifest-prefix> \
   --image codify-worker/java21-maven:2026.07 \
   --smoke 'java -version && mvn -version'
 ```
@@ -262,7 +267,7 @@ A per-Harness host_mount break-glass override keeps the explicit form:
 
 ```bash
 ./scripts/verify-worker-runtime.sh \
-  --kit /opt/codify/worker-kits/0.4.0-linux-amd64 \
+  --kit /opt/codify/worker-kits/0.6.17-linux-amd64-<manifest-prefix> \
   --image codify-worker/java21-maven:2026.07 \
   --harness-key codex \
   --harness-host-path /opt/codify/codex/bin/codex \
@@ -308,8 +313,8 @@ No UI is required. Create or update a Worker Profile through the existing admin 
   "name": "Java 21 and Maven",
   "image": "<registry>/codify-worker/java21-maven@sha256:<repo-digest>",
   "runtime_mode": "mounted_kit",
-  "worker_kit_version": "0.4.0",
-  "worker_kit_path": "/opt/codify/worker-kits/0.4.0-linux-amd64",
+  "worker_kit_version": "0.6.17",
+  "worker_kit_path": "/opt/codify/worker-kits/0.6.17-linux-amd64-<manifest-prefix>",
   "enabled_harnesses": ["pi", "opencode", "claude"],
   "default_harness_key": "pi",
   "harness_runtimes": {

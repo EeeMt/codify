@@ -2,17 +2,19 @@
 
 > 配套证据模板：[multi-harness-rollout-evidence.md](multi-harness-rollout-evidence.md)
 > 上级计划：[2026-08-01-multi-harness-engine-roadmap.md](../../design/plans/2026-08-01-multi-harness-engine-roadmap.md)
-> 当前范围（2026-08-24）：V2 dual-canary；仅在显式 release overlay、冻结 identity/evidence 和
-> L3/L4 门禁满足后推进。2026-08-05 的 Claude/Codex V1 直接切换演练仅保留为历史参考，不代表当前发布策略。
+> 当前范围（2026-08-24）：V2 dual-canary；在冻结 identity/evidence 和 L3/L4 门禁满足后推进。
+> 2026-08-05 的 Claude/Codex V1 直接切换演练仅保留为历史参考，不代表当前发布策略。
 
 ## 1. 适用范围与行为边界
 
 本 Runbook 覆盖 V2 dual-canary 下的四个 Harness：Pi、OpenCode、Claude、Codex，以及从源码/制品校验
-到 Docker Host 验收的推进流程。基础 Compose 保留 legacy V1 execution path；只有显式 V2 release
-overlay 提供 V2 release lock 并允许 V2 execution。`v2_only` 才会拒绝 V1 contract。操作过程中：
+到 Docker Host 验收的推进流程。当前 `HARNESS_EXECUTION_MODE` 只接受 `v2_only`（基础 Compose 与
+`.env.test` 都默认 `v2_only`，其他取值会被配置校验直接拒绝），V1 release overlay 已随旧链删除。
+历史 V1 Task 记录仍可读，但不能创建、重试或续跑，所以 rollout 不能把 legacy V1 execution path
+当作回退手段。操作过程中：
 
 - 不新增协议能力、不升级 CLI、不修改 Adapter 映射、不引入新的沙箱模式。
-- 发现任何缺陷立即停止切换，回到 Phase 2 修复并重新生成完整制品，再重新走 3.1–3.5。
+- 发现任何缺陷立即停止切换，修复后重新生成完整制品，再重新走第 2 至第 5 节的流程。
 - 真实 Host 名称、内部地址、token、私有仓库 URL 和敏感日志不得写入 Git；Git 只保留脱敏模板。
 - 切换窗口内不允许旧 Kit/旧镜像任务在途；运行中和已创建 Task 不做热切换，Snapshot 不修改。
 
@@ -30,10 +32,10 @@ overlay 提供 V2 release lock 并允许 V2 execution。`v2_only` 才会拒绝 V
 | Runtime image identity | daemon、repo@digest、image ID、Linux platform（不含任何 CLI lock） | 三项必须与 Profile、Bundle、Host 实际值一致 |
 | Kit harness inventory | `pi`、`opencode`、`claude`、`codex` 逐 key：availability 与 absent reason_code；present CLI 的 exact path/version/SHA-256 | 仅对 present key 逐 Harness 重新校验；absent 记录 reason，不伪造证据 |
 | Runtime Bundle/evidence | 每个 Harness 独立 Task snapshot、bundle digest、adapter version+digest、identity/evidence/platform | 以 DB-bound Bundle 与 verification evidence 为准 |
-| 协议 | Runtime contract `codify.worker.harness/v2`、Canonical Event `codify.worker.event/v1`、orchestration `1.0.0` | 不变量 |
+| 协议 | Runtime contract `codify.worker.harness/v2`、Canonical Event `codify.worker.event/v2`、orchestration `1.0.0` | 不变量 |
 | Profile payload | 默认执行模式 `v2_only`（无需显式设置）；`enabled_harnesses=["pi","opencode","claude","codex"]`；V2 identity/evidence 完整 | 以生产 Profile snapshot 为准 |
 | 凭据交付 | 每个 Harness/Provider 的 `credential_ref`、权限边界、轮换记录与风险接受文档 | 逐 Profile/Provider 复核 |
-| 回滚坐标 | 当前稳定 legacy V1 Profile、Kit、runtime image 和 migration compatibility window | 发布前记录并保留 |
+| 回滚坐标 | 当前稳定 Profile、Kit、runtime image 和 migration compatibility window | 发布前记录并保留 |
 
 冻结后任何一项改变都必须产生新的 release candidate 和证据批次。
 
@@ -60,9 +62,9 @@ Kit 安装根、runtime images、私有 CA、网络出口类别、旧稳定 Prof
 
 ```bash
 make worker-kit-export WORKER_KIT_VERSION=<release-version> WORKER_KIT_PLATFORM=linux/amd64 \
-  WORKER_KIT_HARNESSES='<pi opencode>'      # 默认集合；显式子集或空集合亦可
+  WORKER_KIT_CLI_SELECTION='pi,opencode'    # 默认集合；显式子集或 none（空集合）亦可
 make worker-kit-export WORKER_KIT_VERSION=<release-version> WORKER_KIT_PLATFORM=linux/arm64 \
-  WORKER_KIT_HARNESSES='<pi opencode>'
+  WORKER_KIT_CLI_SELECTION='pi,opencode'
 make offline-bundle-export WORKER_KIT_VERSION=<release-version>
 ```
 
@@ -73,7 +75,8 @@ make offline-bundle-export WORKER_KIT_VERSION=<release-version>
 
 ### 4.2 安装
 
-在 daemon Host 上安装到新版本路径，禁止覆盖旧目录：
+在 daemon Host 上安装到新版本路径，禁止覆盖旧目录。下面的 `./scripts/install-worker-kit.sh`
+是解压后的离线包里的 `deploy/offline-bundle/scripts/install-worker-kit.sh`：
 
 ```bash
 sudo ./scripts/install-worker-kit.sh \
@@ -88,7 +91,7 @@ sudo ./scripts/install-worker-kit.sh \
 
 ```bash
 make worker-kit-verify \
-  KIT_PATH=/opt/codify/worker-kits/<release-version>-linux-amd64 \
+  KIT_PATH=/opt/codify/worker-kits/<release-version>-linux-amd64-<manifest-prefix> \
   RUNTIME_IMAGE=<runtime-image> \
   RUNTIME_MANIFEST=/srv/codify/releases/<release>/frozen-runtime-manifest.v2.json \
   VERIFY_ALL_HARNESSES=1 \
@@ -115,7 +118,7 @@ For an explicit one-Harness host-mount break-glass override, use the same comman
 
 ```bash
 make worker-kit-verify \
-  KIT_PATH=/opt/codify/worker-kits/<release-version>-linux-amd64 \
+  KIT_PATH=/opt/codify/worker-kits/<release-version>-linux-amd64-<manifest-prefix> \
   RUNTIME_IMAGE=<runtime-image> \
   HARNESS_KEY=codex \
   HARNESS_HOST_PATH=/opt/codify/codex/bin/codex \
@@ -195,20 +198,20 @@ Task ID、Harness、attempt ID、Host、Profile snapshot、MR/commit、archive d
 
 ### 6.1 前置检查
 
-- 3.1–3.5 全部完成：Host 矩阵、制品冻结与校验、逐 Host verify-runtime、真实验收矩阵、基线指标就绪。
+- 第 2 节冻结清单、第 3 节 Host 矩阵、第 4 节逐 Host 安装与验证、第 5 节真实验收矩阵与第 7 节基线指标全部就绪。
 - 所有目标 Host 的 Kit、image digest、CLI/Adapter、CA/PATH、sandbox、workspace 和 agent-state 验证通过。
 - 阻断指标为零。
 
 ### 6.2 发版硬边界
 
 1. 关闭/处理历史 Issue；PENDING/QUEUED/RUNNING 旧任务 drain 或取消，切换窗口内无旧 Kit/旧镜像任务在途。
-2. 没有 V2 Runtime Bundle 的 V2 Task 不允许执行或 retry；legacy V1 Task 继续遵循 legacy execution path。
+2. 没有 V2 Runtime Bundle 的 Task 不允许执行或 retry；历史 V1 Task 只保留记录，不再执行。
 3. 每个可调度 Host 安装并验证新 Kit；每个启用 Profile 切到冻结版本后才能恢复调度。
 
 ### 6.3 Canary 推进边界
 
 - 仅将已完成 exact identity/evidence 和 verify-runtime 的 Harness 加入 V2 canary；其余 Harness
-  继续使用 legacy V1 execution path 或保持未启用。任一 Host 未通过 verify-runtime 不得恢复 V2 调度。
+  保持未启用，直到补齐 verify-runtime。任一 Host 未通过 verify-runtime 不得恢复 V2 调度。
 - 镜像引用使用 `repo@sha256:...` 或等价不可变 ID，不依赖可变 tag 作为验收依据。
 - 新 Task 在创建时冻结 Task Snapshot；运行中和已创建 Task 均不做热切换。
 - 任一阻断阈值触发立即停止 V2 canary 的新 Task 创建，保留运行证据并按第 8 节回滚；不得直接
@@ -221,11 +224,11 @@ cancel/timeout 和归档回放链路；每个 smoke 必须落在 digest 与 evid
 
 ## 7. 指标、阈值与告警
 
-推进前记录 legacy V1 execution baseline；dual-canary 中按 Harness/Adapter/CLI/Profile/Host 观察，避免聚合掩盖单 Host 问题。
+推进前记录旧稳定 Profile 的执行 baseline；dual-canary 中按 Harness/Adapter/CLI/Profile/Host 观察，避免聚合掩盖单 Host 问题。
 现有入口：
 
-- `GET /api/analytics?days=30`：响应 `harnesses[]` 已按 harness_key/adapter_version 聚合成功率、失败率、
-  取消率、耗时。
+- `GET /api/stats/analytics?days=30`（`days` 只接受 7、30、90）：响应 `harnesses[]` 按
+  harness_key/adapter_version 聚合任务数、成功率、失败数、取消数与平均执行时长。
 - `GET /api/stats` / `/api/stats/...`：队列压力、Worker 对齐、失败率等系统级指标。
 - `PATCH /api/config/runtime`：`alert_on_failure` + `alert_webhook_url` 失败告警入口。
 - 运维查询（SQL/只读副本）：按 `task_worker_profile_snapshots.harness_key`、
@@ -265,7 +268,7 @@ Provider 响应直接发送到外部通知。
 4. 验证旧 Backend/Frontend 与新增数据库字段的兼容窗口；数据库 downgrade 不是默认回滚手段。
 5. 演练新 Kit 验证失败、Codex Provider 不可达、单 Host 故障和 canonical protocol error 上升四种场景。
 6. 确认旧 Kit path、runtime image、Profile 和 Provider credential 仍可用。
-7. 回滚后新建一个使用旧稳定 Profile 的 Issue，再创建 legacy V1 smoke Task，验证 Issue 分配与完整执行路径恢复。
+7. 回滚后新建一个使用旧稳定 Profile 的 Issue，再创建一个走旧稳定 Profile 的 smoke Task，验证 Issue 分配与完整执行路径恢复。
 
 ## 9. 生产签署
 
@@ -277,11 +280,11 @@ Provider 响应直接发送到外部通知。
 - 运维 runbook、Host 清单、告警和责任人已完成交接。
 
 达到以上条件后，四个 Harness 才可分别标记为生产基线；未满足某 Harness 的 L3/L4 门禁时，继续保持
-该 Harness 的 legacy V1 execution path 或未启用状态，不得宣称已完成全量切换。
+该 Harness 的未启用状态，不得宣称已完成全量切换。
 
 ### 9.1 历史参考：2026-08-05 Claude/Codex V1 演练
 
 旧演练中的 Claude/Codex 版本、digest、Profile payload 与“全部目标 Host 验证后直接切换”文字，
-只用于解释历史证据格式，不是当前冻结值、当前 Harness 范围或当前发布策略。当前仍需遵守基础 Compose
-保留 legacy V1 execution path、显式 V2 overlay、逐 Harness exact identity/evidence，以及 L3（制品绑定）和 L4（真实
-Docker Host 执行）分层门禁。
+只用于解释历史证据格式，不是当前冻结值、当前 Harness 范围或当前发布策略。当前仍需遵守
+`HARNESS_EXECUTION_MODE=v2_only`（V1 execution path 已不可用）、逐 Harness exact identity/evidence，
+以及 L3（制品绑定）和 L4（真实 Docker Host 执行）分层门禁。

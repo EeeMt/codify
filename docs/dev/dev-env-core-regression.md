@@ -43,7 +43,7 @@
 - 开发环境由 `make up` 启动（backend / scheduler / nginx / postgres，代码烘焙进镜像，postgres 持久化在 named volume）。
 - Docker 通过 **remote context** 连到目标主机（`docker context show` 应为 `remote` → `ssh://root@<host>`）；
   构建与容器都发生在目标主机上。页面入口 `http://<host>:8880`，`/api/*` 由 nginx 反代到 backend。
-- API 全部要求 session cookie；管理员接口（GitLab 连通性测试、provider 增改、profile 编辑）需要 `platform_admin` 角色。
+- 除 bootstrap-status 等公开端点外，API 要求 session cookie；管理员接口（GitLab 连通性测试、provider 增改、profile 编辑）需要 `platform_admin` 角色。
 
 ### 1.2 基线检查（未认证）
 
@@ -72,7 +72,7 @@ curl -s -b /tmp/codify_cookies.txt -X POST http://<host>:8880/api/config/gitlab/
 
 # 3. Provider 就绪：claude(anthropic_messages) 与 codex(openai_responses) 各至少一个
 curl -s -b /tmp/codify_cookies.txt http://<host>:8880/api/providers \
-  | python3 -c "import sys,json; print([(p['id'],p['wire_protocol'],p['credential_status']) for p in json.load(sys.stdin)])"
+  | python3 -c "import sys,json; print([(p['id'],p['model_protocol'],p['credential_status']) for p in json.load(sys.stdin)])"
 
 # 4. Worker Profile 就绪：enabled_harnesses 含 claude+codex，verify-runtime 通过
 curl -s -b /tmp/codify_cookies.txt http://<host>:8880/api/worker-profiles
@@ -87,7 +87,7 @@ PROJECT_ID=<测试项目> ./scripts/dev-regression.sh  # 在指定项目上新�
 ISSUE_ID=<现有issue> ./scripts/dev-regression.sh   # 复用已有 issue
 ```
 
-> 凭据与地址优先从 `deploy/dev-env-info.md`（gitignored）读取，也可用 `CODIFY_BASE_URL`/`CODIFY_USER`/`CODIFY_PASS`/`PROJECT_ID`/`PROVIDER_CLAUDE_ID`/`PROVIDER_CODEX_ID` 环境变量覆盖；脚本不含明文凭据。
+> 凭据与地址优先从 `deploy/dev-env-info.md`（gitignored）读取，也可用 `CODIFY_BASE_URL`/`CODIFY_USER`/`CODIFY_PASS`/`PROJECT_ID`/`WORKER_PROFILE_ID`/`PROVIDER_CLAUDE_ID`/`PROVIDER_CODEX_ID` 环境变量覆盖；脚本不含明文凭据。
 
 ---
 
@@ -96,11 +96,11 @@ ISSUE_ID=<现有issue> ./scripts/dev-regression.sh   # 复用已有 issue
 | 层级 | 覆盖 | 预计耗时 | 用途 |
 |---|---|---|---|
 | **Tier 1 冒烟** | 双 harness 各一条 happy path + MR + archive + sanitize + resume 一条 | ~15–25 min | 每次 worker/task 改动后 |
+| **Tier 2 完整回归** | §3 全矩阵 + §4 双引擎 × 故障路径 + §6 一致性 | ~1–1.5 h | 里程碑 / 发版前 |
+| **Tier 3 发版演练** | Phase 3 rollout drill（冻结清单核对、验证、切换、回滚演练） | 半天 | 发版收口 |
 
 > Tier 1 可用 [`scripts/dev-regression.sh`](../../scripts/dev-regression.sh) 半自动执行（§1.3）；加 `--tier2`
 > 会追加故障路径（切换约束 / cancel / timeout / retry 冻结），见脚本头注释。Tier 2 其余项（调度、analytics、config）仍建议人主导 + agent 辅助。
-| **Tier 2 完整回归** | §3 全矩阵 + §4 双引擎 × 故障路径 + §6 一致性 | ~1–1.5 h | 里程碑 / 发版前 |
-| **Tier 3 发版演练** | Phase 3 rollout drill（冻结清单核对、验证、切换、回滚演练） | 半天 | 发版收口 |
 
 Tier 1 通过是 Tier 2 的前置；Tier 2 通过是发版的前置。执行顺序固定，避免跳层。
 
@@ -115,7 +115,7 @@ Tier 1 通过是 Tier 2 的前置；Tier 2 通过是发版的前置。执行顺�
 
 | # | 场景 | 操作要点 | 预期结果 | 强度 |
 |---|---|---|---|---|
-| A1 | 服务健康 | `GET /api/health*`、`docker compose ps` | 四服务 running，无 restart 循环 | S |
+| A1 | 服务健康 | `GET /health`（backend :8000、scheduler :8001）、`docker compose ps` | 四服务 running，无 restart 循环 | S |
 | A2 | bootstrap / 认证 | `bootstrap-status` + 本地登录 | 登录成功，cookie 有效，`/api/tasks` 不再 401 | S |
 
 ### B. Issue 生命周期
@@ -134,7 +134,7 @@ Tier 1 通过是 Tier 2 的前置；Tier 2 通过是发版的前置。执行顺�
 | C3 | 轮询终态 | `GET /api/tasks/{id}` | `status=completed`、`commit_sha` 非空（execute）、`error_message=null` | S |
 | C4 | 取消（RUNNING） | `POST /api/tasks/{id}/cancel` | `status=cancelled`；canonical `harness.failed(cancelled)→run.failed(cancelled)`；容器清理；archive 保留 | S |
 | C5 | 取消（run.started 前，极早） | 创建后立即取消 | archive 保留（console.log + repository-preparation）；无 canonical 终态属设计行为 | F |
-| C6 | 超时 | 临时 `PATCH /api/config/runtime` 设 `task_timeout_peak_seconds=60`（并将窗口覆盖当前时段）→ 建较重任务 → **恢复原值** | `status=failed`，error `Task timed out after Ns`；canonical `harness.failed(timeout)`；**测完必须恢复** | F |
+| C6 | 超时 | 临时 `PATCH /api/config/runtime` 把 `task_timeout_peak_seconds` 与 `task_timeout_off_peak_seconds` 同时设为 `60` → 建较重任务 → **恢复两档原值**（`scripts/dev-regression.sh` 已按此实现；手工只改 peak 一档时还需把窗口覆盖当前时段） | `status=failed`，error `Task timed out after Ns`；canonical `harness.failed(timeout)`；**测完必须恢复** | F |
 | C7 | 重试 | `POST /api/tasks/{id}/retry`（对失败任务） | 复制源任务 Harness/Adapter/Endpoint/Bundle；bundle digest 与源一致；completed | F |
 | C8 | 状态覆盖 | `POST /api/tasks/{id}/override-status`（管理员） | 状态可被强制覆盖且日志可追溯 | F |
 
@@ -145,7 +145,7 @@ Tier 1 通过是 Tier 2 的前置；Tier 2 通过是发版的前置。执行顺�
 | D1 | 优先级 | 同时排队 P0/P1/P2 任务 | P0 先执行；队列按优先级出队 | F |
 | D2 | 并发上限 | `MAX_CONCURRENCY`（默认 3）内同时多任务 | 运行数不超过上限；日志 `Max concurrency reached` | F |
 | D3 | Issue 互斥 | 同 issue 再触发任务 | 被 `_running_issues` 挡下，不并发执行 | F |
-| D4 | 崩溃恢复 | 杀 scheduler 后重启 | 孤儿容器按 `codify-{task_id}-p{pid}-i{iid}` 模式清理；`_running_*` 与 DB 重对齐 | F |
+| D4 | 崩溃恢复 | 杀 scheduler 后重启 | 孤儿容器按 `codify-{task_id}-issue{issue_id}` 模式清理；`_running_*` 与 DB 重对齐 | F |
 
 ### E. Worker 执行 · Harness
 
@@ -171,7 +171,7 @@ Tier 1 通过是 Tier 2 的前置；Tier 2 通过是发版的前置。执行顺�
 
 | # | 场景 | 操作要点 | 预期结果 | 强度 |
 |---|---|---|---|---|
-| G1 | event.jsonl 不变量 | 下载 archive 校验（§6 脚本） | seq 连续无缺口无重复；schema v1；**只有一个** run terminal；terminal 最后出现；含 `worker.finalization` | S |
+| G1 | event.jsonl 不变量 | 下载 archive 校验（§6 脚本） | seq 连续无缺口无重复；schema v2；**只有一个** run terminal；terminal 最后出现；含 `worker.finalization` | S |
 | G2 | harness-result | `harness-result.json` | `harness_key`/`adapter_version`/`cli_version`/`session_id` 齐全；`session_id` 为真实 UUID | S |
 | G3 | 脱敏 | 扫描 `error_message`、event.jsonl | 无 `glpat-*`、`sk-ant-*` 残留；codex cookie/path/tool-id 已掩码 | S |
 | G4 | archive 下载 | `GET /api/tasks/{id}/archive/download` | 下载成功，可 `tar tzvf` 列出事件/harness 流 | S |
@@ -182,7 +182,7 @@ Tier 1 通过是 Tier 2 的前置；Tier 2 通过是发版的前置。执行顺�
 | # | 场景 | 操作要点 | 预期结果 | 强度 |
 |---|---|---|---|---|
 | H1 | fresh → continue | 先 fresh 任务记录真实 session，再 `session_mode:"continue"` | continue 用 `--resume <真实UUID>`；`input_session` 非空；completed | S |
-| H2 | harness 切换约束 | continue 显式传与 lineage 不同的 `harness_key` | 422「续跑会话必须沿用原 Harness；切换请勾选使用新会话执行」 | F |
+| H2 | harness 切换约束 | continue 显式传与 lineage 不同的 `harness_key` | 422「续跑会话必须沿用原 Harness；切换 Harness 请勾选“使用新会话执行”」 | F |
 | H3 | 跨 harness 隔离 | claude fresh 出 session A，codex continue | `input_session_id` 为空（不复用 claude session）；lineage 不串 | F |
 | H4 | resume 失败语义 | continue 一个已完成的会话 | 不猜测成功；按 turn-terminal 语义正确判终态 | F |
 
@@ -190,7 +190,7 @@ Tier 1 通过是 Tier 2 的前置；Tier 2 通过是发版的前置。执行顺�
 
 | # | 场景 | 操作要点 | 预期结果 | 强度 |
 |---|---|---|---|---|
-| I1 | per-harness 统计 | `GET /api/stats/analytics` | `succeeded_tasks` 按 claude/codex 分别正确计数（boolean finished 谓词） | F |
+| I1 | per-harness 统计 | `GET /api/stats/analytics` | `harnesses[]` 按 `harness_key` 分别给出 `finished_task_count`/`completed_task_count`/`failed_task_count`（finished 谓词） | F |
 | I2 | usage | `GET /api/tasks/{id}` usage 字段 | 双 harness 均产出 token/usage，null-safe | F |
 | I3 | 汇总/热力图 | `GET /api/stats`、`/stats/activity-heatmap` | 数字与任务实况一致 | F |
 
@@ -223,9 +223,9 @@ Tier 1 通过是 Tier 2 的前置；Tier 2 通过是发版的前置。执行顺�
 | 场景 | claude | codex | 关键回归点 |
 |---|---|---|---|
 | 全流程 execute + fresh | ✅ | ✅ | `run.completed(success)`、commit+MR、真实 session_id |
-| resume（continue） | ✅ | ✅ | codex 用 `codex exec resume <session>`；`CODEX_HOME` 挂 issue-shared 持久目录；`input_session` 真实 |
+| resume（continue） | ✅ | ✅ | codex 经 App Server bridge 的 `thread/resume` 复用同一 thread；`CODEX_HOME` 挂 issue-shared 持久目录；`input_session` 真实 |
 | 取消 | ✅ | ✅ | TERM trap → `harness.failed(cancelled)`；finalizer 的 cancelled 分支 harness 无关（Task 469/509） |
-| 超时 | ✅ | ✅ | 冻结的 peak/off-peak timeout → `harness.failed(timeout)`；恢复配置 |
+| 超时 | ✅ | ✅ | 两档 timeout 同时设为 60s（脚本只在 PATCH 成功后按快照恢复；未改动过就不动配置）→ `harness.failed(timeout)` |
 | retry | ✅ | ✅ | bundle digest 冻结复用；Harness/Endpoint/Credential 原样复制 |
 | turn-terminal 语义 | — | ✅ | **最后 turn 权威**；`turn.completed→turn.failed` = 失败（绝不猜测成功）；终态由 `codex_adapter_emit_terminal` 在流结束补发 |
 | auth/rate-limit 分类 | ✅ | ✅ | `error→provider.retry`、`turn.failed→harness.failed`（401/429/sandbox）；不得降级为通用 `protocol_error` |
@@ -265,7 +265,7 @@ python3 - <<'PY'
 import json
 lines=[l for l in open('event.jsonl') if l.strip()]
 seqs=[json.loads(l)['seq'] for l in lines]
-assert all(json.loads(l)['schema']=='codify.worker.event/v1' for l in lines)
+assert all(json.loads(l)['schema']=='codify.worker.event/v2' for l in lines)
 assert seqs==list(range(1,len(lines)+1)), "seq 必须连续无缺口无重复"
 types=[json.loads(l)['type'] for l in lines]
 assert types.count('run.completed')+types.count('run.failed')==1, "只能有一个 Task terminal"

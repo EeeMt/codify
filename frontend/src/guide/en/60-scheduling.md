@@ -12,7 +12,7 @@ Codify tracks three states between a Task's creation and its run:
 - **Queued**: eligible, waiting for capacity.
 - **Running**: claimed by a worker.
 
-Codify looks for work on a fixed interval, set by **Scheduler Interval (seconds)** ("How often the scheduler checks for work."). Each cycle promotes only the legal head of each unlocked Issue from **Pending** to **Queued**. A Task that is not the head of its Issue is never promoted, no matter how high its priority.
+Codify looks for work on a fixed interval, set by **Scheduler Interval (seconds)** ("How often the scheduler checks for work."). Each cycle promotes only the legal head of each unlocked Issue from **Pending** to **Queued**, then starts at most one Task. A Task that is not the head of its Issue is never promoted, no matter how high its priority.
 
 ![Three gates before a run: turn order, schedule, capacity](assets/diagrams/en/why-a-task-waits.svg)
 
@@ -54,14 +54,14 @@ Scheduling a Task has two independent constraints.
 | **Max Tasks per Hour Slot** | Maximum number of tasks that can be scheduled in the same 1-hour window. `0` means unlimited |
 | **Enforce Slot Limit** | When enabled, reject task creation if the target hour slot is full. Otherwise, show a warning only |
 
-The task form and the **Schedule Load (7 days)** preview expose this before you commit. Clicking a cell selects that hour; darker cells mean more tasks are already scheduled there. When a slot fills up you get one of two responses:
+The task form and the **Schedule Load (7 days)** preview expose this before you commit. Clicking a cell sets that hour as the scheduled time; darker cells mean more tasks are already scheduled there. When a slot fills up you get one of two responses:
 
 - **Time slot {start}–{end} is near/at capacity ({count}/{max} tasks).** This is a warning, and creation can proceed.
 - **Time slot {start}–{end} is at full capacity ({count}/{max} tasks). Task creation is blocked.** Enforcement is on and the slot is full.
 
-Schedule Overview renders the same data at platform scale. **Next 24 Hours** counts scheduled tasks per hour, **Busy & Idle Windows** summarises the same window, and the **7-Day Heatmap** marks cells **Light**, **Busy**, or **Full** with a **{count}/{max}** readout per cell. Times in these views are shown in UTC+8.
+Schedule Overview renders the same data at platform scale. **Next 24 Hours** counts scheduled tasks per hour, **Busy & Idle Windows** summarises the same window, and the **7-Day Heatmap** marks cells **Light**, **Busy**, or **Full** with the task count in each cell and **{count}/{max}** on hover. Times in these views are shown in UTC+8.
 
-Slot capacity counts what is scheduled, not what is running. It is a planning guard against landing twenty Tasks on the same hour, and it does not throttle runs.
+The count covers every Task whose scheduled time falls inside the hour and that is still **Pending**, **Queued**, or **Running**. Slot capacity is a planning guard against landing twenty Tasks on the same hour; it does not throttle runs.
 
 ## Timeout policy {core}
 
@@ -79,9 +79,8 @@ The tier is selected once, at the moment the Task enters **Running**, and frozen
 
 The task page shows the frozen value:
 
-- **Execution deadline**: the absolute time the run must finish by.
-- **Execution timeout**: how many seconds it was given.
-- **Determined when execution starts** while the Task has not started, and **Not recorded for this execution** for executions from before the field existed.
+- **Execution deadline**: the absolute time the run must finish by, shown once it has been recorded.
+- **Execution timeout**: how many seconds it was given. Before the Task starts the field reads **Determined when execution starts**; an execution that started before the field existed reads **Not recorded for this execution**.
 
 A run that exceeds its limit fails with the failure type **Timeout**. Increase the limits when legitimate work is being cut off; do not read a timeout as a model problem until you have checked the log for progress near the deadline.
 
@@ -94,7 +93,7 @@ A Task that was still **Running** when the interruption happened is picked up ag
 | Situation | What you see |
 |---|---|
 | The interrupted run is still alive | The Task keeps running and its event stream continues |
-| The interrupted run is gone | The Task is marked **Failed**, with the reason recorded |
+| The interrupted run is gone | The Task is marked **Failed**, or **Cancelled** if a cancellation had been requested, with the reason recorded |
 | Work is left behind with no Task owning it | It is cleaned up as an orphan |
 
 Recovery never silently fails a Task whose outcome it cannot verify: while the answer is unknown the Task stays owned and the check is retried, and the Task is not re-queued. Recovery holds captured logs until it finalizes them, then cleans up the leftover work.

@@ -14,12 +14,18 @@ After OIDC is enabled:
 
 Current implementation notes:
 
-- when `OIDC_ENABLED=false`, dashboard auth is bypassed and existing behavior is preserved
-- when `OIDC_ENABLED=true`, dashboard APIs require login
-- admin-only pages and APIs are controlled by platform admin role
-- OIDC settings can now be managed in the dashboard **Configuration** page
+- the dashboard always has a session-based auth layer; `OIDC_ENABLED=false` disables the GitLab login
+  path, not authentication itself, so visitors are still redirected to `/login`
+- the first admin account is created on `/bootstrap`, which posts to
+  `POST /api/auth/local/register` and is accepted only while the system is uninitialized
+- with `OIDC_ENABLED=true`, dashboard APIs require login
+- the platform admin role controls admin-only pages and APIs; the shared pages (Monitor, Schedule
+  Overview, Analytics) can also be opened to normal users through the page permission switches.
+  **Configuration** and its **OIDC Diagnostics** panel stay admin-only with no switch of their own
+- OIDC settings can be managed in the dashboard **Configuration** page
 - secrets edited in the page are encrypted before being stored in the database
-- normal users only see GitLab projects and tasks for projects they can access in GitLab, including public and internal projects
+- with OIDC enabled, normal users only see GitLab projects and tasks for projects they can access in
+  GitLab, including public and internal projects; with OIDC disabled the project scope check is skipped
 
 ## 1. Create a GitLab OAuth application
 
@@ -77,11 +83,13 @@ AUTH_BREAK_GLASS_PASSWORD_HASH=pbkdf2_sha256$600000$<salt_hex>$<digest_hex>
 Recommended usage now:
 
 1. keep `OIDC_ENABLED=false` during first deploy
-2. deploy the new config UI/API
+2. complete `/bootstrap` to create the first local admin account
 3. open the dashboard **Configuration** page
 4. fill in OIDC settings there
 5. run the built-in **Test OIDC connection**
 6. enable OIDC in the page only after validation succeeds
+
+While OIDC stays disabled, sign in at `/login` with the local account created on `/bootstrap`.
 
 ## 3. What each variable means
 
@@ -92,7 +100,8 @@ Recommended usage now:
   - Keep this in environment variables, not in the database.
 
 - `OIDC_ENABLED`
-  - Enables GitLab login and API protection.
+  - Enables the GitLab login path and, with it, GitLab-backed project scoping.
+  - Turning it off does not disable dashboard authentication; sessions and the login page still apply.
   - This can be managed in the page once the app is deployed.
   - Keep it `false` during bootstrap until the rest of the values are ready.
 
@@ -111,8 +120,9 @@ Recommended usage now:
   - Must exactly match the redirect URI configured in GitLab.
 
 - `SESSION_SECRET`
-  - Used by the backend for session-related signing and hashing.
-  - Use a strong random string.
+  - HMAC key used to hash session tokens before they are stored.
+  - Also acts as the fallback Fernet key for encrypted config storage when `CONFIG_ENCRYPTION_KEY` is empty.
+  - Use a strong random string, and do not leave it at the default `change-me-in-production` value.
 
 ### Recommended
 
@@ -198,7 +208,8 @@ Fill in the GitLab OIDC fields, save them, and run **Test OIDC connection**.
 curl -s https://your-domain.example.com/api/auth/me
 ```
 
-Expected before login after OIDC is enabled:
+Expected before login after OIDC is enabled (abbreviated; the response also carries
+`break_glass_enabled`, `break_glass_username`, `system_initialized` and `page_permissions`):
 
 ```json
 {
@@ -216,7 +227,9 @@ Visit:
 https://your-domain.example.com/login
 ```
 
-You should see the GitLab sign-in page entry.
+You should see the GitLab sign-in page entry, plus a **Sign in with password** toggle that reveals the
+local username/password form. Before the system is initialized, the page instead shows the
+**Local Authentication** and **GitLab OIDC** tabs.
 
 ### Complete login
 
@@ -251,13 +264,19 @@ Visit:
 https://your-domain.example.com/oidc-diagnostics
 ```
 
-The diagnostics page shows:
+That route redirects to `https://your-domain.example.com/configuration?tab=auth`. The diagnostics live
+in the **OIDC diagnostics** panel on the Configuration page's auth tab, backed by
+`GET /api/config/oidc/diagnostics`. The panel shows:
 
-- OIDC discovery reachability
-- authorization/token/userinfo endpoint presence from discovery
-- redirect URI and cookie policy warnings
-- the required GitLab OAuth scopes
-- an authorization URL preview built from the current effective settings
+- OIDC login and break-glass enablement, client id and client secret presence
+- cookie policy (`cookie_secure` plus `cookie_samesite`) and session TTL
+- issuer URL, discovery issuer, redirect URI, and the discovered authorization, token, and userinfo endpoints
+- the required scope list and the authorization URL preview built from the current effective settings
+- operator warnings
+
+The warnings cover a redirect URI whose path is not `/api/auth/callback`, a `COOKIE_SECURE` value that
+does not match the redirect URI scheme, a session TTL longer than 24 hours, `SameSite=None` without
+secure cookies, and group-based admin bootstrap whose claims may not arrive.
 
 ### Emergency login
 
@@ -391,7 +410,10 @@ Each row includes:
 Current phase behavior:
 
 - logged-in users can access dashboard data only for GitLab projects they can access
-- only platform admins can access admin-only pages such as configuration and monitor-related APIs
+- configuration, access management, usage management, and system statistics are admin-only; Monitor,
+  Schedule Overview, and Analytics are shared pages whose access can be granted to normal users through
+  the page permission switches. OIDC diagnostics renders inside the admin-only **Configuration** page,
+  so it has no switch and no user-facing route of its own
 - project visibility is resolved from the GitLab OAuth access token and includes GitLab membership projects plus public/internal projects visible to the signed-in user
 - emergency break-glass login, when enabled, creates a platform admin session and records an auth audit event
 - admins can now manage dashboard users from the dedicated **Access Management** page
@@ -462,14 +484,17 @@ The `/sessions` page shows:
 
 Current diagnostics behavior includes:
 
-- an admin-only `/oidc-diagnostics` page
+- a web route `/oidc-diagnostics` that redirects to `/configuration?tab=auth`, where the
+  **OIDC diagnostics** panel lives
 - a backend diagnostics snapshot endpoint at `/api/config/oidc/diagnostics`
-- richer `Test OIDC connection` output with required scopes and warnings
-- warnings for callback path mismatches, cookie security mismatches, long session TTLs, disabled break-glass recovery, and group-based admin bootstrap prerequisites
+- a config test endpoint at `/api/config/oidc/test`, used by **Test OIDC connection**
+- richer `Test OIDC connection` output with the required scopes and the current warnings
+- warnings for callback path mismatches, cookie security mismatches, long session TTLs, and
+  group-based admin bootstrap prerequisites
 
 Recommended use:
 
-1. open `/oidc-diagnostics`
+1. open `/oidc-diagnostics`, or the Configuration page's auth tab
 2. confirm **OIDC discovery** is healthy
 3. confirm the discovered authorization/token/userinfo endpoints are present
 4. verify the required scope string includes `openid profile email read_api`
@@ -496,6 +521,8 @@ Check:
 - GitLab is reachable from the backend container
 - system clock is correct
 - GitLab application scopes include `openid`, `profile`, `email`, and `read_api`
+- `CONFIG_ENCRYPTION_KEY` is set, or `SESSION_SECRET` is a non-default value; GitLab tokens are
+  stored encrypted, and encryption fails while both are missing or default
 
 ### Browser never keeps the session
 

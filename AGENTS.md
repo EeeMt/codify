@@ -4,11 +4,11 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-Codify — an AI-powered code generation service. Users create issues in the dashboard, launch tasks from them, and Codify schedules execution in isolated Docker containers using Codex CLI to generate code, commit, push, and open Merge Requests.
+Codify — an AI-powered code generation service. Users create issues in the dashboard, launch tasks from them, and Codify schedules execution in isolated Docker containers, where the harness frozen into the task snapshot (Claude, Codex, Pi, or OpenCode) generates code, commits, pushes, and opens Merge Requests.
 
 ## Commands
 
-All commands use `make`. Run `make help` to see the full list.
+Most commands go through `make`. Run `make help` to see the full list.
 
 ### Development
 
@@ -16,7 +16,7 @@ All commands use `make`. Run `make help` to see the full list.
 make help                    # Show all available commands
 
 # Dev environment
-make build                   # Build all images (backend, nginx, worker)
+make build                   # Build backend and nginx images
 make up                     # Start dev environment
 make down                   # Stop dev environment
 make restart                # Restart dev environment
@@ -25,28 +25,32 @@ make ps                     # Show running containers
 
 # Rebuild specific service
 make rebuild-backend         # Rebuild backend image and restart
+make rebuild-scheduler       # Rebuild scheduler image and restart
 make rebuild-nginx           # Rebuild frontend image and restart
-make rebuild-worker          # Rebuild worker image
+make worker-runtime-image-build  # Rebuild the project-runtime worker image
 
 # Testing
 make test-unit              # All unit tests (with coverage)
 make test-backend           # Backend unit tests only
 make test-frontend          # Frontend unit tests only
 make test-mock-e2e         # Mock E2E tests
+make test-mock-integration  # Full lifecycle in Docker (mock GitLab + fake harness)
 make test-e2e               # All E2E tests (Playwright + GitLab)
 make test-e2e-ui            # Playwright UI tests only
 make test-e2e-gitlab        # GitLab integration tests only
-make test-all               # All tests (unit + E2E)
+make test-all               # Unit + mock integration + all E2E tests
 
 # Playwright E2E step-by-step
 make test-e2e-up            # Start E2E test environment
-make test-e2e-run           # Run E2E tests
+make test-e2e-ui            # Run Playwright UI tests
 make test-e2e-down          # Stop E2E test environment
 ```
 
 ### Testing & Debugging
 
 See [docs/dev/TESTING.md](docs/dev/TESTING.md) for the detailed testing guide.
+
+Backend `pytest` collects `tests/unit`, `tests/mock_integration`, and `tests/mock_e2e` from `testpaths`, and skips `tests/e2e` and `tests/gitlab_e2e`. Run the skipped suites by path or through their Docker targets (`make test-e2e`, `make test-e2e-gitlab`).
 
 Quick debug commands:
 ```bash
@@ -65,7 +69,7 @@ docker exec codify-postgres psql -U codify -d codify -c "SELECT id, status, erro
 2. User launches or schedules a task from the issue
 3. Scheduler picks up pending tasks (priority queue, respects concurrency limits)
 4. WorkerExecutor runs the task in an isolated Docker container
-5. Container clones the repo, runs Codex CLI to generate code
+5. Container clones the repo and runs the harness recorded in the frozen runtime bundle
 6. Container commits, pushes, and creates/updates the MR
 7. Dashboard shows status, logs, and delivery details in real-time
 
@@ -78,6 +82,7 @@ docker exec codify-postgres psql -U codify -d codify -c "SELECT id, status, erro
 | Models | `backend/app/models.py` | SQLAlchemy models (Task, TaskLog, Issue, etc.) |
 | Scheduler | `backend/app/scheduler.py` | Priority queue with P0/P1/P2, crash recovery |
 | Worker | `backend/app/core/worker.py` | Executes tasks in Docker containers |
+| Harness Registry | `backend/app/core/harness_registry.py` | Harness allowlist, capability policy, manifest validation |
 | Docker Client | `backend/app/core/docker_client.py` | Container lifecycle management |
 | GitLab Client | `backend/app/core/gitlab_client.py` | GitLab API interactions (repos, branches, MRs) |
 | AI Providers | `backend/app/api/providers.py` | Multi-provider AI configuration |
@@ -86,7 +91,7 @@ docker exec codify-postgres psql -U codify -d codify -c "SELECT id, status, erro
 
 ### Database
 
-Async SQLAlchemy (`AsyncSession`) throughout. Alembic manages migrations in `backend/alembic/versions/`, numbered sequentially as `NNN_description.py`. Current revision: `027_add_ai_providers`.
+Async SQLAlchemy (`AsyncSession`) throughout. Alembic manages migrations in `backend/alembic/versions/`, numbered sequentially as `NNN_description.py`. Current revision: `080_task_command_created_by`.
 
 Task lifecycle: `PENDING → QUEUED → RUNNING → COMPLETED | FAILED | CANCELLED`
 
@@ -95,21 +100,25 @@ Task lifecycle: `PENDING → QUEUED → RUNNING → COMPLETED | FAILED | CANCELL
 - **backend** (`codify-backend`): FastAPI HTTP server, `AUTO_MIGRATE=false`
 - **scheduler** (`codify-scheduler`): same image, runs `app.scheduler_service`, `AUTO_MIGRATE=true` (owns migrations)
 - **nginx** (`codify-nginx`): serves built frontend and proxies `/api` to backend
+- **postgres** (`codify-postgres`): PostgreSQL 16 on the `postgres_data` volume; a `migrate` service under the `maintenance` profile runs explicit migrations
 
 ### Frontend (Vue 3)
 
-- `Dashboard.vue` — task overview with P0/P1/P2 tabs
+- `Dashboard.vue` (`/dashboard`) — task list with summary cards, filters, and the My Work Board
 - `IssueList.vue` / `IssueView.vue` — issue management and task creation
-- `CreateIssue.vue` — new issue with prompt templates
+- `CreateIssue.vue` — new issue with prompt templates (`/issues/create`; `/create-task` redirects here)
 - `TaskList.vue` / `TaskView.vue` — task details and live logs
-- `CreateTask.vue` — manual task creation (`/create-task`)
 - `ScheduleOverview.vue` — scheduling queue
 - `Analytics.vue` — execution trends and success rates
-- `Config.vue` — runtime configuration (8 tabs)
-- `Monitor.vue` — system health (3 tabs)
+- `Config.vue` — runtime configuration
+- `Monitor.vue` — system health (runtime, debug, health tabs)
 - `Sessions.vue` — session management
 - `AccessManagement.vue` — users and permissions
+- `UsageManagement.vue` — daily and weekly quotas
+- `SystemStatistics.vue` — system lifecycle statistics
 - `OidcDiagnostics.vue` — SSO debugging
+- `Guide.vue` — the in-app guide at `/guide`
+- `Login.vue` / `Bootstrap.vue` — sign-in and first-run setup
 
 ### Runtime configuration
 
@@ -121,16 +130,23 @@ Settings have two layers:
 
 ### Configuration (env vars)
 
-- `BACKEND_URL` — Backend service URL (default: http://localhost:8000)
-- `GITLAB_URL`, `GITLAB_BOT_TOKEN` — GitLab connection
-- `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` — AI provider
+- `BACKEND_URL` — Backend service URL, used for the webhook endpoint and task links (default: http://localhost:8000)
+- `FRONTEND_URL` — Dashboard URL for task links; falls back to `BACKEND_URL` when empty
+- `GITLAB_URL`, `GITLAB_BOT_TOKEN` — GitLab connection and bot credentials
+- `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` — default model endpoint, used when no AI Provider overrides it
 - `DATABASE_URL` — PostgreSQL connection
 - `DOCKER_HOST` — Docker Engine API (default: tcp://localhost:2376)
-- `WORKER_IMAGE` — Worker container image (default: codify-worker:latest)
+- `WORKER_IMAGE` — Project-runtime worker image (default: codify-worker/java21-maven:2026.07)
+- `WORKER_WORKSPACE_HOST_PATH` — host path bind-mounted into backend and scheduler for issue workspaces
+- `WORKER_WORKSPACE_RETENTION_DAYS` (default: 14) and `WORKER_FAILED_WORKSPACE_RETENTION_DAYS` (default: 30) — workspace cleanup windows
 - `MAX_CONCURRENCY` — Max parallel tasks (default: 3)
-- `TASK_TIMEOUT` — Task timeout in seconds (default: 1800 = 30 min)
+- `TASK_TIMEOUT_PEAK_SECONDS` (default: 1800) and `TASK_TIMEOUT_OFF_PEAK_SECONDS` (default: 3600) — task timeouts for the peak and off-peak windows
+- `TASK_TIMEOUT_PEAK_START` (default: 09:00) and `TASK_TIMEOUT_PEAK_END` (default: 18:00) — peak window boundaries
+- `SCHEDULER_INTERVAL` — Scheduler poll interval in seconds (default: 5)
 - `DEFAULT_TARGET_BRANCH` — Default branch for MRs (default: main)
-- `AUTO_MIGRATE` — Auto-run migrations on startup (default: true)
+- `HARNESS_EXECUTION_MODE` — Harness execution path (default: v2_only)
+- `CONFIG_ENCRYPTION_KEY` — encrypts persisted secret config, falling back to `SESSION_SECRET`
+- `AUTO_MIGRATE` — Run migrations on startup (default: false; the compose scheduler sets true and owns migrations)
 
 ## Key Conventions
 
@@ -138,7 +154,7 @@ Settings have two layers:
 
 - All DB operations use `AsyncSession`; pass sessions via `Depends(get_db)` in API routes
 - Add new Alembic migrations as `backend/alembic/versions/NNN_description.py` incrementing the number prefix
-- Issue mutex: the scheduler tracks `"project_id:issue_iid"` pairs in `_running_issues` to prevent concurrent tasks on the same issue
+- Issue mutex: the scheduler tracks running work in `_running_tasks: set[int]` (task IDs) and `_running_issues: set[int]` (issue IDs) so one issue never runs two tasks at once
 - Worker logs are sanitized by `sanitize_sensitive_data()` before storage — strips `glpat-*` tokens and `sk-ant-*` keys
 - Python target: 3.11+, line length 100 (ruff), `asyncio_mode = "auto"` in pytest
 
@@ -155,4 +171,4 @@ Worker containers follow the pattern `{worker_container_prefix}-{task_id}-issue{
 
 ### Priority levels
 
-Tasks use integer priority: `0` = P0 (highest), `1` = P1, `2` = P2. Dashboard shows separate tabs per level.
+Tasks use integer priority: `0` = P0 (highest), `1` = P1, `2` = P2. The scheduler orders the queue by priority ascending, and the task list filters and sorts on priority.

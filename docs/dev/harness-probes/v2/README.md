@@ -16,7 +16,7 @@ enter fixtures.
 |---|---|---|---|
 | Pi | `0.84.2`, RPC stdio | Fresh/continuation/control raw captures under `pi/` | Native ACK and real full-chain recovery remain open V2 work. |
 | OpenCode | `1.18.19`, Server/SSE | Event samples under `opencode/` | HTTP-direct was diagnostic; resume/settled/error coverage is incomplete. |
-| Codex | `0.146.0`, JSONL | `codex/success.v2.jsonl` replay fixture | Fixture replay is not target-Host execution. |
+| Codex | `0.146.0`, JSONL | `codex/success.v2.jsonl` replay fixture; `subagents/codex/` | Fixture replay is not target-Host execution. |
 | Claude | `2.1.153`, JSON stream | `claude/success.v2.jsonl` replay fixture; standalone Linux Kit smoke | Four-Harness/Host release evidence remains open. |
 
 The prior top-level Phase 0 report is retained as a historical working note.
@@ -31,6 +31,13 @@ stage summary or architecture acceptance gates.
   protocols were actually exercised.
 - `opencode/events.observed.jsonl` and `events.wire.sse`: redacted Server/SSE samples.
 - `claude/` and `codex/`: deterministic V1-to-V2 canonical replay fixtures.
+  Each fixture's `harness.control_transport` records the transport in use when
+  the probe ran (`cli_stream_json/claude-json`, `cli_jsonl/codex-jsonl`), so it
+  is evidence of that probe and not of today's adapter. The Codex adapter has
+  since moved to the app-server transport, `rpc_stdio/codex-app-server-v2` in
+  `deploy/worker-entrypoint/harness/manifest.json`.
+- `subagents/`: native subagent captures from the target Worker environment
+  (Claude, Codex, OpenCode) with the field mappings they support.
 - `acceptance/` (created only for reviewed canaries): redacted metadata with
   commit, Bundle/image/Kit digests, task IDs, config summary, and validation.
 
@@ -82,4 +89,4 @@ the repository until manually redacted and reviewed.
 - [OpenCode Server](opencode/) — §3.3：start/health/auth/随机端口、Session/异步 Prompt/事件订阅/settled、Abort、Server 崩溃
 - [Claude / Codex V2 回放](claude/) · [Codex](codex/) — §3.4：V1 raw → V2 canonical 字段映射与回放 fixture
 
-初步结论与 SDK-vs-HTTP 判定见各 harness 页；汇总与成本重估输入见 [../v2-probe-report.md]（Phase 0 收尾汇总）。
+初步结论与 SDK-vs-HTTP 判定见各 harness 页。Phase 0 收尾汇总没有独立文件，[subagents/](subagents/) 与各 harness 页即当前的证据入口。

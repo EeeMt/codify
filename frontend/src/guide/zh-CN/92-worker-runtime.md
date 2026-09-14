@@ -31,7 +31,7 @@ tier: deep
 | `/workspace` | `repo/` | 代码检出，含之前任务留下的提交 |
 | `/home/codify/.claude` | `claude/` | Claude CLI 状态：会话记录、设置与备份 |
 | `/opt/codify-issue-shared` | `shared/` | 需求内共享空间，其他 Harness 的状态目录也在这里 |
-| `/opt/codify-issue-meta` | `meta/` | 由 root 所有的记账文件：`workspace.json`、`ownership` 标记与 `owner` 删除保护标记 |
+| `/opt/codify-issue-meta` | `meta/` | 记账文件：`workspace.json`、`ownership` 标记与 `owner` 删除保护标记 |
 
 同一需求的所有任务使用同一套挂载，因此后续任务接着上一份检出与会话继续，不需要重新克隆。
 
@@ -73,4 +73,4 @@ tier: deep
 | 运行归档 | `worker_runtime_archive_retention_days` | 30 天 | 按归档记录的生成时间 |
 | CI 失败证据包 | 跟随 `worker_workspace_retention_days` | 14 天 | 按 `{worker_workspace_host_path}/ci-failures` 下证据包的时间 |
 
-workspace 的使用时间会在创建任务、任务结束和取消时刷新，因此正在使用的需求不会被回收。回收时会启动一个临时维护容器：挂载 workspace 根目录并读取 `meta/owner`，只有该标记仍然指向本需求及其 Worker Profile 时才执行删除。调度器每 6 小时扫描一次 workspace，每小时扫描一次运行归档。调度器崩溃恢复会清理中断运行留下的孤儿容器，但不会删除 workspace。
+workspace 的使用时间会在创建任务、任务结束和取消时刷新，因此正在使用的需求不会被回收。回收时会启动一个临时维护容器：挂载 workspace 根目录并检查 `meta/owner`，该标记指向其他需求或 Worker Profile 时拒绝删除。调度器每 6 小时扫描一次 workspace，每小时扫描一次运行归档。调度器崩溃恢复会清理中断运行留下的孤儿容器，但不会删除 workspace。

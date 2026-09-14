@@ -1,8 +1,8 @@
-# Multi-Harness 直接切换与生产验收证据模板
+# Multi-Harness V2 dual-canary 与生产验收证据模板
 
 > 配套 Runbook：[multi-harness-rollout.md](multi-harness-rollout.md)
 
-本模板用于逐 Host / 逐 Harness 收集可复制的 Phase 3 证据。真实 Host 名称、内部地址、token、私有仓库
+本模板用于逐 Host / 逐 Harness 收集可复制的验收证据。真实 Host 名称、内部地址、token、私有仓库
 URL 和敏感日志不得写入 Git；本文件只保留脱敏占位符。真实证据保存在受控发布系统，每份证据注明来源
 任务/命令、时间、执行人和审批人。
 
@@ -15,10 +15,10 @@ URL 和敏感日志不得写入 Git；本文件只保留脱敏占位符。真实
 | Migration head | `<revision>` | - | - | `<approver>` |
 | Worker Kit amd64 | `<version>` | `<sha256>` | `<sha256>` | `<approver>` |
 | Worker Kit arm64 | `<version>` / not required | `<sha256>` / N/A | `<sha256>` / N/A | `<approver>` |
+| Kit harness inventory | `pi`/`opencode`/`claude`/`codex` 逐 key | present 的 payload SHA-256 / absent 的 reason_code | manifest `<sha256>` | `<approver>` |
 | Runtime image | `<runtime-image>` | `<repo@sha256:...>` | content `<sha256:...>` | `<approver>` |
-| Claude CLI | `<version>` | `<sha256>` | source/path | `<approver>` |
-| Codex CLI | `<version>` | `<sha256>` | source/path | `<approver>` |
-| Runtime Bundle | `<digest>` | Adapter claude/codex version + digest | contract/event schema | `<approver>` |
+| Codex CLI（宿主机二进制） | `<version>` | `<sha256>` | host path / container path | `<approver>` |
+| Runtime Bundle | `<digest>` | Adapter pi/opencode/claude/codex version + digest | contract/event schema | `<approver>` |
 | Profile payload | `<profile-id/name>` | kit/image/digest/harnesses/constraints | sandbox/approval/credential mode | `<approver>` |
 | 回滚坐标 | 旧 Profile/Kit/image | `<digest>` / `<path>` | 可用性确认 | `<approver>` |
 
@@ -32,14 +32,19 @@ URL 和敏感日志不得写入 Git；本文件只保留脱敏占位符。真实
 
 | Host | Harness | 时间 | Kit manifest digest | Runtime Bundle/Adapter digest | Image digest | CLI source/path/version/binary digest | verify task ID / exit code | 脱敏日志摘要 | 审批人 |
 |---|---|---|---|---|---|---|---|---|---|
-| `<host-a>` | claude | `<ts>` | `<sha256>` | `<digest>` | `<repo@sha256>` | `<path>/<version>/<sha256>` | `<id>` / `0` | `<summary>` | `<approver>` |
-| `<host-a>` | codex | `<ts>` | `<sha256>` | `<digest>` | `<repo@sha256>` | `<path>/<version>/<sha256>` | `<id>` / `0` | `<summary>` | `<approver>` |
+| `<host-a>` | pi | `<ts>` | `<sha256>` | `<digest>` | `<repo@sha256>` | `worker_kit / <path>/<version>/<sha256>` | `<id>` / `0` | `<summary>` | `<approver>` |
+| `<host-a>` | opencode | `<ts>` | `<sha256>` | `<digest>` | `<repo@sha256>` | `worker_kit / <path>/<version>/<sha256>` | `<id>` / `0` | `<summary>` | `<approver>` |
+| `<host-a>` | claude | `<ts>` | `<sha256>` | `<digest>` | `<repo@sha256>` | `worker_kit / <path>/<version>/<sha256>` | `<id>` / `0` | `<summary>` | `<approver>` |
+| `<host-a>` | codex | `<ts>` | `<sha256>` | `<digest>` | `<repo@sha256>` | `host_mount / <path>/<version>/<sha256>` | `<id>` / `0` | `<summary>` | `<approver>` |
+
+absent 的 Harness 也要占一行：`CLI source/path/version/binary digest` 列写 reason_code
+（`not_selected` 或 `missing_payload`），`verify task ID / exit code` 列写 `N/A`。
 
 ## 4. 真实验收矩阵
 
 | 用例 | Harness | Task ID | Attempt ID | Host | Profile snapshot | MR/commit | archive digest | 结果 | 人工结论 |
 |---|---|---|---|---|---|---|---|---|---|
-| 新 Issue 首个 execute + Git/MR | claude/codex | `<id>` | `<id>` | `<host>` | `<profile snapshot>` | `!<iid>` / `<sha>` | `<sha256>` | passed | `<owner>` |
+| 新 Issue 首个 execute + Git/MR | `<harness>` | `<id>` | `<id>` | `<host>` | `<profile snapshot>` | `!<iid>` / `<sha>` | `<sha256>` | passed | `<owner>` |
 | 无变更 / require_changes | ... | | | | | | | | |
 | resume 同一 namespace | ... | | | | | | | | |
 | fresh 不恢复旧 session | ... | | | | | | | | |
@@ -56,9 +61,9 @@ URL 和敏感日志不得写入 Git；本文件只保留脱敏占位符。真实
 
 | 时间 | 操作 | Profile/Host | 切换前 | 切换后 | 证据 |
 |---|---|---|---|---|---|
-| `<ts>` | 直接切换 | `<profile>` | image tag / kit `<v>` | `repo@sha256` / kit `<v>` | verify task + smoke task |
-| `<ts>` | 切换后 smoke | claude | - | `run.completed` | `<task ids>`, MR `!<iid>` |
-| `<ts>` | 切换后 smoke | codex | - | `run.completed` | `<task ids>`, MR `!<iid>` |
+| `<ts>` | canary 切换 | `<profile>` | image tag / kit `<v>` | `repo@sha256` / kit `<v>` | verify task + smoke task |
+| `<ts>` | 切换后 smoke | `<harness>` | - | `run.completed` | `<task ids>`, MR `!<iid>` |
+| `<ts>` | 切换后 smoke | `<harness>` | - | `run.completed` | `<task ids>`, MR `!<iid>` |
 
 ## 6. 指标与观察
 
@@ -66,9 +71,13 @@ URL 和敏感日志不得写入 Git；本文件只保留脱敏占位符。真实
 |---|---|---|---|---|
 | 成功率 | `<%>` | `<%>` | `>= 基线` | yes/no |
 | P95 耗时 | `<s>` | `<s>` | `<= 基线 × 1.5` | yes/no |
+| rate limit / provider 429 | `<n>` | `<n>` | `<= 基线 × 1.5` | yes/no |
+| sandbox failure | `<n>` | `<n>` | `> 0` 即阻断 | yes/no |
+| protocol error | `<n>` | `<n>` | `<= 基线 × 1.5` | yes/no |
+| capability warning | `<n>` | `<n>` | 记录并按影响分类 | yes/no |
+| runtime verification stale | - | `verified_at` | 过期即阻断 | yes/no |
 | cancel 完成率 | `<%>` | `<%>` | 记录 | yes/no |
 | timeout | `<n>` | `<n>` | 记录 | yes/no |
-| protocol error | `<n>` | `<n>` | `<= 基线 × 1.5` | yes/no |
 | worker cleanup error | `<n>` | `<n>` | 记录 | yes/no |
 
 ## 7. 回滚演练
@@ -90,6 +99,6 @@ URL 和敏感日志不得写入 Git；本文件只保留脱敏占位符。真实
 | 制品冻结与校验完整 | `<link>` | yes/no | `<approver>` |
 | 逐 Host verify-runtime 通过 | `<link>` | yes/no | `<approver>` |
 | 真实验收矩阵无 P0/P1 | `<link>` | yes/no | `<approver>` |
-| 直接切换与稳定观察完成 | `<link>` | yes/no | `<approver>` |
+| dual-canary 切换与稳定观察完成 | `<link>` | yes/no | `<approver>` |
 | 回滚演练通过 | `<link>` | yes/no | `<approver>` |
 | Runbook/告警/责任人交接 | `<link>` | yes/no | `<approver>` |

@@ -22,7 +22,7 @@ An Issue is created from **Create Issue** with a project, a starting branch, and
 | Branch | **Branch** | The AI working branch, generated as `codify/issue-{id}` |
 | Creator | **Initiator** | Who owns the Issue and its tasks |
 
-Issues move through four statuses: **Open**, **In Progress**, **In Review**, and **Closed**. Codify sets **In Progress** automatically when a Task on the Issue starts running, and closes the Issue when the tracked Merge Request is merged by webhook.
+Issues move through four statuses: **Open**, **In Progress**, **In Review**, and **Closed**. Codify sets **In Progress** automatically when a Task on the Issue starts running, and closes the Issue when the tracked Merge Request is merged by webhook. When the last active Task on an Issue ends, the Issue moves to **In Review** if any completed Task counts as delivery, and back to **Open** if none does. An **Implementation** task always counts; a **Freeform** task counts once it has pushed a commit.
 
 Every Task on an Issue executes in strict order. Priority and scheduled time arbitrate between different Issues only; inside one Issue, turns never get reordered. A follow-up Task therefore always sees the workspace its predecessor left behind.
 
@@ -105,5 +105,3 @@ Six objects carry one piece of work through Codify, and all of them belong to th
 - **Merge Request**: one per Issue, created from that branch and targeting the Issue's **Merge Target**. Merging it is what closes the Issue.
 - **Task snapshot**: the configuration frozen when the Task is created, so later edits never change a Task that already exists.
 - **Run archive**: one per Task, kept so you can inspect afterwards what a run produced.
-
-Only the Task snapshot and the run archive are scoped to a single Task; the branch, the Merge Request, and the aggregated **Delivery Overview** all belong to the Issue.

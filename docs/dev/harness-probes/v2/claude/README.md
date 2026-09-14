@@ -18,7 +18,7 @@ python3 scripts/harness-probes/v2/replay_v2.py codex  backend/tests/fixtures/har
 |---|---|---|---|
 | `schema` | `codify.worker.event/v1` | `codify.worker.event/v2` | 信封版本 |
 | `harness.adapter_version` | `1.0.0(-candidate)` | `2.0.0` | V2 Bridge/Adapter |
-| `harness.cli_version` | codex `0.146.0-alpha.3.1` / claude `2.1.152` | codex `0.146.0` / claude `2.1.152` | 对齐 §3.1 固定版本；codex 以二进制报告 `0.146.0` 为准 |
+| `harness.cli_version` | codex `0.146.0-alpha.3.1` / claude `2.1.152` | codex `0.146.0` / claude `2.1.152` | 回放沿用 V1 捕获时的 claude `2.1.152`（§3.1 的当前固定版本是 `2.1.153`）；codex 以二进制报告 `0.146.0` 为准 |
 | `harness.control_transport` | （无） | `{kind,protocol}` | 新增：claude=`cli_stream_json/claude-json`、codex=`cli_jsonl/codex-jsonl`、pi=`rpc_stdio/pi-rpc`、opencode=`server_http/opencode-server` |
 | `harness.model_protocols` | （无） | `[...]` | 新增：claude=`[anthropic_messages]`、codex=`[openai_responses]`、pi/opencode=三协议 |
 | `event_id` | `…-event-N` | `…-event-N-v2` | V1/V2 fixture 不冲突 |

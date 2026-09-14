@@ -2,7 +2,7 @@
 
 [中文文档索引](docs/README.zh-CN.md)
 
-Codify is a self-hosted platform that turns requirements into code. It puts interactive coding agents — **Claude Code**, with **Codex** wired in and rolling out — behind a web control plane: describe what you need, and Codify runs the agent in an isolated Docker container, commits the changes, pushes a branch, and opens a Merge Request. Schedule tasks for off-peak hours and your compute works around the clock.
+Codify is a self-hosted platform that turns requirements into code. It puts coding-agent CLIs (Claude, Codex, Pi, and OpenCode) behind a web control plane: describe what you need, and Codify runs the harness selected for the task in an isolated Docker container, commits the changes, pushes a branch, and opens a Merge Request. Schedule tasks for off-peak hours and your compute works around the clock.
 
 At its core, Codify takes an agent CLI (like `claude -p "..."`) and adds everything a one-shot shell process lacks: persistence, scheduling, concurrency control, isolation, observability, and Git delivery.
 
@@ -23,7 +23,7 @@ At its core, Codify takes an agent CLI (like `claude -p "..."`) and adds everyth
 
 - **Issue** — a persistent requirement container. It owns the workspace, the conversation session, and one branch + MR lifecycle. Tasks execute in strict per-issue sequence, like typing into an interactive terminal session that persists.
 - **Task** — one round of execution (a "turn") in an issue's ordered stream. Priority (P0/P1/P2) and scheduled time arbitrate *between* issues only — never reorder a single issue's turns.
-- **Harness** — the coding agent CLI. Each harness has an adapter, a wire protocol (anthropic-messages / openai-responses), and a capability policy. Claude Code is active today; the Codex adapter is first-class in the runtime manifest and rolling out.
+- **Harness** — the coding agent CLI a task runs. Four are supported: Claude, Codex, Pi, and OpenCode. Each has an adapter, a control transport, an allowed set of model wire protocols (anthropic-messages / openai-responses / openai-chat-completions), and a capability policy. A Worker Profile lists the harnesses it enables and names a default; the frozen Task snapshot fixes the choice for a run.
 - **Worker Profile → Task Snapshot → Runtime Bundle** — admin-maintained profiles (image, mounts, env, skills, harness constraints, run-instruction templates) resolve at task creation into an immutable snapshot, bound to a content-addressed (sha256) runtime bundle. Retries reuse the frozen bundle — nothing changes under a running task.
 
 ## Features
@@ -59,7 +59,7 @@ At its core, Codify takes an agent CLI (like `claude -p "..."`) and adds everyth
 
 ## Architecture
 
-Four services under docker-compose: **backend** (FastAPI + async SQLAlchemy), **scheduler** (same image; DB-backed queue state machine `PENDING → QUEUED → RUNNING`), **nginx** (frontend + `/api` proxy), **postgres**. Each task runs in its own container named `{worker_container_prefix}-{task_id}-issue{issue_id}` — the prefix defaults to `codify`, so a task looks like `codify-670-issue183` (`backend/app/core/worker_runtime.py` `get_container_name`) — on a configurable Docker host.
+Four services run under docker-compose: **backend** (FastAPI + async SQLAlchemy), **scheduler** (same image; DB-backed queue state machine `PENDING → QUEUED → RUNNING`), **nginx** (frontend + `/api` proxy), **postgres**. A fifth definition, `migrate`, sits behind the `maintenance` profile for explicit migrations. Each task runs in its own container named `{worker_container_prefix}-{task_id}-issue{issue_id}` — the prefix defaults to `codify`, so a task looks like `codify-670-issue183` (`backend/app/core/worker_runtime.py` `get_container_name`) — on a configurable Docker host.
 
 A task's life:
 
@@ -72,9 +72,9 @@ A task's life:
 
 ## Quick start
 
-**Prerequisites:** Docker + Docker Compose, a reachable GitLab instance, and a Claude API-compatible model endpoint.
+**Prerequisites:** Docker + Docker Compose, a reachable GitLab instance, and a model endpoint the harness CLIs can call.
 
-`deploy/docker-compose.yml` reads from `deploy/.env.test`. At minimum, set `GITLAB_URL`, `GITLAB_BOT_TOKEN`, and `ANTHROPIC_API_KEY`. Runtime overrides are persisted in PostgreSQL `system_config`; secrets entered in the dashboard are encrypted at rest.
+`deploy/docker-compose.yml` reads from `deploy/.env.test`. At minimum, set `GITLAB_URL`, `GITLAB_BOT_TOKEN`, `ANTHROPIC_API_KEY`, and `CONFIG_ENCRYPTION_KEY`, which encrypts the secrets you save in the dashboard. Runtime overrides are persisted in PostgreSQL `system_config`; secrets entered in the dashboard are encrypted at rest.
 
 ```bash
 cd deploy

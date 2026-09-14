@@ -31,7 +31,7 @@ A Task does not see the whole workspace directory. It mounts four of its childre
 | `/workspace` | `repo/` | The checkout, including the commits earlier Tasks left behind |
 | `/home/codify/.claude` | `claude/` | Claude CLI state: session transcripts, settings, and backups |
 | `/opt/codify-issue-shared` | `shared/` | Issue-shared space, including the state directories other Harnesses keep there |
-| `/opt/codify-issue-meta` | `meta/` | Root-owned bookkeeping: `workspace.json`, the `ownership` marker, and the `owner` delete guard |
+| `/opt/codify-issue-meta` | `meta/` | Bookkeeping: `workspace.json`, the `ownership` marker, and the `owner` delete guard |
 
 Every Task on an Issue uses the same mount set, so a follow-up Task starts from the previous checkout and session instead of cloning again.
 
@@ -73,4 +73,4 @@ The runtime archive is built from this directory as the container exits, and the
 | Runtime archives | `worker_runtime_archive_retention_days` | 30 days | By archive record age |
 | CI failure bundles | `worker_workspace_retention_days` | 14 days | By bundle age under `{worker_workspace_host_path}/ci-failures` |
 
-The workspace timestamp is refreshed when a Task is created and again when it finishes or is cancelled, so an Issue in use is not reclaimed. Workspace reclamation goes through a short-lived maintenance container that mounts the workspace root and reads `meta/owner`; the directory is deleted only if that marker still names the Issue and its Worker Profile. The scheduler runs the workspace scan every 6 hours and the archive scan hourly. Scheduler crash recovery cleans up orphan containers from an interrupted run and leaves workspaces alone.
+The workspace timestamp is refreshed when a Task is created and again when it finishes or is cancelled, so an Issue in use is not reclaimed. Workspace reclamation goes through a short-lived maintenance container that mounts the workspace root and checks `meta/owner`; the delete is refused when that marker names a different Issue or Worker Profile. The scheduler runs the workspace scan every 6 hours and the archive scan hourly. Scheduler crash recovery cleans up orphan containers from an interrupted run and leaves workspaces alone.

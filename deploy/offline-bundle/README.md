@@ -6,17 +6,28 @@ This folder contains the artifacts needed to deploy the current Codify build int
 
 - `docker-compose.yml`: offline deployment compose file using prebuilt images only
 - `config/.env.offline.example`: sanitized environment template
-- `docs/ops/CONFIGURATION.md`: variable explanations and deployment checklist
+- `config/worker-images.txt.example` and `config/worker-binaries.txt.example`: templates for the
+  runtime images and fixed host binaries that must be present on the target hosts
+- `docs/CONFIGURATION.md`: variable explanations and deployment checklist
 - `scripts/load-images.sh`: load exported images into Docker
-- `scripts/start.sh`: start the stack
+- `scripts/start.sh`: start the stack with `--env-file config/.env.offline`
 - `scripts/stop.sh`: stop the stack
-- `scripts/health-check.sh`: verify backend/frontend health
+- `scripts/health-check.sh`: verify backend/frontend health using `BACKEND_URL` and `FRONTEND_URL`
 - `scripts/export-images.sh`: regenerate image archives from an online build machine
 - `scripts/package-bundle.sh`: package the whole `offline-bundle/` directory for distribution
+- `scripts/install-worker-kit.sh`: install a Kit archive on a Docker host as root
+- `scripts/validate-kit-archive.py`: reject an archive whose member paths leave the Kit root;
+  `install-worker-kit.sh` calls it
 - `scripts/verify-worker-runtime.sh`: compatibility wrapper that delegates to the verifier and
   validator protected by the installed Worker Kit archive checksum
+- `scripts/verify-kit-content.py`: content-inventory verifier; `package-bundle.sh` copies it in
+  from `deploy/worker-kit/` when it builds the archive
 - `images/`: Docker image archives and checksum files
 - `kits/`: versioned worker-kit archives and checksums
+
+An installed Kit directory is named `<version>-linux-<arch>-<12 hex digits of the manifest
+SHA-256>` under `/opt/codify/worker-kits/`. `install-worker-kit.sh` only accepts an archive whose
+name carries that content-addressed suffix.
 
 ## Release candidate freeze
 
@@ -32,9 +43,10 @@ Before a rollout, freeze the complete multi-harness release candidate:
 - The Task Runtime Bundle manifest digest and each harness Adapter version/digest; the actual
   Adapter comes only from the immutable Runtime Bundle, never from the Kit or host path.
 
-See `docs/ops/runbooks/multi-harness-rollout.md` for the full freeze list, per-Host verification,
-direct switch, alerting and rollback procedure, and `docs/ops/runbooks/multi-harness-rollout-evidence.md`
-for the evidence template.
+See `../../docs/ops/runbooks/multi-harness-rollout.md` in the repository for the full freeze list,
+per-Host verification, direct switch, alerting and rollback procedure, and
+`../../docs/ops/runbooks/multi-harness-rollout-evidence.md` for the evidence template. Neither file
+is shipped inside this bundle.
 
 ## Images exported by default
 
@@ -59,14 +71,16 @@ reference runtime must be available offline.
 4. Edit `config/.env.offline` and fill in your real values.
 5. Run `./scripts/load-images.sh`.
 6. On every Docker host, install the kit as root with
-   `sudo ./scripts/install-worker-kit.sh kits/<archive>`; the installer verifies the Kit archive
-   sidecar before extraction and seals the installed directory as root-owned and non-writable by
-   other users.
+   `sudo ./scripts/install-worker-kit.sh kits/<archive>`; the `.sha256` sidecar must sit next to
+   the archive. The installer verifies that sidecar before extraction, refuses to overwrite an
+   already-installed content-addressed identity, and seals the installed directory under
+   `/opt/codify/worker-kits/<version>-linux-<arch>-<manifest-prefix>` as root-owned and
+   non-writable by other users.
 7. Verify each runtime image per harness on the Docker host:
 
    ```bash
    ./scripts/verify-worker-runtime.sh \
-     --kit /opt/codify/worker-kits/0.3.10-linux-amd64-<manifest-prefix> \
+     --kit /opt/codify/worker-kits/0.6.17-linux-amd64-<manifest-prefix> \
      --image <runtime-image> \
      --harness-key claude \
      --harness-host-path /usr/bin/claude \
@@ -74,7 +88,7 @@ reference runtime must be available offline.
      --smoke 'java -version && mvn -version'
 
    ./scripts/verify-worker-runtime.sh \
-     --kit /opt/codify/worker-kits/0.3.10-linux-amd64-<manifest-prefix> \
+     --kit /opt/codify/worker-kits/0.6.17-linux-amd64-<manifest-prefix> \
      --image <runtime-image> \
      --harness-key codex \
      --harness-host-path /opt/codify/codex/bin/codex \
@@ -83,19 +97,21 @@ reference runtime must be available offline.
    ```
 
    For a frozen V2 release, pass the persisted Runtime Bundle manifest and verify all four
-   Harnesses in one invocation. This works from the extracted offline bundle without a Codify
-   checkout or `PYTHONPATH`:
+   Harnesses in one invocation. This works from a bundle packaged by `scripts/package-bundle.sh`
+   without a Codify checkout or `PYTHONPATH`, because that script places the trusted content
+   verifier next to the wrapper:
 
    ```bash
    ./scripts/verify-worker-runtime.sh \
-     --kit /opt/codify/worker-kits/0.3.15-linux-amd64-<manifest-prefix> \
+     --kit /opt/codify/worker-kits/0.6.17-linux-amd64-<manifest-prefix> \
      --image <runtime-image> \
      --runtime-manifest /srv/codify/releases/<release>/runtime-bundle.v2.json \
      --all-harnesses \
      --smoke 'java -version && mvn -version'
    ```
 
-   The legacy `--claude-host-path <host-claude-bin>` form is still accepted. Then run
+   `--all-harnesses` requires `--runtime-manifest`. The legacy
+   `--claude-host-path <host-claude-bin>` form is still accepted. Then run
    `/api/worker-profiles/<id>/verify-runtime` through Codify so the immutable image repo digest and
    `verified_at` are persisted on the profile.
 
@@ -128,13 +144,13 @@ This command:
 
 ## Notes
 
-- The scheduler runs database migrations automatically on startup.
+- The scheduler runs database migrations automatically on startup (`AUTO_MIGRATE=true`); `backend` stays at `AUTO_MIGRATE=false` so the two processes never race on Alembic.
 - `backend` and `scheduler` need access to the local Docker socket because worker containers are created dynamically.
 - `scripts/load-images.sh` loads the backend, nginx, Postgres, and any explicitly configured runtime images in the archive.
 - If you set or change `WORKER_IMAGE` in `config/.env.offline`, include an image with the same tag through `config/worker-images.txt` or load it separately on every worker Docker host.
 - Copy `config/worker-images.txt.example` to `config/worker-images.txt` before export and list
   all project runtime images that must be available offline.
-- The Kit version defaulted by `make offline-bundle-export` follows `WORKER_KIT_VERSION`; set it to
-  the frozen release version (e.g. `WORKER_KIT_VERSION=0.3.10`) so both architecture archives match
-  the release candidate.
+- The Kit version defaulted by `make offline-bundle-export` follows `WORKER_KIT_VERSION` (currently
+  `0.6.17`); set it to the frozen release version so both architecture archives match the release
+  candidate.
 - If your intranet environment has no outbound internet access, `ANTHROPIC_BASE_URL` must point to an internal Claude-compatible endpoint.

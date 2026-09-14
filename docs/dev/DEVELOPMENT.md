@@ -82,7 +82,8 @@ cp .env.example .env
 
 #### 应用配置
 
-- `SECRET_KEY`
+- `SESSION_SECRET`
+- `CONFIG_ENCRYPTION_KEY`
 - `WORKER_IMAGE`
 - `MAX_CONCURRENCY`
 - `TASK_TIMEOUT_PEAK_SECONDS`
@@ -90,6 +91,8 @@ cp .env.example .env
 - `TASK_TIMEOUT_PEAK_START`
 - `TASK_TIMEOUT_PEAK_END`
 - `DEFAULT_TARGET_BRANCH`
+
+`backend/.env.example` 已带上述键与示例值，默认值和取值范围见 `backend/app/config.py`；高峰窗口按 `Asia/Shanghai` 判定。
 
 ### 4.3 准备 PostgreSQL
 
@@ -101,13 +104,15 @@ cp .env.example .env
 
 #### 方式 B：用 Docker 起一个 PostgreSQL
 
-最简单的方式是直接使用项目里的 compose，把 `codify-postgres` 起起来：
+最简单的方式是用项目里的 compose 起 `postgres` 服务（容器名 `codify-postgres`）：
 
 ```bash
 cd ../deploy
-docker-compose up -d
-# 或只启动 postgres：docker-compose up -d codify-postgres
+docker-compose --env-file .env.test up -d postgres   # 只起数据库
+docker-compose --env-file .env.test up -d            # 起整套
 ```
+
+compose 把数据库端口映射到宿主机 `5432`，所以在这种方式下 `DATABASE_URL` 用 `localhost` 或 `127.0.0.1` 都能连上。
 
 然后在 `backend/.env` 中把 `DATABASE_URL` 指向与当前运行方式匹配的地址。
 
@@ -115,13 +120,15 @@ docker-compose up -d
 
 ### 4.4 执行数据库迁移
 
-Backend 固定不自动迁移（`AUTO_MIGRATE=false`），Scheduler 是唯一的启动阶段 migration owner
-（`AUTO_MIGRATE=true`）。开发环境启动新版服务时由 Scheduler 自动执行 Alembic，NGINX 等待 Scheduler
-healthy 后再开放入口；不需要先手工运行 migration：
+Backend 固定不自动迁移（`AUTO_MIGRATE=false`），Scheduler 是启动阶段唯一的 migration owner
+（`AUTO_MIGRATE=true`）。启动新版服务时由 Scheduler 自动执行 Alembic，NGINX 等待 Scheduler
+healthy 后再开放入口，不需要先手工运行 migration。
+
+只有恢复/测试等明确场景才使用 maintenance profile 里的 `migrate` 服务，它跑完即退出：
 
 ```bash
-# 只有恢复/测试等明确场景才使用 maintenance migration profile。
-HARNESS_EXECUTION_MODE=v2_only docker compose --env-file .env.test up -d backend scheduler nginx
+cd deploy
+MIGRATION_TARGET=<revision> docker compose --profile maintenance run --rm migrate
 ```
 
 > 项目使用 Alembic 进行数据库迁移，迁移脚本位于 `backend/alembic/versions/`。
@@ -151,7 +158,9 @@ npm install
 npm run dev
 ```
 
-前端开发服务器启动后，通常会提供一个本地端口，例如 `http://localhost:5173`。
+开发服务器监听 `http://localhost:5173`，`server.port` 定义在 `frontend/vite.config.ts`。
+
+同一个文件把 `/api` 代理到 `http://192.168.50.129:8000`。后端跑在本机时，把 `server.proxy` 里 `/api` 的 `target` 改成 `http://localhost:8000`，否则页面里的接口请求会发到那台远端机器。
 
 ### 5.3 前端构建校验
 
@@ -192,15 +201,31 @@ npm run build
 适合验证部署问题、容器行为和调度问题：
 
 ```bash
-cd deploy
-docker-compose up -d --build
+make up     # 等价于 cd deploy && docker-compose --env-file .env.test up -d --build
+make logs
 ```
 
 这个方案更接近生产，但迭代速度比本地直接跑慢。
 
 ## 7. 常用开发命令
 
-### 7.1 后端
+### 7.1 Makefile 一键命令
+
+仓库根目录的 `Makefile` 把常用动作包成了目标，`make help` 会列出全部：
+
+```bash
+make setup        # 安装后端 venv 与前端 npm 依赖
+make up           # 起开发环境（docker-compose --env-file .env.test up -d --build）
+make logs         # 跟随开发环境日志
+make down         # 停开发环境
+make ps           # 查看容器状态
+make test-unit    # 后端 + 前端 + mock E2E 单元测试
+make lint         # Ruff 检查
+```
+
+`make test-backend` 这类目标直接调 `backend/.venv/bin/python`，不需要先激活虚拟环境。
+
+### 7.2 后端
 
 ```bash
 # 安装依赖
@@ -213,7 +238,7 @@ cd backend && uvicorn app.main:app --reload
 cd backend && alembic upgrade head
 ```
 
-### 7.2 前端
+### 7.3 前端
 
 ```bash
 cd frontend && npm install
@@ -221,11 +246,13 @@ cd frontend && npm run dev
 cd frontend && npm run build
 ```
 
-### 7.3 Docker / 部署验证
+### 7.4 Docker / 部署验证
 
 ```bash
-cd deploy && docker-compose up -d --build
-cd deploy && docker-compose logs -f
+make up                  # 起开发环境
+make logs                # 跟随日志
+make rebuild-backend     # 只重建并重启 backend
+make rebuild-scheduler   # 只重建并重启 scheduler
 ```
 
 ## 8. 测试
@@ -236,10 +263,13 @@ cd deploy && docker-compose logs -f
 
 | 测试类型 | 命令 |
 |---------|------|
-| 后端单元测试 | `cd backend && python -m pytest tests/unit/ -v` |
-| 前端单元测试 | `cd frontend && npx vitest run` |
-| Mock E2E | `cd backend && python -m pytest tests/mock_e2e/ -v` |
-| Playwright E2E | `cd deploy && docker-compose -f docker-compose.e2e.yml run --rm e2e` |
+| 后端单元测试 | `make test-backend` 或 `cd backend && python -m pytest tests/unit/ -v` |
+| 前端单元测试 | `make test-frontend` 或 `cd frontend && npx vitest run` |
+| Mock E2E | `make test-mock-e2e` 或 `cd backend && python -m pytest tests/mock_e2e/ -v` |
+| Mock 集成测试（Docker） | `make test-mock-integration` |
+| Playwright E2E（Docker） | `make test-e2e-ui` |
+| GitLab E2E（Docker） | `make test-e2e-gitlab` |
+| 全部测试 | `make test-all` |
 
 ### 前端验证
 
@@ -307,4 +337,5 @@ cd frontend && npm run build
 - [中文文档索引](../README.zh-CN.md)
 - [DEPLOYMENT.md](../ops/DEPLOYMENT.md)
 - [GITLAB_OIDC_SETUP.md](../ops/GITLAB_OIDC_SETUP.md)
+- [TESTING.md](TESTING.md)
 - [E2E_TESTS.md](E2E_TESTS.md)

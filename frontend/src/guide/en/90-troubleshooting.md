@@ -10,7 +10,7 @@ tier: core
 
 > [!tip] **Triage order**: read the failure kind on the task first, use Events to confirm the order, use Raw Logs to inspect the container, then download the run archive for complete evidence.
 
-A failed task shows the status **Failed** on the Task page. The failure reason is stored on the task itself: the detail view returns the message plus the failure kind reported by the harness, and the same message is written into the task log.
+A failed task shows the status **Failed** on the Task page. The failure reason is stored on the task itself: the detail view returns the message plus the failure kind recorded for the run, and the **Error** card on the Task page shows both.
 
 Plain text is a human-readable cause; a JSON object is a structured rejection that names its own code.
 
@@ -109,7 +109,7 @@ An expired or revoked session returns to the sign-in page with an explanation: t
 
 Two page-level causes can produce the same symptom:
 
-- The read-only pages **Monitor**, **Schedule Overview**, **Analytics**, and **OIDC Diagnostics** are admin-only until the matching switch under **Shared Page Access** is enabled for platform users.
+- The read-only pages **Monitor**, **Schedule Overview**, and **Analytics** are admin-only until the matching switch under **Shared Page Access** is enabled for platform users. Those switches only apply while **Enable OIDC Login** is on. **OIDC Diagnostics** has no switch and stays admin-only, because it lives inside the **Authentication** tab.
 - A disabled account is rejected on every request, with the message that the dashboard account is disabled. Re-enable the account on **Access Management** if that was not intended.
 
 ### OIDC sign-in fails or loops
@@ -136,7 +136,7 @@ Administrators are granted by username or by GitLab group. Group grants only wor
 
 ### The emergency administrator path
 
-Break-glass login is available only where it has been fully configured. When it is not fully configured, the request is refused and the sign-in page states that break-glass login is not enabled. When it is enabled, the sign-in page warns that it must be used only for OIDC recovery or administrator lockout. The emergency account is created on first successful use and is marked with the **Break-glass** role source; a username that already belongs to a different dashboard user is rejected as a conflict instead of being taken over.
+Break-glass login works only where it has been fully configured; otherwise the request is refused and the sign-in page states that break-glass login is not enabled. When it is enabled, the sign-in page warns that it must be used only for OIDC recovery or administrator lockout. The emergency account is created on first successful use and is marked with the **Break-glass** role source; a username that already belongs to a different dashboard user is rejected as a conflict instead of being taken over.
 
 Leave the path disabled during normal operation. It exists so that a broken OIDC configuration cannot lock every administrator out; close it again as soon as normal sign-in works.
 
@@ -161,7 +161,7 @@ While the profile is assigned to open issues, plain disable is refused. Force di
 Task execution is frozen in a Task Snapshot and Runtime Bundle at creation time. Profile edits, shared script changes, Skill changes, and provider changes apply only to tasks created afterwards.
 
 **Why can a platform user not open Monitor?**
-The page is admin-only until **Allow Monitor for platform users** is enabled under **Shared Page Access**. The same applies to Schedule Overview, Analytics, and OIDC Diagnostics.
+The page is admin-only until **Allow Monitor for platform users** is enabled under **Shared Page Access**. The same applies to Schedule Overview and Analytics. OIDC Diagnostics has no switch and stays admin-only.
 
 **Why is a project flagged as Needs attention in the webhook overview?**
 Its hook is missing, or the hook lacks SSL verification, merge request events, or pipeline events. Re-run the project webhook setup, then refresh the statuses.
@@ -173,4 +173,4 @@ The picker only offers what the account behind it can see. When you sign in thro
 An exceeded limit does not delay the task; it rejects creation, or fails the queued task before a container starts.
 
 **Can a deleted task be restored?**
-No. Data deleted before the coverage start cannot be recovered, deleted records appear as sanitized snapshots without detail links, and cleanup removes the task's logs, archives, and workspace, so treat cleanup as irreversible.
+No. Data deleted before the coverage start cannot be recovered, deleted records appear as sanitized snapshots without detail links, and cleanup removes the task's logs, archives, and workspace.

@@ -12,9 +12,9 @@ tier: deep
 
 **Dashboard** is your personal home page. It shows what is in flight and how your work is trending, and it leaves platform internals out.
 
-The **My Work Board** groups your work into columns; an empty column reads **No items in this status.**, and an empty board reads **No items in this view yet.**. When a column is truncated you see **Showing the first {shown} items out of {total}**, with **View more** to open the full list.
+The **My Work Board** groups your work into columns; an empty column reads **No items in this status.**, and an empty board reads **No items in this view yet.**. When a column is truncated you see **Showing the first {shown} items out of {total}. Refine filters or open the full list to see more.**, with **View more** to open the full list.
 
-Below the board, six panels summarise the last 90 days:
+Above the board, six panels summarise your work. **Lines Changed**, **Tokens Used**, **Activity**, and **Trend** cover the last 90 days; **Issue Status** and **Task Status** show the current distribution.
 
 | Panel | What it counts |
 |---|---|
@@ -25,9 +25,9 @@ Below the board, six panels summarise the last 90 days:
 | **Activity** | Number of tasks completed per day |
 | **Trend** | Daily trends of task completions, code changes, and token usage |
 
-Each panel carries its definition in its own tooltip. Auto-refresh keeps the page current; the header shows **Just updated**, **Updated {n}s ago**, or **Updated {n}m ago**, and the label **Auto-refresh** marks the control.
+Each panel carries its definition in its own tooltip. Auto-refresh keeps the page current; the header shows **Just updated**, **Updated {n}s ago**, **Updated 1m ago**, or **Updated {n}m ago**, and the label **Auto-refresh** marks the control.
 
-The **Tasks** page lists the same work as a table, with ID, prompt, project, initiator, issue, status, priority, harness, branch, MR, changes, duration, and scheduled time, and shows a **Visible Tasks** counter for the current filter. Row actions open the task detail page.
+The **Tasks** page renders tasks as a table, with columns for ID, prompt, project, initiator, issue, status, priority, harness, branch, MR, changes, duration, tokens, creation time, and scheduled time, and its **Visible Tasks** counter, plus the running, pending, and completed counters, cover everything you can access rather than the filtered rows. Clicking a row opens the task detail page.
 
 ## Analytics
 
@@ -55,7 +55,7 @@ Access to Analytics depends on your role, or on an administrator enabling it for
 
 ## Monitor
 
-**Monitor** is the operational view. It builds its data from the latest visible task sample, global task stats, and the containers currently in the platform's inventory. The header exposes **Live** and **Clear** (to clear activity highlighting), and **Running Now**, **Queue Pressure**, **Active Containers**, and **System Health** appear as live counters.
+**Monitor** is the operational view. It builds its data from the latest visible task sample, global task stats, and the containers currently in the platform's inventory. The header carries four counters: **Running Now**, **Queue Pressure**, **Active Containers**, and **System Health**. The Running Now card is tagged **Live**; the Queue Pressure card is tagged **Waiting** while tasks are waiting and **Clear** when none are.
 
 The page has three tabs:
 
@@ -65,20 +65,20 @@ The page has three tabs:
 | **Container Debugging** | Container inventory, running tasks missing containers, and orphan containers |
 | **Health Signals** | Health checks, task status breakdown, and recent failures |
 
-**Active Task Queue** is sorted by Running → Ready → Waiting, with the ordering rule printed in the subtitle: priority P0 first, then due scheduled before immediate, then earlier schedule first, then FIFO, with waiting tasks ordered by scheduled time. The queue renders as **Board**, **Timeline**, or **Table**. Board columns are **Running**, **Ready**, and **Waiting**; a Ready card shows either **Immediate** or its due time, while a Waiting card explains itself as **Queued #{position} · waiting for Task #{blockedBy}**, **Waiting for Task #{blockedBy} to clean up the workspace**, or **Sequence repair required**.
+**Active Task Queue** is sorted by Running → Ready → Waiting, with the ordering rule printed in the subtitle: priority P0 first, then due scheduled before immediate, then earlier schedule first, then FIFO, with waiting tasks ordered by scheduled time. The queue renders as **Board**, **Timeline**, or **Table**. The board has four columns, **Running**, **Ready**, **Waiting on predecessors**, and **Waiting**. A Running card shows elapsed time, a Ready card shows **Due: {time}** or **Immediate**, and a card in the predecessors column states why it is held: **Queued #{position} · waiting for Task #{blockedBy}** or **Waiting for Task #{blockedBy} to clean up the workspace**. Waiting cards show their scheduled time. An Issue whose turn sequence needs repair is left out of that column and surfaced by the board banner instead: **{count} task(s) require sequence repair — scheduling is temporarily unavailable.**
 
 **Container Debugging** covers the cases where a Task and its container disagree:
 
 | Signal | Meaning |
 |---|---|
-| **Linked** | The running container maps cleanly to a live task |
-| **Task missing** | A running task with no visible running container |
-| **Unmapped** | A running container without a matching running task |
+| **Linked** | A running container that maps cleanly to a running task |
+| **Task missing** | The container's task is not in the latest task sample |
+| **Unmapped** | A container with no task mapping |
 | **Container outlived task** | The container is still present although the task is terminal |
-| **Task still marked running** | The task state and container state disagree |
-| **Historical** | The container belongs to an older run |
+| **Task still marked running** | A task still marked running although its container is no longer running |
+| **Historical** | Neither the container nor the task is running |
 
-Container rows show **Container ID**, **Docker target**, **Name**, **Status**, **Task ID**, and **Age**; when a Task is not in the sample, the row states **task not in latest sample**. If some targets are unreachable, a banner reports **Some Docker targets are unavailable**; inventory covers only the targets that responded.
+Container rows show **Container ID**, **Name**, **Docker target**, **Status**, **Task**, **Relation**, **Age**, and the creation time; when a Task is not in the sample, the task cell states **task not in latest sample**. If some targets are unreachable, a banner reports **Some Docker targets are unavailable**; inventory covers only the targets that responded.
 
 **Health Signals** runs four checks:
 
@@ -91,19 +91,19 @@ The roll-up is **Healthy**, **Watch**, or **Attention**. **Recent Failures** lis
 
 ## Schedule overview
 
-**Schedule Overview** shows only active scheduled tasks (those in **Pending** and **Running**) under **Scheduled Tasks**.
+**Schedule Overview** covers active scheduled tasks only, meaning tasks in **Pending**, **Queued**, or **Running**.
 
 | Panel | Content |
 |---|---|
 | **Next 24 Hours** | Scheduled task count per hour, in UTC+8 |
 | **Busy & Idle Windows** | A summary of the next 24 hours, with **Busiest slots** and **Idle slots** |
-| **7-Day Heatmap** | Heavier scheduled load in darker cells; cells are **Light**, **Busy**, or **Full** with a **{count}/{max}** readout |
+| **7-Day Heatmap** | Heavier scheduled load in darker cells; cells are **Light**, **Busy**, or **Full** with the task count inside and **{count}/{max}** on hover once a per-slot limit is configured |
 
-The header summarises the backlog as **Ready Now** (already due to run), **Next 24 Hours** (upcoming scheduled work), **After 24 Hours** (later backlog), and **Busiest Hour**. Empty states are explicit: **No scheduled work in the next 24 hours.** and **Every upcoming hour already has scheduled work.**
+The header summarises the backlog as **Scheduled Queue** (all active scheduled tasks), **Ready Now** (already due to run), **Next 24 Hours** (upcoming scheduled work), **After 24 Hours** (later backlog), and **Busiest Hour**. Empty states are explicit: **No scheduled work in the next 24 hours.** and **Every upcoming hour already has scheduled work.**
 
-Clicking a non-empty hour column or a colored heatmap cell opens **Selected Time Window**, listing the tasks in that slot with **{count} task(s) in this window**, their **Current schedule**, and a time editor. Only pending scheduled tasks can be edited here. Editing is admin-only: if you are not an administrator the page tells you that only admins can adjust task schedules from Schedule Overview, while still letting you inspect the window. Rescheduling from this page obeys the same rules as rescheduling from a task: the new time must be in the future and inside the Issue queue window.
+Clicking a non-empty hour column or a colored heatmap cell opens **Selected Time Window**, listing the tasks in that slot with **{count} task(s) in this window**, their **Current schedule**, and a time editor. Only pending scheduled tasks can be edited here. On installations with sign-in enabled, editing is admin-only: if you are not an administrator the page tells you that only admins can adjust task schedules from Schedule Overview, while still letting you inspect the window. Rescheduling from this page obeys the same rules as rescheduling from a task: the new time must be in the future and inside the Issue queue window.
 
-**Full Slots** lists hours at capacity, with the note **Slot capacity: {capacity} per hour**; when nothing is full you see the same capacity statement followed by **None full**. Filters include **My Tasks Only**, a **Status** filter, and a search across project, branch, and prompt. Like Monitor, this page may be restricted by role or by configuration.
+**Full Slots** counts the hours at capacity, with the note **Slot capacity: {capacity} per hour**; when nothing is full you see the same capacity statement followed by **None full**. The card appears while a slot limit is configured and the **My Tasks Only** filter is off. The header carries the **My Tasks Only** toggle next to a refresh button. Like Monitor, this page may be restricted by role or by configuration.
 
 ## Sessions {core}
 
@@ -117,6 +117,6 @@ Clicking a non-empty hour column or a colored heatmap cell opens **Selected Time
 | Tokens | **Access token stored** / **Access token missing** and **Refresh token stored** / **Refresh token missing** |
 | IP | The source address, or **IP unavailable** |
 
-Counters summarise **Active Sessions** and **Refresh-Capable** sessions, and the known list is under **Known Sessions**. **Reload sessions** refreshes the list.
+Counters summarise **Known Sessions**, **Active Sessions**, **Refresh-Capable**, and the id of the **Current Session**. The list below is one card per session, titled **Current browser session** for the one in use and **Saved session** for the rest. **Reload sessions** refreshes the list.
 
 The refresh caveat is stated on the page: if a session has no refresh token, GitLab access expiry will require a fresh sign-in even if the dashboard cookie still exists. Revoking a session invalidates it immediately; revoking the one you are using signs you out and redirects to login. When you cannot find a session you expected, or you see sessions you do not recognize, revoke them and check the platform's login configuration. Session management is a user-facing control; sign-in policy is configured by an administrator.

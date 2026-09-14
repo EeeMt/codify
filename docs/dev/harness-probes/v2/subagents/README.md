@@ -406,8 +406,7 @@ The ceiling has to make background delegation impossible at depth 0, because a
 detached launch returns no child inventory: the parent stream would carry no
 child identity, usage or output. Three distinct plugin routes bypassed a
 foreground-only configuration, and all three are now closed by the vendor patch
-(`deploy/worker-cli/pi-subagents/vendor/force-foreground.patch`, three files,
-seven hunks):
+(`deploy/worker-cli/pi-subagents/vendor/force-foreground.patch`):
 
 | Route | Plugin decision | Closed by |
 |---|---|---|
@@ -466,7 +465,7 @@ plugin's own `discoverAgents(cwd, scope)`:
 | `agentScope: "user"` only | 4 definitions, but all four carry `planted-model` and builtins reappear in the management listing |
 | Codify ceiling | 4 agents (`delegate`, `reviewer`, `scout`, `worker`), `Model: inherits current session`, no builtins |
 
-The vendor patch is therefore four files and eight hunks: the documented
+The vendor patch is therefore five files and ten hunks: the documented
 `async`/`agentScope` pins, the tool-entry rejection of an explicit background
 launch, and the single settings gate.
 

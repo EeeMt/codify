@@ -10,7 +10,7 @@ tier: core
 
 ### Roles, sources, and states
 
-A dashboard user has exactly one role, `platform_admin` or `platform_user`, shown as **Platform admin** and **Platform user**. The state is either **Active** or **Disabled**. The page groups users into **Known Users**, **Platform Admins**, and **Disabled Users**, and shows where the role came from:
+A dashboard user has exactly one role, `platform_admin` or `platform_user`, shown as **Platform admin** and **Platform user**. The state is either **Active** or **Disabled**. The header counts **Known Users**, **Platform Admins**, **Disabled Users**, and **Active sessions**, and each row shows where the role came from:
 
 | Source | Meaning |
 | --- | --- |
@@ -18,7 +18,7 @@ A dashboard user has exactly one role, `platform_admin` or `platform_user`, show
 | **Manual override** | Set explicitly on this page |
 | **Break-glass** | The environment-controlled emergency administrator account |
 
-Two rules apply here: **Manual role changes override bootstrap username/group rules for that user. Disabling a user immediately revokes their active sessions.** Once a role is set manually, later logins no longer recompute it from the bootstrap lists.
+Two rules apply here: **Manual role changes override bootstrap username/group rules for that user. Disabling a user immediately revokes their active sessions.**
 
 The first administrator is created by the bootstrap flow on a fresh installation. Later administrators normally come from the OIDC bootstrap rules under **Admin Usernames** and **Admin GitLab Groups** on the Configuration page.
 
@@ -26,7 +26,7 @@ The first administrator is created by the bootstrap flow on a fresh installation
 
 Use **Filter by role** and **Filter by state**, or search by username, display name, or email. Each row shows the role selector, the state selector, **Active sessions**, and **Last seen**, and marks you with **Current user**.
 
-- **Save access** applies the role and state in one operation.
+- **Save access** submits the changed role and state together.
 - **Revoke sessions** invalidates every active session of that user immediately; the row reports how many sessions were revoked, or that none were found.
 - Your own row is read-only: **Your own role and state are read-only here to avoid accidental lockout.** Change your own role from another administrator's session, and use the normal logout flow for your own session instead of revoking it here.
 
@@ -54,7 +54,7 @@ Four dimensions are tracked for every user:
 | **Daily tasks** | Current business day |
 | **Weekly tasks** | Current business week, starting Monday |
 
-Usage is recorded when a task finishes, so a task counts against the window it completed in. The page shows the current totals and the **Daily reset** and **Weekly reset** timestamps for the next boundary.
+Usage is recorded when a task finishes, so a task counts against the window it completed in. The **System defaults** card header shows the next daily and weekly reset times.
 
 Each dimension is configured independently, with a system default and an optional per-user override:
 
@@ -74,7 +74,7 @@ The header shows the signed-in user's current status: **Usage within limits**, *
 
 ### Reading the page
 
-**System defaults** is the first card; **User overrides** lists every tracked user. The summary counters are **Tracked Users**, **Users with Overrides**, and **Users Over Limit**, and the filter switches between all users, users with overrides, and users without overrides. Rows whose override differs from the default are tagged **Overridden**. Use **Save defaults** for the system card and **Save override** for an individual user.
+**System defaults** is the first card; **User overrides** lists every tracked user. The summary counters are **Tracked Users**, **Users with Overrides**, and **Users Over Limit**, and the filter switches between all users, users with overrides, and users without overrides. Rows with an explicit override are tagged **Overridden**. Use **Save defaults** for the system card and **Save override** for an individual user.
 
 ## System statistics
 
@@ -84,13 +84,13 @@ The page has a **Refresh** action and shows the last refresh time and the report
 
 ### Current running state and lifetime totals
 
-**Current Running State** is a live snapshot computed from the current business tables: **Pending**, **Queued**, **Running**, **Long Running**, **Active Issues**, **Avg Queue Wait**, and the number of **Samples** behind that average.
+**Current Running State** is a live snapshot computed from the current business tables: **Pending**, **Queued**, **Running**, **Long Running**, **Active Issues**, and **Avg Queue Wait**.
 
 **Lifetime Cumulative** combines retained data with data archived through the standard deletion paths: **Total Tasks**, **Total Issues**, **Completed**, **Failed**, **Cancelled**, **Finished**, **Success Rate**, **Failure Rate**, **Issues with MR**, **Known Tokens**, **Known Code Changes**, **Known Execution Time**, **Avg Execution Time**, **Execution Samples**, **Deleted Tasks**, **Deleted Issues**, and **Deleted Before Terminal**.
 
 ### Coverage, trends, and breakdowns
 
-**Data Coverage** reports how complete the token and code-change records are among eligible finished tasks: **Eligible**, **Complete**, **Partial**, **Missing**, **Recorded**, and **Coverage Rate**. Unknown values are excluded from averages and totals and shown separately here, so a lifetime total can be lower than the sum of individual runs.
+**Data Coverage** reports how complete the token and code-change records are among eligible finished tasks. **Token Coverage** breaks out **Eligible**, **Complete**, **Partial**, **Missing**, and **Coverage Rate**; **Code-Change Coverage** shows **Eligible**, **Recorded**, and **Coverage Rate**. Unknown values are excluded from averages and totals and shown separately here, so a lifetime total can be lower than the sum of individual runs.
 
 **Basic Trends** buckets counts in the reporting timezone: tasks created, tasks finished, tasks deleted, and issues created. **Basic Breakdown** groups lifecycle metrics by project, provider, harness, and task mode, with the largest groups shown when a dimension has many values.
 
@@ -130,6 +130,6 @@ The result is reported as `Cleanup finished: {issues} issue(s), {tasks} task(s) 
 The **Maintenance** tab holds two page-wide actions under **Actions**. Its subtitle says they reload the current values or reset every section back to env or defaults.
 
 - **Reload** re-reads the effective configuration and discards nothing else.
-- **Reset to env/defaults** deletes every persisted override across all sections, returning every value to its installation default. It first asks **Reset all configuration sections to their environment variable / default values? Unsaved changes will be lost.** The summary tags on the configuration page then show **env fallback** or **default fallback** instead of **DB override**.
+- **Reset to env/defaults** deletes every persisted override across all sections, returning every value to its environment value or built-in default. It first asks **Reset all configuration sections to their environment variable / default values? Unsaved changes will be lost.** The summary tags on the configuration page then show **env fallback** or **default fallback** instead of **DB override**.
 
-Some values are set when Codify is installed and are deliberately not editable here. The worker workspace path is fixed at installation time, and the key material used to encrypt stored secrets must not change. A reset that returns secret fields to their stored installation values is the supported way to recover when a persisted secret can no longer be decrypted; if the encryption key itself changed, every stored secret must be entered again.
+Some values are set when Codify is installed and are deliberately not editable here. The worker workspace path is fixed at installation time, and the key material used to encrypt stored secrets must not change. Clearing the stored overrides also drops persisted secrets, so the values configured in the environment apply again; if the encryption key itself changed, every stored secret must be entered again.

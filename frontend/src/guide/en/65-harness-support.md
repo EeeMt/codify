@@ -48,9 +48,9 @@ Scheduling, priority, the Issue mutex, slot capacity, and the Git delivery path 
 | Pi | All three | Yes | Yes | Yes | `usage.updated`, `usage.final` | Not exported, falls back | Not enforced |
 | OpenCode | All three | No | Yes | Yes | `usage.updated`, `usage.final` | Not exported, falls back | Not enforced |
 
-All four keys allow subagents, and a frozen bundle only enables them when it declares the capability.
+All four keys allow subagents. The frozen bundle's `capabilities.subagents` records whether delegation passed real-Task acceptance.
 
-- Steering and follow-up are Pi-only. The control gate follows `capabilities.steering` from the frozen bundle, so Claude, Codex, and OpenCode start with the gate disabled and their **Steer** and **Follow-up** controls stay disabled.
+- Steering and follow-up are Pi-only. The control gate follows `capabilities.steering` from the frozen bundle, so Claude, Codex, and OpenCode keep their **Steer** and **Follow-up** controls disabled.
 - If a command reaches OpenCode's bridge anyway, the bridge rejects it deterministically with `control_gate_closed`.
 - A model-written commit message or MR summary exists only on Claude. Codex ships a `run_text` helper that returns nonzero by design, Pi and OpenCode export no helper at all, so those runs write a fixed fallback commit message and keep the previous MR summary.
 
@@ -118,6 +118,6 @@ The Kit build pins `claude` at 2.1.153, `codex` at 0.146.0, `pi` at 0.84.2, and 
 ## What changes in the interface {core}
 
 - The **Harness** selector on the task form lists all four keys with their availability and reason. **Harness** is part of the task snapshot, so a Continue task must reuse it and switching requires a new session.
-- **Live steering** appears only when the frozen bundle declares `steering`, and only Pi's bundle does, so the panel shows up on Pi tasks. Its **Steer** and **Follow-up** controls are enabled per capability.
+- **Live steering** appears only when the frozen bundle declares `steering` or `follow_up`, and only Pi's bundle does, so the panel shows up on Pi tasks. Its **Steer** and **Follow-up** controls are enabled per capability.
 - The commit record and the MR body depend on the `run_text` result: on Claude they carry what the model wrote, and on Codex, Pi, and OpenCode the commit uses the fallback message while the MR keeps its earlier summary.
-- A failure reports a kind from the shared list, chosen by each adapter from its own signals. Claude maps a lost session to `protocol_error`, Codex maps 401, 429, sandbox, and engine errors, Pi adds `configuration_error` when the model is not found, and OpenCode's bridge adds `cancelled` and `crash`. An engine error shows as **Harness error** on the task result.
+- A failure reports a kind from the shared list, chosen by each adapter from its own signals. Claude maps a lost session to `protocol_error`, Codex maps 401, 429, sandbox, and engine errors, Pi adds `configuration_error` when the model is not found, and OpenCode adds `cancelled` and `crash`. An engine error shows as **Harness error** on the task result.

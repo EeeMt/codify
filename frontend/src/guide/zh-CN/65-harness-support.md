@@ -48,9 +48,9 @@ Worker Profile 用 `harness_runtimes[key].source` 记录每个 Harness 的来源
 | Pi | 三种都支持 | 是 | 是 | 是 | `usage.updated`、`usage.final` | 未导出并回退 | 不生效 |
 | OpenCode | 三种都支持 | 否 | 是 | 是 | `usage.updated`、`usage.final` | 未导出并回退 | 不生效 |
 
-四个 key 都允许子代理，但冻结 bundle 必须声明该能力才会启用。
+四个 key 都允许子代理。冻结 bundle 的 `capabilities.subagents` 记录该能力是否通过真实任务验收。
 
-- 引导与续接只有 Pi 支持。控制门由冻结 bundle 的 `capabilities.steering` 决定，因此 Claude、Codex 与 OpenCode 的控制门从禁用开始，「转向」与「续接指令」保持不可用。
+- 引导与续接只有 Pi 支持。控制门由冻结 bundle 的 `capabilities.steering` 决定，因此 Claude、Codex 与 OpenCode 的「转向」与「续接指令」保持不可用。
 - 即使命令送达 OpenCode 的 bridge，也会被确定性地以 `control_gate_closed` 拒绝。
 - 由模型生成的提交信息或 MR 摘要只在 Claude 上存在。Codex 的 `run_text` 实现按设计返回非零，Pi 与 OpenCode 根本不导出该实现，这三者的运行会写入固定的回退提交信息，并保留此前的 MR 摘要。
 
@@ -118,6 +118,6 @@ Kit 构建把 `claude` 固定在 2.1.153、`codex` 固定在 0.146.0、`pi` 固�
 ## 界面上的可见差异 {core}
 
 - 任务表单的「Harness」选择器列出全部四个 key，并标注可用性与原因。「Harness」属于任务快照，续跑任务必须沿用；要切换必须开新会话。
-- 「实时引导」只在冻结 bundle 声明 `steering` 时出现，目前只有 Pi 的 bundle 声明了它，因此面板只出现在 Pi 任务上；「转向」与「续接指令」按能力分别启用。
+- 「实时引导」只在冻结 bundle 声明 `steering` 或 `follow_up` 时出现，目前只有 Pi 的 bundle 声明了它们，因此面板只出现在 Pi 任务上；「转向」与「续接指令」按能力分别启用。
 - 提交记录与 MR 正文取决于 `run_text` 的结果：Claude 上写入模型生成的内容，Codex、Pi 与 OpenCode 上提交使用回退信息，MR 保留此前的摘要。
-- 失败时任务结果展示共享清单中的失败类型，具体取值由各适配器按自己的信号判定：Claude 把会话丢失映射为 `protocol_error`，Codex 映射 401、429、沙箱与引擎错误，Pi 在模型不存在时补上 `configuration_error`，OpenCode 的 bridge 会补上 `cancelled` 与 `crash`。引擎错误在任务结果里显示为「Harness 错误」。
+- 失败时任务结果展示共享清单中的失败类型，具体取值由各适配器按自己的信号判定：Claude 把会话丢失映射为 `protocol_error`，Codex 映射 401、429、沙箱与引擎错误，Pi 在模型不存在时补上 `configuration_error`，OpenCode 会补上 `cancelled` 与 `crash`。引擎错误在任务结果里显示为「Harness 错误」。

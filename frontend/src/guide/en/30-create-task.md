@@ -9,10 +9,12 @@ section: User Guide
 A Task always belongs to an Issue, so every entry point goes through one:
 
 - **Issue page**: open **Issues**, pick an Issue, and use **Create Task**. Use **Append Task** when the Issue already has runs and you want to continue from the latest one; this is the usual way to add work.
-- **Task detail page**: a completed task offers **Append a Follow-up Task** when it is the latest task of its Issue, and **Retry Task** when it failed or was cancelled.
-- **New Issue**: on the Dashboard or the Issues page you create an Issue and start its first Task from the same form, where the project and branches are chosen.
+- **Task detail page**: a finished task offers **Append a Follow-up Task** when it is the latest task of its Issue, and **Retry** when it failed or was cancelled.
+- **New Issue**: on the Dashboard or the Issues page you create an Issue and start its first Task from the same form, where the project and branches are chosen. The older `/create-task` path redirects to `/issues/create`.
 
-The task form opens as a drawer titled **Create Manual Task** and is organised into **Task Content** ("describe the goal and choose how to handle it") and **Execution Settings** ("set the task priority and execution time"). In edit mode the same drawer is titled **Edit Task** and narrows to priority and content.
+The task form opens as a drawer titled **Create Task** and is organised into **Task Content** ("Describe the goal and choose how to handle it") and **Execution Settings** ("Set the task priority and execution time"). In edit mode the same drawer is titled **Edit Task** and narrows to priority and content.
+
+The **Prompt** field carries **Use Requirement Template**, which opens the **Select Template** drawer; templates are filtered by tag. Picking one replaces the text you have written, after the **Current description will be replaced by the template. Continue?** banner is confirmed.
 
 Project and branch settings belong to the Issue, not to an individual Task:
 
@@ -24,7 +26,7 @@ Project and branch settings belong to the Issue, not to an individual Task:
 
 The branch flow is previewed in place as **AI Working Branch (auto-generated)**, which states where the AI checks out from and which branch the MR merges into. Source and target must differ, or no Merge Request can be opened.
 
-Every Task on the Issue works on the same branch, generated as `codify/issue-{id}`, so the branch is never a per-task decision.
+Every Task on the Issue works on the same branch, generated as `codify/issue-{id}`.
 
 > [!tip] **Snapshot boundary**: when a Task is created, its Worker and model-service identity are frozen. Later profile or provider edits affect later Tasks, not this Task.
 
@@ -40,9 +42,11 @@ The **Task Mode** selector determines how the Harness treats your prompt. Open *
 | **Analysis** | Codify answers questions, analyses requirements, or outputs a proposal based on the actual project — no files are modified |
 | **Freeform** | Send only the task prompt to the Harness. It decides whether to answer, analyze, or modify code; the task may complete without code changes |
 
-Mode changes the run instruction as well. Switching modes asks whether to use the new mode's default template, and `require_changes` is fixed to false for **Analysis** and **Freeform**, because those modes are not expected to produce commits.
+Each mode keeps its own run instruction template, so the template you edit under **Implementation** is still there when you come back to it, and a mode you have never opened starts from its default. `require_changes` is fixed to false for **Analysis** and **Freeform**, because those modes are not expected to produce commits.
 
-**Require Changes** is the Implementation-mode guard: when enabled, the task is considered failed if no code commits are produced. Disable it for work that may legitimately produce none, such as a spike or a question that still touches files.
+**Require Changes** is the Implementation-mode guard: when enabled, the task is considered failed if no code commits are produced. It starts off for a new Task; leave it off for work that may legitimately produce none, such as a spike or a question that still touches files.
+
+The mode is frozen on the Task and shown in the **Task Mode** row of the task page. A retry keeps the source Task's mode, and a task created by CI auto-repair always runs as **Implementation** with **Require Changes** on.
 
 ## Priority
 
@@ -54,9 +58,11 @@ Mode changes the run instruction as well. Switching modes asks whether to use th
 | `1` | **P1** | **Normal** |
 | `2` | **P2** | **Low** |
 
-The task table and Monitor reuse the same three words, so a task listed as **Urgent** there is a P0 task. Priority orders work between Issues in ascending order: every eligible P0 head is picked before any P1, and every P1 before any P2. A lower-priority Task that is the head of its own Issue's queue is not starved by higher-priority work queued elsewhere.
+The task table and Monitor show the same three levels as bare labels, so a task listed as **P0** there is an urgent one. New tasks start on P1.
 
-Use P0 for work that must not wait behind anything else, P1 for normal feature and improvement work, and P2 for refactors and nice-to-haves that can absorb a delay.
+Priority orders work between Issues in ascending order: every eligible P0 head is picked before any P1, and every P1 before any P2. Only the head of each Issue queue competes for a worker, so priority decides which Issue runs next, and an Issue whose head is P2 keeps waiting while any P0 or P1 head is ready.
+
+Use P0 for work that must not wait behind anything else, P1 for normal feature and improvement work, and P2 for refactors and nice-to-haves that can absorb a delay. **Edit Task** on the task page changes the priority of a task that is still **Pending** or **Queued**.
 
 ## Run now or schedule
 
@@ -69,20 +75,20 @@ Use P0 for work that must not wait behind anything else, P1 for normal feature a
 
 The same pair appears wherever a run is queued: the task drawer, the retry drawer on the Issue page, and the **Schedule Retry** dialog on the task page. An absolute time must be in the future before the form accepts it, and the confirmation line reports what will happen, for example that the task will run at a specific time (UTC+8).
 
-If an administrator has configured slot capacity, the picker warns before you submit the form: **Time slot {start}–{end} is near/at capacity** is a warning, and an enforced full slot blocks creation outright. The **Schedule Load (7 days)** preview lets you click a cell to select that hour; darker cells mean more tasks are already scheduled.
+If an administrator has configured slot capacity, the picker checks the hour of the time you chose and warns before you submit the form with **Time slot {start}–{end} is near/at capacity ({count}/{max} tasks).** An enforced full slot blocks creation outright, and the same check runs again when a task is rescheduled. The **Schedule Load (7 days)** preview lets you click a cell to select that hour; darker cells mean more tasks are already scheduled.
 
-Scheduling does not bypass the Issue queue: a scheduled Task that is not the head of its Issue still waits for its predecessors, and **Execute Now** on such a task only clears its own delay.
+Scheduling does not bypass the Issue queue: a scheduled Task that is not the head of its Issue still waits for its predecessors, and **Execute** on such a task only clears its own delay.
 
 ## Run instruction and variables
 
-The **Run Instruction Template** is what the Harness receives, with your prompt rendered into it. It lives under **Advanced**, described as: customize the run instruction and preview the final prompt.
+The **Run Instruction Template** is what the Harness receives, with your prompt rendered into it. It lives under **Advanced**, described as: Customize the run instruction and preview the final prompt.
 
 Controls on the template editor:
 
-- **Instruction** and **Preview** tabs; **Preview** renders the final prompt against the current task context without saving anything.
+- **Instruction** and **Preview** tabs; switching to **Preview** renders the final prompt against the current task context without saving anything, and **Refresh** regenerates it. The result is also kept on the Task, so the task page shows it later as **Final Run Prompt**.
 - **Insert variable** with the **Available variables** list; selecting one inserts it at the cursor.
-- **Restore Default Run Instruction** to reload the mode's default template, or **Restore Built-in** where the platform exposes it.
-- **Prompt Only** to drop the template entirely and send the raw requirement.
+- **Restore Default Run Instruction** to reload the mode's default template.
+- **Prompt Only** appears where the platform defaults are edited, under **Configuration**, **Worker**, **Run Instructions**; it replaces the template with `{{user_prompt}}`.
 
 Variables use `{{name}}` syntax. The full catalogue offered by the editor:
 
@@ -99,13 +105,13 @@ Variables use `{{name}}` syntax. The full catalogue offered by the editor:
 | `previous_task_summaries_path` | Runtime path to previous task summaries |
 | `ci_failure_context_path` | Runtime path to the CI failure context directory |
 
-**Freeform** mode is fixed to the built-in `{{user_prompt}}` template, so its editor offers only that variable. If your template drops `user_prompt`, the UI warns that the current run instruction will not automatically include the requirement. Unknown placeholders are reported by name.
+**Freeform** mode is fixed to the built-in `{{user_prompt}}` template, so the form hides the run-instruction editor for it and the API rejects any other template. If your template drops `user_prompt`, the UI warns that the current run instruction will not automatically include the requirement. Unknown placeholders are reported by name, and the API refuses to save or preview a template that contains one.
 
 The rendered prompt is stored on the Task, so you can still inspect what the Harness received after the template is edited.
 
 ### Carrying previous task summaries {tips}
 
-`{{previous_task_summaries_path}}` points at a file listing the earlier Tasks on the same Issue with their status, goal, commit, and execution summary. The built-in Implementation and Analysis templates never reference it, so the summaries reach the Harness only if you put the placeholder into the template yourself. Freeform has no room for it, because its template is fixed to `{{user_prompt}}`. The Techniques chapter works through the recipe.
+`{{previous_task_summaries_path}}` points at a file listing the earlier Tasks on the same Issue with their status, goal, commit message, and execution summary. The built-in Implementation and Analysis templates never reference it, so the summaries reach the Harness only if you put the placeholder into the template yourself. Freeform has no room for it, because its template is fixed to `{{user_prompt}}`. The Techniques chapter works through the recipe.
 
 ## Provider and worker profile
 

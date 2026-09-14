@@ -28,7 +28,7 @@ Settings are grouped into eleven tabs.
 
 ### How a saved value takes effect
 
-Every control shows one of three origins. **DB override** means a value was saved here and wins over the environment. **env fallback** means no override exists and the value comes from the process environment. **default fallback** means neither is set, so the built-in default applies. A single page-level tag shows **Unsaved changes** or **In sync**.
+The page header shows **Unsaved changes** or **In sync** for the page as a whole, next to three origin tags that describe how the loaded values were resolved. **DB override** means a value was saved here and wins over the environment. **env fallback** means no override exists and the value comes from the process environment. **default fallback** means neither is set, so the built-in default applies.
 
 Saving a section writes the override, and from then on the platform uses that override. **Reset to env/defaults** on the **Maintenance** tab deletes every override and returns all sections to environment or default values, after the confirmation **Reset all configuration sections to their environment variable / default values? Unsaved changes will be lost.**
 
@@ -50,7 +50,7 @@ Raising concurrency increases pressure on the workers, the model endpoint, and G
 
 The panel shows the business timezone as **Business timezone: Asia/Shanghai**. **Peak start time** and **Peak end time** are strict 24-hour `HH:mm` values; start is inclusive and end is exclusive, and the two must differ. **Peak timeout (seconds)** and **Off-peak timeout (seconds)** accept 60 to 28800 seconds.
 
-The panel hint gives the rule: **Each task selects one limit when it enters RUNNING and keeps it while running.** A task that exceeds the limit fails with a message of the form `Task timed out after {timeout_seconds}s` followed by the tail of its sanitized logs.
+The panel hint states: **Each task selects one limit when it enters RUNNING and keeps it while running.** A task that exceeds the limit fails with a message of the form `Task timed out after {timeout_seconds}s` followed by the tail of its sanitized logs.
 
 ### Retry and alerts
 
@@ -68,16 +68,15 @@ The panel hint gives the rule: **Each task selects one limit when it enters RUNN
 
 ### Page permissions
 
-**Shared Page Access** decides which read-only pages platform users may open. Each switch defaults to admin-only until you enable it:
+**Shared Page Access** decides which read-only pages platform users may open. Each switch starts disabled, so the page is admin-only until you enable it:
 
 | Control | Effect when enabled |
 | --- | --- |
 | **Allow Monitor for platform users** | Non-admin users can open the Monitor page with project-scoped stats and containers |
 | **Allow Schedule Overview for platform users** | Non-admin users can inspect the scheduled queue for projects they can access |
 | **Allow Analytics for platform users** | Non-admin users can open Analytics and only see data for projects they can access |
-| **Allow OIDC Diagnostics for platform users** | Non-admin users can open the diagnostics snapshot page |
 
-The page header summarizes how many of these are enabled under **Shared Pages**.
+The page header summarizes how many of these are enabled under **Shared Pages**. These switches only matter while **Enable OIDC Login** is on; with OIDC login disabled every shared page stays open to all signed-in users. **OIDC Diagnostics** has no switch of its own and stays admin-only, because it lives inside the **Authentication** tab. The environment setting `allow_oidc_diagnostics_for_users` can still open its API to normal users; Configuration renders no control for it.
 
 ## GitLab and webhooks
 
@@ -95,23 +94,23 @@ The page header summarizes how many of these are enabled under **Shared Pages**.
 
 The callback URL Codify registers in GitLab is derived from the configured backend URL plus `/api/webhook/gitlab`. Setting up a webhook requires a valid http/https backend URL, **GitLab URL**, and **GitLab Admin Token**; a missing field is reported by name.
 
-Choose one project with **Select a GitLab project**, then use **Set up project webhook** to create or update the hook, or **View project webhook status** to inspect the existing one. The stored per-project secret is managed by Codify: the status reports **per-project managed secret** when one exists, and **no local secret configured** when it does not. A rotating encryption key can leave a stored secret unreadable; in that case, re-running the setup issues a new secret for the project.
+Choose a project from the overview table and use its **Set up project webhook** action to create or update the hook. The stored per-project secret is managed by Codify: the **Secret mode** column reports **per-project managed secret** when one exists, and **no local secret configured** when it does not. A rotating encryption key can leave a stored secret unreadable; in that case, re-running the setup issues a new secret for the project.
 
 ### Webhook overview
 
-The overview scans every project visible to the configured admin token. The counters are **Projects**, **Configured**, **Needs attention**, and **Missing / error**; **Filter projects** searches by project path, status, or secret state, and **Refresh webhook statuses** re-scans.
+The overview scans every project visible to the configured admin token. The counters are **Projects**, **Configured**, **Needs attention**, and **Missing / error**. The search box filters by project path, status, or secret state, and **Refresh webhook statuses** re-scans.
 
 | Column | Meaning |
 | --- | --- |
-| **Project** | Project path, with the inline action for that row |
+| **Project** | Project path and ID, with the inline action for that row |
 | **Status** | **Configured**, **Needs attention**, **Missing**, or **Error** |
-| **Secret mode** | Whether a Codify-managed secret exists |
-| **Checks** | Note events, SSL verification, merge request events, pipeline events |
+| **Secret mode** | **per-project managed secret** or **no local secret configured** |
+| **Checks** | **Hook**, **Notes**, **SSL**, **MR events**, and **Pipeline events** |
 | **Detail** | The reason a project needs attention |
 
 A project counts as **Configured** only when the hook exists with SSL verification, merge request events, and pipeline events all enabled. Otherwise it is **Needs attention**, with one of the recorded reasons such as `SSL verification disabled`, `MR events disabled`, or `Pipeline events missing`. A disabled merge request event also shows **MR events disabled — re-configure webhook to enable auto-close**, because issue auto-close depends on it.
 
-If the table is empty, the panel reports that it found no projects and reminds you to configure the GitLab admin token.
+The overview loads nothing until **GitLab URL** and a stored **GitLab Admin Token** are available.
 
 ### Webhook Events
 
@@ -129,11 +128,11 @@ Results recorded by the handler include **Issue closed**, **Already closed**, **
 
 The OAuth application must allow the scopes the dashboard requests: `openid profile email read_api`.
 
-**Test OIDC connection** fetches the discovery document for the values in the form and reports the issuer, the authorization, token, and userinfo endpoints, the authorization URL preview, and any operator warnings. It does not enable OIDC; configure and test first, then enable.
+**Test OIDC connection** runs discovery against the values currently in the form, including unsaved ones. The result panel reports **OIDC discovery succeeded for issuer {issuer}. Required scopes: {scopes}.** It does not enable OIDC; configure and test first, then enable.
 
 ### Session and access
 
-**Session Cookie Name**, **Session TTL (seconds)**, and **Session Retention (days)** control the session cookie and cleanup: sessions longer than the retention window are deleted after they expire or are revoked. **Cookie Secure** should stay enabled for HTTPS deployments. **Cookie SameSite** accepts `lax`, `strict`, or `none`; `none` without secure cookies is rejected by many browsers, so the diagnostics surface that combination as a warning.
+**Session Cookie Name**, **Session TTL (seconds)**, and **Session Retention (days)** control the session cookie and cleanup: sessions longer than the retention window are deleted after they expire or are revoked. **Cookie Secure** should stay enabled for HTTPS deployments. **Cookie SameSite** offers **Lax**, **Strict**, and **None**; **None** without secure cookies is rejected by many browsers, so the diagnostics surface that combination as a warning.
 
 Session TTL values are clamped to the range 300 to 604800 seconds.
 
@@ -152,7 +151,7 @@ Bootstrap rules apply to accounts whose role has not been set manually. Changing
 - **Provider metadata** shows the discovery issuer and the endpoint values currently in use.
 - **Required scopes** lists the scopes the GitLab OAuth application must allow.
 
-Individual checks report **OK**, **Warning**, or **Error**. Typical warnings are a redirect URI outside `/api/auth/callback`, `COOKIE_SECURE=true` with an `http` redirect URI, an `https` redirect URI without secure cookies, a session TTL longer than 24 hours, and group-based bootstrap without groups in the login response.
+Individual checks report **OK**, **Warning**, or **Error**. Typical warnings are a redirect URI outside `/api/auth/callback`, `COOKIE_SECURE=true` with an `http` redirect URI, an `https` redirect URI without secure cookies, a session TTL longer than 24 hours, `Cookie SameSite` set to `none` without secure cookies, and group-based bootstrap without groups in the login response.
 
 When the discovery document cannot be fetched, the discovery check reports the error; treat that first, because the endpoint checks depend on it.
 
@@ -190,7 +189,7 @@ Claude accepts **Anthropic Messages** only and Codex accepts **OpenAI Responses*
 
 Exactly one provider is the **Default**. **Set as Default** promotes a provider and demotes the previous default in the same operation. The rules the API enforces are:
 
-- The first provider you create becomes the default automatically and cannot be disabled.
+- The first provider you create becomes the default automatically, and creating that first provider in a disabled state is refused.
 - The default provider cannot be disabled while it is the default.
 - A disabled provider cannot be set as the default.
 - The last remaining provider cannot be deleted.
@@ -222,7 +221,7 @@ The actions **Override**, **Mask in this Profile**, **Restore system value**, an
 
 ### Profile fields
 
-**Worker Profiles** lists every profile with its name, default marker, disabled marker, and verification state. **Create profile**, **Duplicate**, and **Delete** manage the catalog; **Set default** picks the profile pre-selected for new issues, and **Enable** / **Disable** / **Force disable** control availability.
+**Worker Profiles** lists every profile with its name, default marker, disabled marker, and verification state. **Create profile**, **Duplicate**, and **Delete** manage the catalog; **Set default** marks the profile the Harness catalog falls back to when it is queried without a `worker_profile_id`, and **Enable** / **Disable** / **Force disable** control availability.
 
 A profile defines:
 
@@ -250,7 +249,7 @@ Each profile can run on the shared execution target or on one of its own. **Use 
 
 Two operational budgets sit above the profile list and apply to the whole platform.
 
-**Workspace Cleanup** sets where issue workspaces live and how long issue workspaces and CI evidence bundles survive without file updates. A retention value of `0` disables automatic cleanup. The location is deployment-time configuration: it cannot be changed from this page, and a save that submits a different path is refused, because workers that are already running would not honor it.
+**Workspace Cleanup** sets where issue workspaces live and how long issue workspaces and CI evidence bundles survive without file updates. A retention value of `0` disables automatic cleanup. The worker-local path belongs to deployment-time configuration: the field is read-only here, and a config request that carries `worker_workspace_host_path` is refused with a conflict, because workers that are already running would not honor a change.
 
 **Task Artifacts** governs the artifact budget of a run: maximum total size in MiB, maximum single-file size in MiB, maximum files and directories, and how many days runtime archives are kept. The single-file limit cannot exceed the total limit; the panel reports **The single-file limit cannot exceed the total limit.** and the API rejects the pair. Expired runtime archives are deleted without deleting their Tasks or Issues.
 

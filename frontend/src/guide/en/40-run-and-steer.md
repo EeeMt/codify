@@ -41,13 +41,13 @@ Other elements in the panel:
 - Thinking blocks are labelled **Thinking** while in progress, with an elapsed time, and **Thinking interrupted** if the model was cut off mid-thought.
 - Subagent rows are tagged **Subagent · {name}** and report **Running**, **Completed**, **Failed**, or **Cancelled**, each with its own **{count} tokens**.
 - Tool calls show their captured input and output; content that had to be fetched from the archive reports **Loading archived input…** or **Loading archived output…**, and missing content is labelled **No input captured**, **No output captured**, or **Failed to load payload**. **Full text** expands a truncated value.
-- Context compaction is marked inline as **Context compressed**, and summarised as **Context Compression** with a count of how many times it happened.
-- **Skill Usage** reports how many times managed skills were used in the run.
+- Context compaction is marked inline as **Context compressed**; the **Run Statistics** card on the task page summarises it as **Context Compression** with a count of how many times it happened.
+- **Run Statistics** also carries **Skill Usage**, the number of times managed skills were used in the run.
 - Navigation buttons jump to the top or the latest entry, which helps once a long run has scrolled past the part you were reading.
 
 Very large logs are truncated in the browser: only the latest output is shown, and the panel tells you to download the run archive after completion for the complete logs.
 
-> [!info] **Read the state before acting**: use **Events** to understand what the run did and **Raw Logs** to investigate the container. Decide on steering, cancellation, continuation, or retry only after that.
+> [!info] **Read the state before acting**: use **Events** to understand what the run did and **Raw Logs** to investigate the container.
 
 ## Steering a running task
 
@@ -58,7 +58,7 @@ Very large logs are truncated in the browser: only the latest output is shown, a
 | Steer | **Steer** | Send a mid-run instruction to the harness, with the placeholder "Send a mid-run instruction to the harness..." |
 | Follow-up | **Follow-up** | Queue the next instruction to be consumed when the current turn is done |
 
-Each type is enabled only when the frozen runtime supports it: a Harness that does not advertise steering leaves **Steer** disabled, and one that does not support follow-ups leaves **Follow-up** disabled. When neither is supported, the panel hides its send controls. Live steering requires a control channel, which today means Pi only; the other Harnesses show no panel and their command gate stays disabled.
+Each type is enabled only when the frozen runtime supports it: a Harness that does not advertise steering leaves **Steer** disabled, and one that does not support follow-ups leaves **Follow-up** disabled. When neither is supported the whole panel is left out, which is why the other Harnesses show no command box at all: live steering needs a control channel, and today only Pi provides one.
 
 Codify queues every command and tracks its delivery; each command reports one of these states:
 
@@ -70,7 +70,7 @@ Codify queues every command and tracks its delivery; each command reports one of
 
 The command gate is shown while a run is in progress: **Starting**, **Accepting commands**, **Draining**, and **Closed**. While the gate is **Starting** you see "Waiting for the harness control endpoint to become ready..."; while it is **Draining** you see that the run is finishing and no new commands are accepted.
 
-**Harness accepted** means the interface acknowledged the command, and does not guarantee that the model has consumed it yet. Use the process log to confirm the effect.
+**Harness accepted** does not guarantee that the model has consumed the command yet. Use the process log to confirm the effect.
 
 ## Appending a follow-up task
 
@@ -78,7 +78,7 @@ When a run finishes and you want more work on the same Issue, append a Task inst
 
 - On the Issue page, **Append Task** explains that appended tasks share the same workspace, AI session, and Git branch, so they continue from where the previous task left off.
 - On the latest Task of an Issue, **Append a Follow-up Task** says this is the latest task on the issue and that appending here continues from this run. Use **Append Task** to open the form.
-- A completed Task also links **Continue on This Issue**, which explains that you can append a follow-up task on the issue page to continue where this task left off; all tasks share the same workspace, AI session, and Git branch.
+- A completed Task also links **Continue on This Issue**, which explains that you can append a follow-up task on the issue page to continue where this task left off.
 
 Follow-up Tasks are appended to the tail of the Issue queue, so they run after everything already queued. If the conversation should not carry over, enable **Run in a new session** while creating the follow-up: the workspace, Git branch, and previous session records are preserved, but a new conversation generation starts. The next turn continues from the working branch, including commits you pushed yourself; the Delivery chapter covers the branch rules.
 
@@ -92,18 +92,18 @@ Reach for **Run in a new session** once the Issue's conversation has stopped hel
 
 The task page shows only the actions that are valid for the current state, and each button has a tooltip explaining what it does.
 
-**Cancel**: **Cancel Task** is offered for tasks in **Pending**, **Queued**, or **Running**, and its tooltip reads: stop execution for the current task while keeping the latest status and logs available for review. Cancelling a queued task removes it from the queue; cancelling a running task asks the container to stop, and the Task ends as **Cancelled** once the container has converged.
+**Cancel**: the **Cancel** button is offered for tasks in **Pending**, **Queued**, or **Running**, and its tooltip reads: stop execution for the current task while keeping the latest status and logs available for review. Cancelling a queued task removes it from the queue; cancelling a running task asks the container to stop, and the Task ends as **Cancelled** once the container has converged.
 
-**Retry**: **Retry Task** is offered for **Failed** and **Cancelled** tasks. It re-queues the work as a new Task with the same prompt and branch configuration, reusing the frozen snapshot and the session lineage. The original Task keeps its error state, and the new one links to it with **Retried →**.
+**Retry**: **Retry** is offered for **Failed** and **Cancelled** tasks. It re-queues the work as a new Task with the same prompt and branch configuration, reusing the frozen snapshot and the session lineage. The original Task keeps its error state; its record on the Issue page points forward with **Retried →**, and the new Task reports the source in its **Retry of** row.
 
 - If a retry already exists, the panel reports **Retry Task Exists**: this task already has an active retry task.
 - **Schedule Retry** picks a future time for the retry instead of queuing it immediately.
 - **Session lineage** controls which conversation the retry continues. **Continue current session** is the default. If the retry source belongs to an older session lineage than the current queue tail, Codify asks for confirmation with **Retry with a new session?**, explaining that the retry source is older than the current queue tail and offering **Use source config and start new session**, alongside the alternative **Start a new session generation**.
 
-**Execute now**: **Execute Now** removes scheduling delay and sends the task straight to execution as soon as the worker is available. It is available for **Pending** and **Queued** tasks. If the task is behind predecessors in its Issue queue, the panel says so up front.
+**Execute now**: **Execute** removes scheduling delay and sends the task straight to execution as soon as the worker is available. It is offered for **Pending** tasks. If the task is behind predecessors in its Issue queue, the panel says so up front.
 
-**Reschedule**: **Reschedule Task** updates the reserved execution time for a pending or scheduled task without recreating it. The new time must be in the future and inside the Issue's queue window, no earlier than the earliest execution of the earlier Task and no later than the latest execution of the later one. The panel names the window when it is constrained.
+**Reschedule**: **Reschedule Task** updates the reserved execution time without recreating the Task, and is offered for a **Pending** task that has a scheduled time and for **Queued** tasks. The new time must be in the future and inside the Issue's queue window, no earlier than the earliest execution of the earlier Task and no later than the latest execution of the later one. The panel names the window when it is constrained.
 
-**Force-finish**: when the system's assessment is wrong, an operator can correct a terminal status. On a **Completed** task the action is **Mark as Completed**; on a **Failed** task it is **Mark as Failed**. Codify confirms first with "Are you sure you want to mark this task as failed? This will affect analytics and issue status.", then offers a **Reason for override (optional)** field so the correction is auditable. An override changes the reported outcome; the code, logs, and delivery artifacts are untouched.
+**Force-finish**: when the system's assessment is wrong, an operator can correct a terminal status. On a **Completed** task the action is **Mark as Failed**; on a **Failed** task it is **Mark as Completed**. Codify confirms first with "Are you sure you want to mark this task as failed? This will affect analytics and issue status.", then offers a **Reason for override (optional)** field so the correction is auditable. An override changes the reported outcome; the code, logs, and delivery artifacts are untouched.
 
-On a failed task, the **Error** section of **Task Result** shows **Failure reason** together with a kind drawn from a fixed set: **Timeout**, **Protocol error**, **Cancelled**, **Authentication failed**, **Rate limited**, **Sandbox failure**, and **Harness error**. **Show full output** expands the raw error text when the summary is not enough.
+On a failed task, the **Error** section of **Task Result** shows **Failure reason** together with the failure type; the page translates the kinds it knows, for example **Timeout**, **Authentication failed**, **Rate limited**, or **Sandbox failure**, and shows an unrecognized kind verbatim. **Show full output** expands the raw error text when the summary is not enough.

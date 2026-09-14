@@ -1,5 +1,7 @@
 # Documentation Index
 
+[中文文档索引](README.zh-CN.md)
+
 文档按受众分四层。新增文档必须落在其中一层，不要平铺在 `docs/` 根目录。
 
 | 层 | 受众 | 位置 |
@@ -15,7 +17,7 @@
 
 不要在本目录再维护一份用户指南副本——两处内容必然漂移。
 
-Covers: quick start, creating an issue, core concepts, creating tasks, running and steering, delivery, scheduling and capacity, observability, admin configuration, access and usage governance, troubleshooting.
+Covers: quick start, creating an issue, concepts, creating a task, running and steering, delivery, scheduling, harness support, observability, delivery internals, techniques, admin configuration, admin governance, troubleshooting, worker runtime.
 
 ## 运维
 
@@ -29,6 +31,7 @@ Covers: quick start, creating an issue, core concepts, creating tasks, running a
 
 - [Multi-Harness 切换与生产验收 Runbook](ops/runbooks/multi-harness-rollout.md)
 - [Multi-Harness 验收证据模板](ops/runbooks/multi-harness-rollout-evidence.md)
+- [Worker CLI 制品清单](ops/runbooks/worker-cli-artifact-candidate-2026-08-23.md)（已退役：镜像自带 CLI 时代的只读盘点，保留作审计参考）
 
 ## 开发
 
@@ -40,7 +43,7 @@ Covers: quick start, creating an issue, core concepts, creating tasks, running a
 - [Multi-Harness 接入调试与通用经验](dev/multi-harness-debugging.md) — 通用接入断层清单（含 codex 专项）与验证命令
 - [Mounted Worker Kits](dev/worker-kits.md) — worker 交付模式（Kit 挂载 vs 烘焙镜像）
 - [Worker Volume Mounts](dev/worker-volume-mounts.md) — 独立运行时镜像的卷挂载梳理
-- [Harness 探针证据](dev/harness-probes/v2/README.md) — 固定版本协议探针与 canonical 事件样本
+- [Harness 探针证据](dev/harness-probes/v2/README.md) — 固定版本协议探针与 canonical 事件样本；分册：[Pi](dev/harness-probes/v2/pi/README.md)、[OpenCode](dev/harness-probes/v2/opencode/README.md)、[Claude/Codex 回放](dev/harness-probes/v2/claude/README.md)、[Subagent](dev/harness-probes/v2/subagents/README.md)
 
 ## 设计档案
 
@@ -55,6 +58,8 @@ Covers: quick start, creating an issue, core concepts, creating tasks, running a
 - [Open-Harness V2 — Phase 3 OpenCode 一级 Harness](design/architecture/open-harness-v2-phase3-opencode-design.md)
 - [Live Steering 事件流投影](design/architecture/live-steering-event-stream-projection.md)
 - [模型请求选项出口代理](design/architecture/model-request-options-egress-proxy.md)
+- [Open-Harness V2 架构方案](design/architecture/open-harness-v2.md)
+- [Open-Harness V2 四 Harness Subagent 适配方案](design/architecture/open-harness-v2-subagent-adaptation.md)
 
 ### 实施计划与设计文档
 
