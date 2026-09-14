@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { guideChapters, guideSections } from './guideContent'
+import { guideChapters, guideSections, guideTierGroups } from './guideContent'
+import { GUIDE_TIERS } from './guideTiers'
 
 const LOCALES = ['en', 'zh-CN'] as const
 
@@ -86,7 +87,7 @@ describe('guide content', () => {
     }
   })
 
-  it('declares only title and section in front matter', () => {
+  it('declares only title, section, and tier in front matter', () => {
     for (const [path, source] of Object.entries(CHAPTER_SOURCES)) {
       const matter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source)
       expect(matter, `${path} has no front matter`).toBeTruthy()
@@ -94,7 +95,43 @@ describe('guide content', () => {
         .split('\n')
         .map((line) => line.split(':')[0].trim())
         .filter(Boolean)
-      expect(keys.sort(), `${path} front matter keys`).toEqual(['section', 'title'])
+      expect(keys.sort(), `${path} front matter keys`).toEqual(['section', 'tier', 'title'])
+    }
+  })
+
+  it('assigns every chapter a tier and groups them in reading order', () => {
+    for (const locale of LOCALES) {
+      const byTier = new Map<string, string>()
+      for (const chapter of guideChapters(locale)) byTier.set(chapter.slug, chapter.tier)
+      for (const [slug, tier] of byTier) {
+        expect(GUIDE_TIERS, `${locale}/${slug} tier`).toContain(tier)
+      }
+
+      const groups = guideTierGroups(locale)
+      expect(groups.length, `${locale} tier groups`).toBeGreaterThan(0)
+      const grouped = groups.flatMap((group) => group.chapters)
+      expect(grouped.map((chapter) => chapter.slug), `${locale} grouping loses no chapter`).toEqual(
+        guideChapters(locale).map((chapter) => chapter.slug),
+      )
+
+      // A section's tiers run core -> deep -> tips, and each tier's chapters are
+      // contiguous, because the sidebar renders the groups in this order.
+      for (const section of guideSections(locale)) {
+        const tiers = groups
+          .filter((group) => group.section === section.key)
+          .map((group) => group.tier)
+        expect(tiers, `${locale}/${section.key} tier order`).toEqual(
+          GUIDE_TIERS.filter((tier) => tiers.includes(tier)),
+        )
+      }
+    }
+  })
+
+  it('gives each chapter the same tier in both locales', () => {
+    for (const chapter of guideChapters('en')) {
+      const translated = guideChapters('zh-CN').find((entry) => entry.slug === chapter.slug)
+      expect(translated, `zh-CN/${chapter.slug} is missing`).toBeTruthy()
+      expect(translated!.tier, `${chapter.slug} tier drifted between locales`).toBe(chapter.tier)
     }
   })
 

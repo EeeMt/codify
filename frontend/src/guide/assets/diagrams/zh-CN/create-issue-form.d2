@@ -1,7 +1,7 @@
 # 章节：15-create-issue（创建需求）· 需求表单
 # 读者要理解：表单分五个部分，每个字段都写在需求上；任务继承这些值并在创建时
 # 冻结自己的快照。项目、分支、Worker 与克隆设置创建后不可改，标题、描述、
-# Provider 与 MR 自动修复随时可改。
+# AI Provider 与 MR 自动修复随时可改。
 # 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
 
 vars: {
@@ -38,28 +38,31 @@ classes: {
   }
 }
 
+# 五个表单分组都写进需求；中间一格让连线尽量短，两个透明占位节点托住最后一行，
+# 于是任务正好落在需求下方。边上不挂标签：每个分组在自己卡片里说明哪些值固定、
+# 哪些值可改，连线因此保持干净。
 form: {
   label: ""
   grid-rows: 3
   grid-columns: 3
-  grid-gap: 32
+  grid-gap: 24
   style.fill: transparent
   style.stroke-width: 0
 
   project: "项目\n创建后不可改" { class: node }
-  content: "需求内容\n标题 / 描述可改" { class: node }
+  content: "需求内容\n标题、描述可改" { class: node }
   branch: "分支策略\n分支创建后不可改" { class: node }
-  env: "运行环境\nWorker 固定 · 模型服务可改" { class: node }
+  env: "运行环境\nWorker 固定，AI Provider 可改" { class: node }
   issue: "Issue\n表单取值都写在需求上" { class: accent }
-  advanced: "高级设置\n克隆固定 · MR 修复可改" { class: node }
-  blank_a: " " { style.fill: transparent; style.stroke-width: 0 }
+  advanced: "高级设置\n克隆固定，MR 修复可改" { class: node }
+  gap_a: " " { style.fill: transparent; style.stroke-width: 0 }
   task: "Task\n继承并冻结自己的快照" { class: node }
-  blank_b: " " { style.fill: transparent; style.stroke-width: 0 }
+  gap_b: " " { style.fill: transparent; style.stroke-width: 0 }
 
   project -> issue
   content -> issue
   branch -> issue
   env -> issue
   advanced -> issue
-  issue -> task: "创建时冻结"
+  issue -> task
 }

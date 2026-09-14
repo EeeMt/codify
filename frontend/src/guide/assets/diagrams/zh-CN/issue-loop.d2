@@ -1,7 +1,7 @@
 # 章节：10-quick-start（快速开始）· 一个需求，多个回合
 # 读者要理解：需求只创建一次，它拥有工作区、AI 会话与分支；之后是在同一个
-# 需求上反复追加回合——创建或追加 Task、执行、评审，再决定是否继续，
-# 满意后合并这唯一一个合并请求，需求随之关闭。
+# 需求上反复追加回合——创建或追加 Task、在隔离容器里执行、评审结果，再决定
+# 是否继续，满意后合并这唯一一个合并请求，需求随之关闭。
 # 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
 
 vars: {
@@ -38,28 +38,27 @@ classes: {
   }
 }
 
+# 三行三列让画布接近指南图框的宽度，14px 的标签被缩小得很少。两个透明占位节点把
+# 下两行的第一列留空，于是「继续下一回合」正好落在「创建 / 追加任务」下方，回环
+# 箭头是一条短竖线，收尾的一对节点共用最后一行。
 loop: {
   label: ""
   grid-rows: 3
-  grid-columns: 4
+  grid-columns: 3
   grid-gap: 48
   style.fill: transparent
   style.stroke-width: 0
 
-  # The decision words live inside the branch cards instead of on edges. This
-  # keeps the arrows clear and prevents labels from sitting on card borders.
-  create_issue: "创建需求\n一次创建，拥有工作区 · 分支" { class: accent }
-  append_task: "创建 / 追加任务\n共享同一份上下文" { class: node }
+  # 判断词写在分支卡片里，不放在箭头上：箭头保持干净，标签也不会压在卡片边框上。
+  create_issue: "需求只创建一次\n工作区、会话、分支" { class: accent }
+  append_task: "创建或追加 Task\n开始下一回合" { class: node }
   run_turn: "回合执行\n隔离容器中运行" { class: node }
-  review: "评审结果\n决定下一步" { class: node }
   gap_a: " " { style.fill: transparent; style.stroke-width: 0 }
   continue_turn: "继续下一回合\n追加 Task" { class: accent }
+  review: "评审结果\n继续下一回合或合入" { class: node }
   gap_b: " " { style.fill: transparent; style.stroke-width: 0 }
   merge_mr: "结果满意后合入\n唯一 Merge Request" { class: node }
-  gap_c: " " { style.fill: transparent; style.stroke-width: 0 }
-  gap_d: " " { style.fill: transparent; style.stroke-width: 0 }
-  gap_e: " " { style.fill: transparent; style.stroke-width: 0 }
-  close_issue: "需求关闭\n完成这一条需求" { class: node }
+  close_issue: "需求关闭\nMR 已合并" { class: node }
 
   create_issue -> append_task
   append_task -> run_turn

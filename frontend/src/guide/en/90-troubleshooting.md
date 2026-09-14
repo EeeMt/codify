@@ -1,6 +1,7 @@
 ---
 title: Troubleshooting
 section: Admin Guide
+tier: core
 ---
 
 ## Task failed
@@ -11,7 +12,7 @@ section: Admin Guide
 
 A failed task shows the status **Failed** on the Task page. The failure reason is stored on the task itself: the detail view returns the message plus the failure kind reported by the harness, and the same message is written into the task log.
 
-The message shape tells you what to expect. Plain text is a human-readable cause; a JSON object is a structured rejection that names its own code.
+Plain text is a human-readable cause; a JSON object is a structured rejection that names its own code.
 
 | Message | What it means |
 | --- | --- |
@@ -51,7 +52,7 @@ A task can be retried only from **Failed** or **Cancelled**. The retry creates a
 
 ## Container and scheduling anomalies
 
-Every run gets its own isolated container, but a Task and its container can still stop agreeing about what is running.
+Every run gets its own isolated container, but a Task and its container can still disagree about what is running.
 
 ### The Monitor page
 
@@ -72,7 +73,7 @@ The page derives these from separate task and container samples, so a mismatch c
 
 ### After a platform restart
 
-A restart changes what running tasks report. The outcomes, in order:
+The outcomes, in order:
 
 - A running task whose container is still alive is resumed and keeps reporting.
 - A running task whose container is gone ends as **Cancelled** when a cancellation was requested, and as **Failed** otherwise, with the message that it was still running when the platform restarted.

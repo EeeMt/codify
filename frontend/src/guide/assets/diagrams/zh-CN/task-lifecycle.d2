@@ -45,19 +45,22 @@ states: {
   style.fill: transparent
   style.stroke-width: 0
 
-  pending: "PENDING\n待处理" { class: node }
-  queued: "QUEUED\n已入队" { class: node }
-  running: "RUNNING\n执行中" { class: accent }
-  completed: "COMPLETED\n已完成" { class: node }
-  failed: "FAILED\n失败" { class: node }
-  cancelled: "CANCELLED\n已取消" { class: node }
+  pending: "待处理\n等待执行" { class: node }
+  queued: "已入队\n等待空闲并发" { class: node }
+  running: "执行中\n容器正在执行" { class: accent }
+  completed: "已完成\n执行结束" { class: node }
+  failed: "失败\n错误或超时" { class: node }
+  cancelled: "已取消\n由你停止" { class: node }
 
-  pending -> queued: "排队"
+  # 运行态的三种结局已经写在目标状态上，因此这三条边不带标签：待处理 / 已入队
+  # 到已取消的两条长斜线会穿过这条带，标签会正好压住连线。两个终态之间的手动
+  # 修正只画一个方向——失败 -> 已完成。
+  pending -> queued
   queued -> running: "开始执行"
   running -> completed
   running -> failed
   running -> cancelled
   pending -> cancelled
   queued -> cancelled
-  completed <-> failed: "人工修正"
+  failed -> completed: "手动修正"
 }

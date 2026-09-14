@@ -29,22 +29,29 @@ classes: {
   }
 }
 
+# Three rows of three cells: the run and the two panels that observe and steer it
+# across the top, the outcome in the middle of the second row, and the three
+# controls that answer it across the bottom. Centring the outcome keeps all three
+# of its arrows short and clear of the cards beside them, and the invisible fillers
+# hold the outer cells of that middle row so the outcome lands under the steering
+# panel.
 flow: {
   label: ""
-  grid-rows: 2
-  grid-columns: 4
+  grid-rows: 3
+  grid-columns: 3
   grid-gap: 42
   style.fill: transparent
   style.stroke-width: 0
 
   run: "Run\nWorker container" { class: accent }
-  observe: "Observe\nEvents + Raw Logs" { class: node }
-  guide: "Guide\nSteer / Follow-up" { class: node }
+  observe: "Observe\nEvents, Raw Logs" { class: node }
+  guide: "Live steering\nSteer, Follow-up" { class: node }
+  gap_a: " " { style.fill: transparent; style.stroke-width: 0 }
   finish: "Finish\nCompleted / Failed / Cancelled" { class: node }
+  gap_b: " " { style.fill: transparent; style.stroke-width: 0 }
   append: "Continue\nAppend a Task" { class: node }
   retry: "Recover\nRetry Task" { class: node }
-  archive: "Keep evidence\nRun archive" { class: node }
-  gap: " " { style.fill: transparent; style.stroke-width: 0 }
+  archive: "Keep evidence\nRuntime Archive" { class: node }
 
   run -> observe
   observe -> guide

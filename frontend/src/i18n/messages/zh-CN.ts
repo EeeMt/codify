@@ -68,6 +68,11 @@ const zhCN = {
     sections: {
       user: '使用指南',
       admin: '管理指南'
+    },
+    tiers: {
+      core: '强烈建议了解',
+      deep: '深入原理',
+      tips: '使用技巧'
     }
   },
   systemStatistics: {

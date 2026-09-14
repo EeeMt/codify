@@ -1,8 +1,8 @@
 # Chapter: guide/en/90-troubleshooting.md — "Task failed".
 # Reader takeaway: when a task fails, read it in one order — the Failure reason on
-# the task, then the event stream, the raw logs and the run archive — and recognise
-# the message by its shape: a timeout, an exceeded usage limit, an unavailable
-# Worker runtime, or a push that was never confirmed.
+# the task, then Events, Raw Logs and the Runtime Archive — and recognise the
+# message by its shape: a timeout, an exceeded usage limit, a Worker runtime that
+# is not available, or a push that was never confirmed.
 # Render: d2 failure-triage.d2 failure-triage.svg --pad 36 --theme 0 --layout elk,
 # then set width and height on the root <svg> to the viewBox size so the asset also
 # renders 1:1 outside the guide's <img>.
@@ -53,14 +53,14 @@ triage: {
   style.fill: transparent
   style.stroke-width: 0
 
-  timeout: "Task timed out\nlimit too small" { class: node }
+  timeout: "Timeout\nfrozen limit too small" { class: node }
   error: "1. Failure reason\non the task" { class: accent }
-  events: "2. Event stream\nwhat ran, in order" { class: node }
+  events: "2. Events\nwhat ran, in order" { class: node }
   logs: "3. Raw Logs\ncontainer output" { class: node }
-  quota: "Usage limit\nexceeded, no start" { class: node }
+  quota: "Usage limit\nexceeded before start" { class: node }
   runtime: "Worker runtime\nnot available" { class: node }
   push: "Push not confirmed\ndelivery failed" { class: node }
-  archive: "4. Run archive\nfull run files" { class: node }
+  archive: "4. Runtime Archive\ncomplete evidence" { class: node }
 
   error -> events
   events -> logs

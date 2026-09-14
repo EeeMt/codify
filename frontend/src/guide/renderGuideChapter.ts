@@ -1,9 +1,12 @@
 import { createMarkdownRenderer, highlightCode } from '../utils/markdown'
+import { GUIDE_TIERS, type GuideTier } from './guideTiers'
 
 export interface GuideHeading {
   id: string
   text: string
   level: 2 | 3
+  /** Section-level tier, set when the heading carried a `{core}`, `{deep}` or `{tips}` marker. */
+  tier: GuideTier | null
 }
 
 export interface RenderedGuideChapter {
@@ -14,11 +17,16 @@ export interface RenderedGuideChapter {
 export interface GuideRenderEnv {
   /** Label rendered on the per-code-block copy button. */
   copyLabel: string
+  /** Localised names of the three reading tiers, rendered as heading chips. */
+  tierLabels: Record<GuideTier, string>
   /** Token indices of paragraphs that hold nothing but an image. */
   figureParagraphs: Set<number>
   /** True while rendering inside a figure paragraph, so the image can caption itself. */
   inFigure: boolean
 }
+
+/** Used where a chapter is parsed for its anchors and text but never rendered. */
+const NO_TIER_LABELS: Record<GuideTier, string> = { core: '', deep: '', tips: '' }
 
 const md = createMarkdownRenderer({ breaks: false })
 
@@ -93,6 +101,32 @@ function inlineText(token: InlineLike | undefined): string {
   return text
 }
 
+const TIER_MARKER = new RegExp(`\\s*\\{(${GUIDE_TIERS.join('|')})\\}\\s*$`)
+
+/**
+ * Split a heading's trailing `{tier}` marker off its text. The marker sets the
+ * section's reading weight; it is not part of the title, the anchor, or the
+ * search index.
+ */
+function splitTierMarker(text: string): { text: string; marker: string; tier: GuideTier | null } {
+  const match = TIER_MARKER.exec(text)
+  if (!match) return { text, marker: '', tier: null }
+  return { text: text.slice(0, match.index), marker: match[0], tier: match[1] as GuideTier }
+}
+
+function trimInlineTail(inline: InlineLike, length: number): void {
+  inline.content = (inline.content ?? '').slice(0, -length)
+  const children = inline.children ?? []
+  let remaining = length
+  for (let index = children.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    const child = children[index]
+    if (child.type !== 'text') continue
+    const removed = Math.min(remaining, child.content.length)
+    child.content = child.content.slice(0, child.content.length - removed)
+    remaining -= removed
+  }
+}
+
 function codeBlock(env: GuideRenderEnv, source: string, lang: string): string {
   return [
     '<div class="guide-code">',
@@ -107,6 +141,19 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const info = token.info.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
   if (info) return codeBlock(env as GuideRenderEnv, token.content, info)
   return self.renderToken(tokens, idx, options)
+}
+
+/**
+ * A heading's tier marker renders as a chip after its text, so a reader sees the
+ * section's weight in the body and not only in the sidebar.
+ */
+md.renderer.rules.heading_close = (tokens, idx, options, env, self) => {
+  const tier = tokens[idx - 2]?.attrGet('data-guide-tier') as GuideTier | null
+  const label = tier ? (env as GuideRenderEnv).tierLabels[tier] : ''
+  const chip = tier && label
+    ? `<span class="guide-tier" data-guide-tier="${tier}">${md.utils.escapeHtml(label)}</span>`
+    : ''
+  return `${chip}${self.renderToken(tokens, idx, options)}`
 }
 
 md.renderer.rules.image = (tokens, idx, options, env, self) => {
@@ -186,10 +233,18 @@ md.renderer.rules.paragraph_close = (tokens, idx, options, env, self) => {
  * Parse and render in one pass so the table of contents and the rendered
  * headings always carry the same generated ids.
  */
-export function renderGuideChapter(markdown: string, options: { copyLabel: string }): RenderedGuideChapter {
+export function renderGuideChapter(
+  markdown: string,
+  options: { copyLabel: string; tierLabels: Record<GuideTier, string> },
+): RenderedGuideChapter {
   if (!markdown) return { html: '', headings: [] }
 
-  const env: GuideRenderEnv = { copyLabel: options.copyLabel, figureParagraphs: new Set(), inFigure: false }
+  const env: GuideRenderEnv = {
+    copyLabel: options.copyLabel,
+    tierLabels: options.tierLabels,
+    figureParagraphs: new Set(),
+    inFigure: false,
+  }
   const tokens = md.parse(markdown, env)
   const headings: GuideHeading[] = []
   const seen = new Map<string, number>()
@@ -210,10 +265,13 @@ export function renderGuideChapter(markdown: string, options: { copyLabel: strin
     const level = Number(token.tag.slice(1))
     if (level !== 2 && level !== 3) continue
 
-    const text = inlineText(tokens[index + 1])
+    const inline = tokens[index + 1] as unknown as InlineLike | undefined
+    const { text, marker, tier } = splitTierMarker(inlineText(inline))
+    if (marker && inline) trimInlineTail(inline, marker.length)
     const id = uniqueId(slugify(text), seen)
     token.attrSet('id', id)
-    headings.push({ id, text, level })
+    if (tier) token.attrSet('data-guide-tier', tier)
+    headings.push({ id, text, level, tier })
   }
 
   return { html: md.renderer.render(tokens, md.options, env), headings }
@@ -234,7 +292,12 @@ export interface GuideChapterIndex {
 export function indexGuideChapter(markdown: string): GuideChapterIndex {
   if (!markdown) return { headings: [], text: '' }
 
-  const env: GuideRenderEnv = { copyLabel: '', figureParagraphs: new Set(), inFigure: false }
+  const env: GuideRenderEnv = {
+    copyLabel: '',
+    tierLabels: NO_TIER_LABELS,
+    figureParagraphs: new Set(),
+    inFigure: false,
+  }
   const tokens = md.parse(markdown, env)
   const headings: GuideHeading[] = []
   const seen = new Map<string, number>()
@@ -245,8 +308,8 @@ export function indexGuideChapter(markdown: string): GuideChapterIndex {
     if (token.type === 'heading_open') {
       const level = Number(token.tag.slice(1))
       if (level !== 2 && level !== 3) continue
-      const headingText = inlineText(tokens[index + 1])
-      headings.push({ id: uniqueId(slugify(headingText), seen), text: headingText, level })
+      const { text: headingText, tier } = splitTierMarker(inlineText(tokens[index + 1]))
+      headings.push({ id: uniqueId(slugify(headingText), seen), text: headingText, level, tier })
       continue
     }
     if (token.type === 'inline') text.push(token.content)

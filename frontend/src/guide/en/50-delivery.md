@@ -1,6 +1,7 @@
 ---
 title: Delivery
 section: User Guide
+tier: core
 ---
 
 ## Branch and commits
@@ -11,7 +12,7 @@ section: User Guide
 
 The working branch is named `codify/issue-{id}`, where `id` is Codify's internal Issue id, not the GitLab issue IID. The name is stored on the Issue once and passed into every container of that Issue, so all of its Tasks share it.
 
-Nothing creates the branch in advance. The worker creates it locally on the first run that needs it: it checks out the local branch when one exists, otherwise a branch of that name from the remote, otherwise a new branch from the base branch. The branch appears on the remote only when the first successful publish creates it. The base branch is the Issue's **Starting Branch** when it has one, otherwise the target branch, otherwise the project's default branch.
+Nothing creates the branch in advance. The worker creates it locally on the first run that needs it: it checks out the local branch when one exists, otherwise it creates one from the branch of that name on the remote, otherwise it creates a new branch from the base branch. The branch appears on the remote only when the first successful publish creates it. The base branch is the Issue's **Starting Branch** when it has one, otherwise the target branch, otherwise the project's default branch.
 
 The **Branch Config** panel on a task names three roles:
 
@@ -31,8 +32,6 @@ The **Commit Record** section lists what the Task produced. Commits added by the
 - **Previous task commits ({count})**: commits from earlier runs that were picked up.
 - Each row shows its **Commit** SHA along with the message.
 
-Publishing is a compare-and-swap against the remote tip the run observed. The push carries `--force-with-lease`, so the branch moves only if it is still where the run last saw it; a plain force push is never used. The first publish asserts that the branch does not exist yet.
-
 The push result is recorded as one of:
 
 | State | Meaning |
@@ -43,21 +42,7 @@ The push result is recorded as one of:
 | **Push not attempted** | Delivery was not reached |
 | **Delivery failed — not confirmed** | The push failed and delivery is not confirmed |
 
-A refused or unconfirmed push fails the Task, and the commits stay in the workspace. The failure carries one of these codes:
-
-| Code | Meaning |
-|---|---|
-| `remote_diverged` | The remote branch moved so that neither side contains the other, so Codify refuses instead of merging |
-| `remote_rewound` | The remote branch no longer contains the commit the run started from |
-| `remote_deleted` | The branch was deleted on the remote after the run started |
-| `remote_changed` | The push was refused and the remote tip had changed again by the time it was rechecked |
-| `branch_changed` | The local branch moved while the run was finalizing |
-| `history_rewritten` | The branch history no longer matches the recorded starting point |
-| `history_unverifiable` | Ancestry could not be proven locally, usually because the clone is shallow, so no push was attempted |
-| `push_failed` | The push was refused and the remote tip was unchanged |
-| `remote_unconfirmed` | The remote state could not be observed after the push, so delivery is not confirmed |
-
-The raw error text appears next to the result verbatim, so it is not translated. A Task that fails before the worker commits its leftovers leaves that dirty worktree behind: the next turn starts with those files still in the workspace and may commit them along with its own change, so the next Task's diff can include work it did not produce.
+The remote state the push is compared against, and the codes a refused or unconfirmed push carries, are described in the Delivery Internals chapter.
 
 Whether the result becomes a Merge Request depends on how the Issue was configured:
 
@@ -77,7 +62,7 @@ The **Task overview** panel carries the Merge Request state for the Issue:
 - Before it exists but a merge target is set, the row reads **Will create MR** followed by the target branch.
 - When the Issue has no merge target configured, the row reads **No MR**.
 
-The **Branch Config** row above it names **Base branch**, **Working branch**, and **Target branch**, and marks the mode as **Will create MR**, **No MR**, **Direct Push**, or **Manual**.
+The **Branch Config** row above it names the branch roles and the delivery mode.
 
 Each subsequent Task updates the same MR instead of opening a new one, and its description carries a per-task table of status, commit message, and change line counts, plus the Issue context. A failed delivery is marked as failed in the MR body.
 
@@ -111,37 +96,8 @@ Token usage is captured per Task as input and output tokens. The **Run Statistic
 - **Avg Tokens / Sec**: computed from output tokens only, so it is not directly comparable with the other token metrics.
 - **Avg Tokens / Changed Line** and **Avg Sec / Changed Line**.
 
-Statistics cover finished work only. Tasks still running are excluded from the finished-task aggregates, and the finished-task line breaks them down as completed, failed, and cancelled.
+Statistics cover finished work only: tasks still running are excluded from the finished-task aggregates, and the finished-task line breaks them down as completed, failed, and cancelled.
 
 ## Run archive
 
-The **Runtime Archive** panel on a Task offers **Download runtime archive**: a gzip tar of the run's evidence, named `task-{id}-runtime-archive.tar.gz`. The container seals it from the run's scratch directory `/tmp/codify-runtime` as the run exits, so every terminated run produces one, whether it completed, failed, was cancelled, or timed out. The backend then streams the sealed file into the archive store on the control-plane host, `/opt/codify-archives`. Nothing is available to download while the Task is still running.
-
-Entries are added only when the run produced them, so an early exit yields a shorter archive:
-
-| Entry | Contents |
-|---|---|
-| `event.jsonl` | Normalized event stream, the source of the **Events** tab |
-| `opencode-http-audit.jsonl` | HTTP audit records, produced by OpenCode runs only |
-| `harness-result.json` | Final result reported by the harness |
-| `runtime.json` | Runtime information, including the model actually used; the Claude runner writes it, so other Harnesses leave it out |
-| `console.log` | Raw container console output |
-| `delivery-summary.md` | Delivery summary |
-| `delivery-summary-validation.json` | Delivery summary validation result |
-| `repository-preparation.json` | Repository clone and preparation telemetry |
-| `artifacts-validation.json` | Artifact collection and sealing validation result |
-| `harness-events/` | The raw event stream of this run's Harness, named `claude.jsonl`, `codex.jsonl`, `pi.jsonl`, or `opencode.jsonl`. `claude.jsonl` is created for every run and stays empty unless Claude ran |
-| `artifacts/` | The run's user artifacts, sealed and copied as they are |
-
-The panel's description names the common subset: console.log and repository-preparation.json, plus event.jsonl and runtime.json for runs that reached AI execution.
-
-The rest of the run's scratch files stay out: the prompt files, the artifact policy, the pre and post scripts, the orchestration bundle, and the timeout marker. Neither the workspace nor the Git repository is packaged, and neither are the Harness state directories on the `claude/` and `shared/` mounts; the archive only carries what the run wrote into its own scratch directory.
-
-The archive has a hard cap of 640 MiB. When sealing fails, or when adding `artifacts/` would push the archive past the cap, that subtree is omitted and `artifacts-validation.json` records the omission and the reason. The artifact budget applied while sealing defaults to 200 MiB in total, 100 MiB per file, and 5,000 entries, and an administrator can change those values.
-
-Notes:
-
-- Archives are kept for 30 days by default, counted from the age of the archive's record rather than of the file. Once cleanup has removed the file, the panel shows **File expired** and explains that the runtime archive file has been cleaned up and is no longer available for download. The Task itself is never deleted by archive cleanup.
-- The archive also holds the full logs: when the browser truncates a very large log, the panel points you here for the complete output.
-
-If the same file is available as a structured payload (for example a tool call's input or output), the process panel can load it directly; that path reports **Failed to load payload** when the payload is no longer retrievable, and shows a loading state while an archived payload is fetched.
+The **Runtime Archive** panel on a Task offers **Download runtime archive**; the entries it holds, its size limits, and its retention are described in the Delivery Internals chapter.

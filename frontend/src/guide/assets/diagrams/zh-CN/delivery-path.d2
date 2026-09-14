@@ -38,29 +38,31 @@ classes: {
   }
 }
 
+# 两行各四格，横向间距处处一致，没有空单元格。不建 MR 的那条路从工作分支向下
+# 离开，在需求关闭处与 MR 那条路重新汇合，两条路共用一个终点。
 delivery: {
   label: ""
-  grid-rows: 3
-  grid-columns: 3
-  grid-gap: 40
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 24
   style.fill: transparent
   style.stroke-width: 0
 
-  base: "起始分支\n拉取代码的基线" { class: node }
-  branch: "codify/issue-{id}\n需求级工作分支" { class: accent }
-  commits: "提交\n每个回合都推送" { class: node }
-  blank_a: " " { style.fill: transparent; style.stroke-width: 0 }
+  base: "起始分支\n工作从这里开始" { class: node }
+  branch: "codify/issue-{id}\n提交都落在这里" { class: accent }
   mr: "Merge Request\n先草稿，后转正" { class: node }
-  direct: "直接推送\n不创建 MR" { class: node }
-  blank_b: " " { style.fill: transparent; style.stroke-width: 0 }
   merged: "合并\n进入合并目标" { class: node }
-  closed: "需求关闭\n分支按设置处理" { class: node }
+  nomr: "不创建 MR\n需求上的开关" { class: node }
+  direct: "直接推送\n不经过 MR 路径" { class: node }
+  closed: "需求关闭\n手动或 Webhook" { class: node }
+  cleanup: "分支清理\n删除或保留" { class: node }
 
   base -> branch
-  branch -> commits
-  commits -> mr
-  commits -> direct
+  branch -> mr
   mr -> merged
   merged -> closed
+  closed -> cleanup
+  branch -> direct
+  nomr -> direct
   direct -> closed
 }

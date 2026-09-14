@@ -1,6 +1,7 @@
 ---
 title: 故障排查
 section: Admin Guide
+tier: core
 ---
 
 ## 任务失败

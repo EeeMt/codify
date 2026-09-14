@@ -43,22 +43,23 @@ classes: {
 }
 
 # Two choices, two clusters: the Task Mode cluster on the left (the mode node with
-# its three options wrapping into the second row), the Schedule cluster on the right.
+# its three options wrapping into the second row, each option adjacent to the node it
+# belongs to), the Schedule cluster on the right with its two times.
 choice: {
   label: ""
   grid-rows: 2
   grid-columns: 4
-  grid-gap: 40
+  grid-gap: 32
   style.fill: transparent
   style.stroke-width: 0
 
   mode: "Task Mode\nhow the run works" { class: accent }
-  impl: "Implementation\nchanges + commits" { class: node }
+  impl: "Implementation\nchanges, then commits" { class: node }
   sched: "Schedule\nwhen it runs" { class: node }
-  now: "Execute Now\nqueues at once" { class: node }
-  analysis: "Analysis\nanswers, no code" { class: node }
+  now: "Execute Now\njoins the queue" { class: node }
+  analysis: "Analysis\nanswers only" { class: node }
   freeform: "Freeform\nHarness decides" { class: node }
-  at: "Schedule at\nat a chosen time" { class: node }
+  at: "Schedule at\na future time" { class: node }
   gap: " " { style.fill: transparent; style.stroke-width: 0 }
 
   mode -> impl

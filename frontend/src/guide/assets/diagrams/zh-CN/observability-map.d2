@@ -1,6 +1,6 @@
 # 章节：70-observability（可观测性）· 五个页面各回答什么问题
-# 读者要理解：仪表盘看我的任务与趋势、统计分析看窗口内的成败与成本、监控看
-# 实时执行与容器排障、调度总览看未来忙闲、会话管的是控制台登录会话。
+# 读者要理解：仪表盘看自己的进度、统计分析看窗口内的趋势与成本、监控看正在发生
+# 的故障、调度总览看未来负载、会话管的是控制台登录会话。
 # 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
 
 vars: {
@@ -45,16 +45,16 @@ pages: {
   style.fill: transparent
   style.stroke-width: 0
 
-  dashboard: "仪表盘\n我的任务与趋势" { class: node }
-  analytics: "统计分析\n成功率与趋势对比" { class: node }
-  monitor: "监控\n实时执行与容器排障" { class: node }
-  schedule: "调度总览\n未来什么时候忙" { class: node }
-  console: "控制台\n五个页面各回答一问" { class: accent }
+  dashboard: "仪表盘\n自己的进度" { class: node }
+  analytics: "统计分析\n趋势与成本" { class: node }
+  monitor: "监控\n正在发生的故障" { class: node }
+  schedule: "调度总览\n未来负载" { class: node }
+  q: "我想知道什么\n对应哪个页面" { class: accent }
   sessions: "会话\n控制台登录会话" { class: node }
 
-  console -> dashboard
-  console -> analytics
-  console -> monitor
-  console -> schedule
-  console -> sessions
+  q -> dashboard
+  q -> analytics
+  q -> monitor
+  q -> schedule
+  q -> sessions
 }

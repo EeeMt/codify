@@ -55,14 +55,14 @@ chain: {
   due: "Scheduled time\ndue?" { class: node }
   capacity: "Concurrency\nslot free?" { class: node }
   below_gap: " " { style.fill: transparent; style.stroke-width: 0 }
-  waiting_issue: "Queued\nturn ahead running" { class: node }
+  waiting_issue: "Queued\npredecessor runs" { class: node }
   waiting_slot: "Waiting for a slot\nby priority order" { class: node }
   start: "Execution starts\nslot claimed" { class: accent }
 
   ready -> head
   head -> due: "yes"
   head -> waiting_issue: "no"
-  due -> capacity: "arrived"
+  due -> capacity: "due"
   due -> waiting_slot: "not yet"
   capacity -> start: "free"
   capacity -> waiting_slot: "full"

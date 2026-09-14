@@ -1,6 +1,6 @@
-# 章节：80-admin-configuration（系统配置）· 从 Profile 到 Runtime Bundle
+# 章节：80-admin-configuration（系统配置）· Worker Profile
 # 读者要理解：管理员编辑 Worker Profile，任务创建时冻结成 Task Snapshot，
-# 执行时按冻结身份解析出 Runtime Bundle；之后修改 Profile 不影响已创建的任务。
+# 执行时按冻结身份解析出 Runtime Bundle；之后修改 Worker Profile 不影响已创建的任务。
 # 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
 
 vars: {
@@ -45,11 +45,11 @@ flow: {
   style.fill: transparent
   style.stroke-width: 0
 
-  profile: "Worker Profile\n执行环境配置" { class: accent }
+  profile: "Worker Profile\n管理员配置" { class: accent }
   snapshot: "Task Snapshot\n创建任务时冻结" { class: node }
   bundle: "Runtime Bundle\n按冻结身份解析" { class: node }
-  edit: "后续修改 Profile\n只影响新任务" { class: node }
-  no_effect: "不影响\n已创建的任务" { class: node }
+  edit: "后续修改 Worker Profile\n只影响新任务" { class: node }
+  no_effect: "现有任务\n沿用各自快照" { class: node }
   task: "Task\n实际执行" { class: node }
 
   profile -> snapshot

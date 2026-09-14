@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { indexGuideChapter, renderGuideChapter } from './renderGuideChapter'
 
-const ENV = { copyLabel: 'Copy' }
+const ENV = {
+  copyLabel: 'Copy',
+  tierLabels: { core: 'Essentials', deep: 'How it works', tips: 'Techniques' },
+}
 
 describe('renderGuideChapter', () => {
   it('collects h2 and h3 headings into a table of contents', () => {
@@ -27,9 +30,40 @@ describe('renderGuideChapter', () => {
     expect(headings[0]?.id).toBe('任务状态机')
   })
 
+  it('renders a heading tier marker as a chip and keeps it out of the title', () => {
+    const { html, headings } = renderGuideChapter('## Run archive {deep}', ENV)
+
+    expect(headings[0]).toEqual({ id: 'run-archive', text: 'Run archive', level: 2, tier: 'deep' })
+    expect(html).toContain('<span class="guide-tier" data-guide-tier="deep">How it works</span>')
+    expect(html).not.toContain('{deep}')
+  })
+
+  it('leaves a heading without a marker on the chapter tier', () => {
+    const { html, headings } = renderGuideChapter('## Run archive', ENV)
+
+    expect(headings[0]?.tier).toBeNull()
+    expect(html).not.toContain('guide-tier')
+  })
+
+  it('keeps a brace that is not a tier in the heading text', () => {
+    const { headings } = renderGuideChapter('## Caching {beta}', ENV)
+
+    expect(headings[0]?.text).toBe('Caching {beta}')
+    expect(headings[0]?.tier).toBeNull()
+  })
+
+  it('indexes a marked heading under the anchor the renderer generates', () => {
+    const markdown = '## Run archive {deep}\n\nBody.'
+    const { headings: rendered } = renderGuideChapter(markdown, ENV)
+    const { headings: indexed } = indexGuideChapter(markdown)
+
+    expect(indexed).toEqual(rendered)
+    expect(rendered[0]?.id).toBe('run-archive')
+  })
+
   it('indexes the same anchors the renderer generates', () => {
     const markdown = '## Task lifecycle\n\nBody text here.\n\n### Cancel a task\n\nMore.'
-    const { headings: rendered } = renderGuideChapter(markdown, { copyLabel: 'Copy' })
+    const { headings: rendered } = renderGuideChapter(markdown, ENV)
     const { headings: indexed, text } = indexGuideChapter(markdown)
 
     expect(indexed).toEqual(rendered)

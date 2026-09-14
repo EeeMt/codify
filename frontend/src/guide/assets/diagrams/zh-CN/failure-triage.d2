@@ -45,14 +45,14 @@ triage: {
   style.fill: transparent
   style.stroke-width: 0
 
-  timeout: "超时\nTask timed out" { class: node }
-  error: "错误卡片\n失败原因与类型" { class: accent }
-  events: "事件流\n规范化的事件" { class: node }
-  logs: "原始日志\n控制台原始输出" { class: node }
-  quota: "配额\nusage_limit_exceeded" { class: node }
-  runtime: "运行时不可用\nruntime_unavailable" { class: node }
-  push: "推送未确认\npush_failed" { class: node }
-  archive: "运行归档\n完整证据包" { class: node }
+  timeout: "超时\n本次超时上限偏小" { class: node }
+  error: "1. 失败原因\n错误卡片" { class: accent }
+  events: "2. 事件流\n按发生顺序记录" { class: node }
+  logs: "3. 原始日志\n容器原始输出" { class: node }
+  quota: "配额超限\n执行前被拦截" { class: node }
+  runtime: "Worker 运行时\n不可用" { class: node }
+  push: "推送未确认\n交付不算完成" { class: node }
+  archive: "4. 运行归档\n完整证据" { class: node }
 
   error -> events
   events -> logs

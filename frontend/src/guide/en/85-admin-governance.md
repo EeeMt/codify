@@ -1,11 +1,12 @@
 ---
 title: Admin Governance
 section: Admin Guide
+tier: core
 ---
 
 ## Access management and roles
 
-**Access Management** (`/access-management`) lists every dashboard user with the current role, state, session activity, and last sign-in. The page subtitle states its scope: manage dashboard users, explicit admin overrides, disabled accounts, and active sessions.
+**Access Management** (`/access-management`) lists every dashboard user with the current role, state, session activity, and last sign-in. The page subtitle lists what it covers: managing dashboard users, explicit admin overrides, disabled accounts, and active sessions.
 
 ### Roles, sources, and states
 
@@ -17,9 +18,9 @@ A dashboard user has exactly one role, `platform_admin` or `platform_user`, show
 | **Manual override** | Set explicitly on this page |
 | **Break-glass** | The environment-controlled emergency administrator account |
 
-The page intro states two rules: **Manual role changes override bootstrap username/group rules for that user. Disabling a user immediately revokes their active sessions.** Once a role is set manually, later logins no longer recompute it from the bootstrap lists.
+Two rules apply here: **Manual role changes override bootstrap username/group rules for that user. Disabling a user immediately revokes their active sessions.** Once a role is set manually, later logins no longer recompute it from the bootstrap lists.
 
-The first administrator is created by the bootstrap flow on a fresh installation. Later administrators normally arrive through the OIDC bootstrap rules under **Admin Usernames** and **Admin GitLab Groups** on the Configuration page.
+The first administrator is created by the bootstrap flow on a fresh installation. Later administrators normally come from the OIDC bootstrap rules under **Admin Usernames** and **Admin GitLab Groups** on the Configuration page.
 
 ### Changing access
 
@@ -31,7 +32,7 @@ Use **Filter by role** and **Filter by state**, or search by username, display n
 
 Two guards protect the platform from losing its administration:
 
-- The last active platform admin cannot be demoted or disabled. The request is refused, so the platform can never reach a state where no one can sign in as an administrator.
+- The last active platform admin cannot be demoted or disabled. The request is refused so that an administrator can always sign in.
 - Disabling an account revokes its sessions in the same transaction, and an already-issued session is rejected on its next request with the message that the dashboard account is disabled.
 
 ## Usage management
@@ -40,7 +41,7 @@ Two guards protect the platform from losing its administration:
 
 > [!warning] **Quota checks happen twice**: the creation check prevents a Task from being stored, while the pre-run check prevents an over-limit Task from claiming a Worker. When a request is refused, identify whether the task or token window is full.
 
-**Usage Management** (`/usage-management`) reviews system defaults, inspects per-user usage, and manages quota overrides. The page intro states the model: **Usage is tracked at task granularity. Limits can inherit, override, or be set to unlimited.**
+**Usage Management** (`/usage-management`) shows system defaults and per-user usage, and manages quota overrides. The page intro explains the model: **Usage is tracked at task granularity. Limits can inherit, override, or be set to unlimited.**
 
 ### Quotas and modes
 
@@ -77,9 +78,9 @@ The header shows the signed-in user's current status: **Usage within limits**, *
 
 ## System statistics
 
-**System Statistics** (`/system-statistics`) reports operational reference statistics across the full system lifecycle: retained data plus data archived through the standard deletion paths since the coverage start. It is a reference view for operations, not a billing, audit, or capacity basis.
+**System Statistics** (`/system-statistics`) reports operational statistics across the full system lifecycle: retained data plus data archived through the standard deletion paths since the coverage start. It is a reference view for operations, not a billing, audit, or capacity basis.
 
-The page has a **Refresh** action and shows when it was last refreshed plus the reporting timezone, which is Asia/Shanghai.
+The page has a **Refresh** action and shows the last refresh time and the reporting timezone (Asia/Shanghai).
 
 ### Current running state and lifetime totals
 
@@ -126,9 +127,9 @@ The result is reported as `Cleanup finished: {issues} issue(s), {tasks} task(s) 
 
 ## Maintenance
 
-The **Maintenance** tab holds the two page-wide actions under **Actions**, with a subtitle stating that they reload current values or reset every section back to env or defaults.
+The **Maintenance** tab holds two page-wide actions under **Actions**. Its subtitle says they reload the current values or reset every section back to env or defaults.
 
 - **Reload** re-reads the effective configuration and discards nothing else.
 - **Reset to env/defaults** deletes every persisted override across all sections, returning every value to its installation default. It first asks **Reset all configuration sections to their environment variable / default values? Unsaved changes will be lost.** The summary tags on the configuration page then show **env fallback** or **default fallback** instead of **DB override**.
 
-Some values are set when Codify is installed and are deliberately not editable here. The worker workspace path is fixed at installation time, and the key material used to encrypt stored secrets must stay stable and unchanged. A reset that returns secret fields to their stored installation values is the supported way to recover when a persisted secret can no longer be decrypted; if the encryption key itself changed, every stored secret must be entered again.
+Some values are set when Codify is installed and are deliberately not editable here. The worker workspace path is fixed at installation time, and the key material used to encrypt stored secrets must not change. A reset that returns secret fields to their stored installation values is the supported way to recover when a persisted secret can no longer be decrypted; if the encryption key itself changed, every stored secret must be entered again.

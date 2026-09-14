@@ -1,5 +1,6 @@
 import { parse as parseYaml } from 'yaml'
 import type { AppLocale } from '../i18n'
+import { GUIDE_TIERS, isGuideTier, type GuideTier } from './guideTiers'
 
 /** The two guide audiences; both are rendered from the same chapter list. */
 export type GuideSectionKey = 'user' | 'admin'
@@ -10,6 +11,8 @@ export interface GuideChapter {
   /** Numeric prefix of the file name; also the reading order. */
   order: number
   section: GuideSectionKey
+  /** How strongly a reader should read this chapter, before per-heading overrides. */
+  tier: GuideTier
   title: string
   /** Markdown body with the front matter removed. */
   body: string
@@ -17,6 +20,13 @@ export interface GuideChapter {
 
 export interface GuideSection {
   key: GuideSectionKey
+  chapters: GuideChapter[]
+}
+
+/** One audience section's tier band, in reading order, for the sidebar. */
+export interface GuideTierGroup {
+  section: GuideSectionKey
+  tier: GuideTier
   chapters: GuideChapter[]
 }
 
@@ -57,10 +67,12 @@ function parseChapter(path: string, source: string): { locale: AppLocale, chapte
   const meta = (parseYaml(matter[1]) ?? {}) as Record<string, unknown>
   const title = meta.title
   const sectionLabel = meta.section
+  const tierLabel = meta.tier
   if (typeof title !== 'string' || !title.trim()) fail(path, 'front matter needs a non-empty "title"')
   if (typeof sectionLabel !== 'string') fail(path, 'front matter needs a "section"')
   const section = SECTION_KEYS[sectionLabel]
   if (!section) fail(path, `unknown section "${sectionLabel}"`)
+  if (!isGuideTier(tierLabel)) fail(path, `front matter needs a "tier" of ${GUIDE_TIERS.join(', ')}`)
 
   return {
     locale: localeName,
@@ -68,6 +80,7 @@ function parseChapter(path: string, source: string): { locale: AppLocale, chapte
       slug: `${orderText}-${slug}`,
       order: Number(orderText),
       section,
+      tier: tierLabel,
       title: title.trim(),
       body: source.slice(matter[0].length),
     },
@@ -106,4 +119,22 @@ export function guideSections(locale: AppLocale): GuideSection[] {
     }
   }
   return sections
+}
+
+/**
+ * Chapters grouped by audience, then by tier, both in reading order. The tier
+ * numbering is tier-major inside a section, so the sidebar's groups come out in
+ * the order the reader is meant to meet them.
+ */
+export function guideTierGroups(locale: AppLocale): GuideTierGroup[] {
+  const groups: GuideTierGroup[] = []
+  for (const chapter of guideChapters(locale)) {
+    const group = groups.find((entry) => entry.section === chapter.section && entry.tier === chapter.tier)
+    if (group) {
+      group.chapters.push(chapter)
+    } else {
+      groups.push({ section: chapter.section, tier: chapter.tier, chapters: [chapter] })
+    }
+  }
+  return groups
 }

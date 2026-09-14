@@ -1,9 +1,8 @@
 # Chapter: guide/en/70-observability.md — "Dashboard", "Analytics", "Monitor",
 # "Schedule overview", "Sessions".
 # Reader takeaway: the five pages answer five different questions — Dashboard is my
-# own work, Analytics is how work trends over a window, Monitor is what is running
-# right now, Schedule Overview is when capacity is already occupied, Sessions is
-# which sign-ins are open.
+# own progress, Analytics is trends and cost over a window, Monitor is live
+# failures, Schedule Overview is future load, Sessions is which sign-ins are open.
 # Render: d2 observability-map.d2 observability-map.svg --pad 36 --theme 0 --layout elk,
 # then set width and height on the root <svg> to the viewBox size so the asset also
 # renders 1:1 outside the guide's <img>.
@@ -46,19 +45,17 @@ classes: {
 pages: {
   label: ""
   grid-rows: 2
-  grid-columns: 4
+  grid-columns: 3
   grid-gap: 45
   style.fill: transparent
   style.stroke-width: 0
 
-  dashboard: "Dashboard\nwhat is mine" { class: node }
-  analytics: "Analytics\nhow work trends" { class: node }
-  monitor: "Monitor\nwhat runs now" { class: node }
-  schedule: "Schedule Overview\nwhen slots fill" { class: node }
-  sessions: "Sessions\nwhich sign-ins" { class: node }
+  dashboard: "Dashboard\nmy own progress" { class: node }
+  analytics: "Analytics\ntrends and cost" { class: node }
+  monitor: "Monitor\nlive failures" { class: node }
+  schedule: "Schedule Overview\nfuture load" { class: node }
   q: "My question\nwhich page?" { class: accent }
-  gap1: " " { style.fill: transparent; style.stroke-width: 0 }
-  gap2: " " { style.fill: transparent; style.stroke-width: 0 }
+  sessions: "Sessions\ndashboard sign-ins" { class: node }
 
   q -> dashboard
   q -> analytics

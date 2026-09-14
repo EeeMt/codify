@@ -37,27 +37,28 @@ classes: {
   }
 }
 
+# 两组各占一片：左边是任务模式簇（模式节点加三个选项，逐行绕在它周围，每个选项
+# 都紧挨着自己的父节点），右边是调度簇，带两个时机选项。
 choice: {
   label: ""
-  grid-rows: 3
-  grid-columns: 3
-  grid-gap: 40
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 32
   style.fill: transparent
   style.stroke-width: 0
 
-  execute: "实施模式\n改代码并提交" { class: node }
-  blank_a: " " { style.fill: transparent; style.stroke-width: 0 }
+  mode: "任务模式\n决定运行方式" { class: accent }
+  impl: "实施模式\n改代码并提交" { class: node }
+  sched: "调度\n决定何时排队" { class: node }
   now: "立即执行\n创建后进入队列" { class: node }
-  plan: "分析模式\n只输出方案，不改文件" { class: node }
-  task: "Task\n模式与时机各选一个" { class: accent }
-  blank_b: " " { style.fill: transparent; style.stroke-width: 0 }
+  analysis: "分析模式\n只输出方案" { class: node }
   freeform: "自由模式\n模型自行判断" { class: node }
-  blank_c: " " { style.fill: transparent; style.stroke-width: 0 }
   at: "定时执行\n指定未来的时间点" { class: node }
+  gap: " " { style.fill: transparent; style.stroke-width: 0 }
 
-  execute -> task
-  plan -> task
-  freeform -> task
-  now -> task
-  at -> task
+  mode -> impl
+  mode -> analysis
+  mode -> freeform
+  sched -> now
+  sched -> at
 }

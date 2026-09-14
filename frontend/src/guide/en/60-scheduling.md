@@ -1,11 +1,12 @@
 ---
 title: Scheduling
 section: User Guide
+tier: deep
 ---
 
-## Queue and priority arbitration
+## Queue and priority arbitration {core}
 
-Codify tracks three states between the moment a Task is created and the moment it runs:
+Codify tracks three states between a Task's creation and its run:
 
 - **Pending**: created, not yet eligible to run.
 - **Queued**: eligible, waiting for capacity.
@@ -28,15 +29,15 @@ Monitor prints the same rule in one line: Running → Ready (Priority P0 first, 
 
 Priority arbitrates between Issues only, never between the turns inside one Issue. A queued Task belonging to a busy Issue never becomes a candidate, so it cannot sit at the head of the global order and starve runnable work from other Issues.
 
-The claim is atomic. Codify re-checks the Task's turn number at the moment it moves the Task from **Queued** to **Running**, so the re-check decides, not the earlier selection.
+The claim is atomic: Codify re-checks the Task's turn number at the moment it moves the Task from **Queued** to **Running**.
 
 ## Concurrency and per-issue mutex
 
 Global concurrency is capped by **Max Concurrency**, the maximum number of tasks that can run at the same time. When all slots are taken, eligible Tasks stay **Queued** with the message that they will start automatically when capacity becomes available.
 
-A per-issue mutex allows only one Task per Issue to run at a time. Codify holds the Issue for the whole run and releases it only after the Task is terminal and its isolated container is gone. That is what keeps the shared workspace and the shared session safe: two Tasks on the same Issue can never write the same checkout concurrently.
+A per-issue mutex allows only one Task per Issue to run at a time. Codify holds the Issue for the whole run and releases it only after the Task is terminal and its isolated container is gone. Two Tasks on the same Issue can never write the same checkout concurrently, which is what keeps the shared workspace and session safe.
 
-An Issue therefore behaves like a long-lived CLI session. You can append as many Tasks as you like and schedule them freely; they execute strictly in turn order, one after another, each one seeing the results of the previous turn.
+An Issue therefore behaves like a long-lived CLI session. You can append as many Tasks as you like and schedule them freely; they execute strictly in turn order, each one seeing the results of the previous turn.
 
 Because of the mutex, a Task that is the head of a busy Issue stays **Queued** while its predecessor runs, and the task page reports the reason, for example that it is waiting for the Task ahead of it to complete, or that it is queued at a specific position.
 
@@ -62,7 +63,7 @@ Schedule Overview renders the same data at platform scale. **Next 24 Hours** cou
 
 Slot capacity counts what is scheduled, not what is running. It is a planning guard against landing twenty Tasks on the same hour, and it does not throttle runs.
 
-## Timeout policy
+## Timeout policy {core}
 
 Every Task has a maximum execution time, chosen from a two-tier policy configured under **Task Timeout Policy**:
 
@@ -86,7 +87,7 @@ A run that exceeds its limit fails with the failure type **Timeout**. Increase t
 
 ## Crash recovery
 
-A run can be interrupted at any moment: the work dies mid-turn, or the platform restarts while Tasks are still in flight. Codify reconciles what it finds instead of leaving Tasks stranded.
+A run can be interrupted at any moment: the work dies mid-turn, or the platform restarts while Tasks are still in flight. Codify reconciles what it finds.
 
 A Task that was still **Running** when the interruption happened is picked up again: Codify resumes watching it and collects its logs and results. One of three outcomes follows:
 
@@ -96,7 +97,7 @@ A Task that was still **Running** when the interruption happened is picked up ag
 | The interrupted run is gone | The Task is marked **Failed**, with the reason recorded |
 | Work is left behind with no Task owning it | It is cleaned up as an orphan |
 
-Recovery never silently fails a Task whose outcome it cannot verify: while the answer is unknown the Task stays owned, the check is retried, and the Task is not re-queued behind your back. Captured logs are kept until they are finalized, and only then is the leftover work cleaned up.
+Recovery never silently fails a Task whose outcome it cannot verify: while the answer is unknown the Task stays owned and the check is retried, and the Task is not re-queued. Recovery holds captured logs until it finalizes them, then cleans up the leftover work.
 
 Two related guards affect what you see:
 

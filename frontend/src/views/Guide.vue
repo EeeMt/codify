@@ -65,34 +65,38 @@
             <n-icon class="guide-nav__topline-icon" :component="BookOutline" size="14" aria-hidden="true" />
             <span>{{ t('guide.tocLabel') }}</span>
           </div>
-          <div class="guide-nav__scroll">
-            <template v-for="section in sections" :key="section.key">
+          <n-scrollbar class="guide-nav__scroll" trigger="hover" content-style="padding-right: 2px;">
+            <template v-for="section in navSections" :key="section.key">
               <p class="guide-nav__section">{{ t(SECTION_LABEL[section.key]) }}</p>
-              <ul class="guide-nav__list">
-                <li v-for="chapter in section.chapters" :key="chapter.slug">
-                  <RouterLink
-                    class="guide-nav__chapter"
-                    :class="{ 'guide-nav__chapter--active': chapter.slug === activeChapter?.slug }"
-                    :to="{ name: 'Guide', params: { chapter: chapter.slug } }"
-                  >
-                    {{ chapter.title }}
-                  </RouterLink>
-                  <ul v-if="chapter.slug === activeChapter?.slug && headings.length" class="guide-nav__headings">
-                    <li v-for="heading in headings" :key="heading.id">
-                      <a
-                        class="guide-nav__heading"
-                        :class="`guide-nav__heading--level-${heading.level}`"
-                        :href="`#${heading.id}`"
-                        @click.prevent="revealHeading(heading.id)"
-                      >
-                        {{ heading.text }}
-                      </a>
-                    </li>
-                  </ul>
-                </li>
-              </ul>
+              <template v-for="group in section.groups" :key="group.tier">
+                <p class="guide-nav__tier">{{ t(TIER_LABEL[group.tier]) }}</p>
+                <ul class="guide-nav__list">
+                  <li v-for="chapter in group.chapters" :key="chapter.slug">
+                    <RouterLink
+                      class="guide-nav__chapter"
+                      :class="{ 'guide-nav__chapter--active': chapter.slug === activeChapter?.slug }"
+                      :to="{ name: 'Guide', params: { chapter: chapter.slug } }"
+                    >
+                      {{ chapter.title }}
+                    </RouterLink>
+                    <ul v-if="chapter.slug === activeChapter?.slug && headings.length" class="guide-nav__headings">
+                      <li v-for="heading in headings" :key="heading.id">
+                        <a
+                          class="guide-nav__heading"
+                          :class="`guide-nav__heading--level-${heading.level}`"
+                          :href="`#${heading.id}`"
+                          @click.prevent="revealHeading(heading.id)"
+                        >
+                          <span v-if="heading.tier" class="guide-nav__heading-tier" :data-guide-tier="heading.tier" />
+                          {{ heading.text }}
+                        </a>
+                      </li>
+                    </ul>
+                  </li>
+                </ul>
+              </template>
             </template>
-          </div>
+          </n-scrollbar>
         </div>
       </aside>
 
@@ -105,6 +109,11 @@
           <div>
             <p>{{ t('guide.title') }}</p>
             <h2>{{ activeChapter?.title }}</h2>
+            <span
+              v-if="activeChapter"
+              class="guide-content__tier"
+              :data-guide-tier="activeChapter.tier"
+            >{{ t(TIER_LABEL[activeChapter.tier]) }}</span>
           </div>
         </div>
         <div
@@ -147,7 +156,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NIcon, NInput } from 'naive-ui'
+import { NIcon, NInput, NScrollbar } from 'naive-ui'
 import {
   ArrowBackOutline,
   BookOutline,
@@ -158,12 +167,24 @@ import {
 } from '@vicons/ionicons5'
 
 import { currentLocale, type AppLocale } from '../i18n'
-import { guideChapters, guideSections, type GuideSectionKey } from '../guide/guideContent'
+import {
+  guideChapters,
+  guideTierGroups,
+  type GuideSectionKey,
+  type GuideTierGroup,
+} from '../guide/guideContent'
+import type { GuideTier } from '../guide/guideTiers'
 import { indexGuideChapter, renderGuideChapter, type GuideChapterIndex, type GuideHeading } from '../guide/renderGuideChapter'
 
 const SECTION_LABEL: Record<GuideSectionKey, string> = {
   user: 'guide.sections.user',
   admin: 'guide.sections.admin',
+}
+
+const TIER_LABEL: Record<GuideTier, string> = {
+  core: 'guide.tiers.core',
+  deep: 'guide.tiers.deep',
+  tips: 'guide.tiers.tips',
 }
 
 const { t } = useI18n()
@@ -287,8 +308,22 @@ function openFirstHit(): void {
   if (first) openHit(first)
 }
 
-const sections = computed(() => guideSections(currentLocale.value))
-const chapters = computed(() => sections.value.flatMap((section) => section.chapters))
+const tierGroups = computed(() => guideTierGroups(currentLocale.value))
+const navSections = computed(() => {
+  const sections: { key: GuideSectionKey; groups: GuideTierGroup[] }[] = []
+  for (const group of tierGroups.value) {
+    const last = sections[sections.length - 1]
+    if (last?.key === group.section) last.groups.push(group)
+    else sections.push({ key: group.section, groups: [group] })
+  }
+  return sections
+})
+const chapters = computed(() => tierGroups.value.flatMap((group) => group.chapters))
+const tierLabels = computed<Record<GuideTier, string>>(() => ({
+  core: t(TIER_LABEL.core),
+  deep: t(TIER_LABEL.deep),
+  tips: t(TIER_LABEL.tips),
+}))
 
 function chapterParam(): string | undefined {
   const value = route.params.chapter
@@ -418,7 +453,10 @@ watch(
       return
     }
 
-    const rendered = renderGuideChapter(chapter.body, { copyLabel: t('guide.copyCode') })
+    const rendered = renderGuideChapter(chapter.body, {
+      copyLabel: t('guide.copyCode'),
+      tierLabels: tierLabels.value,
+    })
     if (token !== renderToken) return
     html.value = rendered.html
     headings.value = rendered.headings
@@ -559,16 +597,11 @@ watch(
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
-.guide-nav__scroll {
-  /* A native scroll container, not n-scrollbar: the nav can grow past the
-     panel (a chapter with many headings expands in place), and naive-ui's
-     container sizes to its content instead of filling the panel, so the extra
-     entries were clipped with nothing to scroll. */
-  flex: 1;
+.guide-page :deep(.guide-nav__scroll) {
+  /* Keep the nav inside the card's flex track so Naive UI owns the scrollbar,
+     while the page itself keeps one stable scrollport for sticky positioning. */
+  flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
 }
 
 .guide-nav__section {
@@ -583,6 +616,17 @@ watch(
 
 .guide-nav__section:first-child {
   margin-top: 0;
+}
+
+/* A tier band inside an audience section: quieter than the section label, but
+   still a heading so a reader can find the must-read group at a glance. */
+.guide-nav__tier {
+  margin: 8px 0 2px;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: rgba(15, 23, 42, 0.38);
 }
 
 .guide-nav__list {
@@ -699,7 +743,7 @@ watch(
     box-shadow: none;
   }
 
-  .guide-nav__scroll {
+  .guide-page :deep(.guide-nav__scroll) {
     max-height: 320px;
   }
 
@@ -959,7 +1003,9 @@ watch(
 .guide-nav__panel {
   position: sticky;
   top: 20px;
+  height: calc(100vh - 40px);
   max-height: calc(100vh - 40px);
+  box-sizing: border-box;
   padding: 17px 12px 14px;
   border: 1px solid var(--guide-line);
   border-radius: 18px;
@@ -985,9 +1031,8 @@ watch(
   box-shadow: 4px 0 0 rgba(94, 234, 212, 0.9);
 }
 
-.guide-nav__scroll {
+.guide-page :deep(.guide-nav__scroll) {
   margin-top: 9px;
-  padding-right: 2px;
 }
 
 .guide-nav__section {
@@ -1054,6 +1099,25 @@ watch(
   color: rgba(19, 35, 63, 0.44);
 }
 
+/* The tier dot on a table-of-contents entry mirrors the chip on the heading. */
+.guide-nav__heading-tier {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 999px;
+  background: rgba(19, 35, 63, 0.26);
+  vertical-align: middle;
+}
+
+.guide-nav__heading-tier[data-guide-tier='core'] {
+  background: var(--guide-blue);
+}
+
+.guide-nav__heading-tier[data-guide-tier='tips'] {
+  background: #c2801a;
+}
+
 .guide-content {
   min-width: 0;
   box-sizing: border-box;
@@ -1104,6 +1168,33 @@ watch(
   line-height: 1.2;
 }
 
+.guide-content__tier {
+  display: inline-block;
+  margin-top: 9px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(19, 35, 63, 0.06);
+  color: rgba(19, 35, 63, 0.55);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.guide-content__tier[data-guide-tier='core'] {
+  background: rgba(32, 128, 240, 0.12);
+  color: #1d4ed8;
+}
+
+.guide-content__tier[data-guide-tier='deep'] {
+  background: rgba(100, 116, 139, 0.16);
+  color: #475569;
+}
+
+.guide-content__tier[data-guide-tier='tips'] {
+  background: rgba(194, 128, 26, 0.14);
+  color: #8a5a11;
+}
+
 .guide-pager {
   max-width: 860px;
   margin-top: 34px;
@@ -1136,10 +1227,12 @@ watch(
 
   .guide-nav__panel {
     position: static;
+    height: auto;
     max-height: none;
   }
 
-  .guide-nav__scroll {
+  .guide-page :deep(.guide-nav__scroll) {
+    height: 280px;
     max-height: 280px;
   }
 
@@ -1406,12 +1499,12 @@ watch(
 }
 
 /* Naive UI places a second, non-scrolling scrollbar around page content. Let
-   the outer app scrollbar remain the guide's scrollport so CSS sticky has one
-   stable reference instead of a scroll-event transform loop. */
+   only that direct outer scrollbar remain visible so the sidebar's own
+   n-scrollbar keeps its rail and scroll container intact. */
 .app-shell--guide .app-shell__content,
 .app-shell--guide .app-shell__content > .n-scrollbar,
-.app-shell--guide .app-shell__content .n-scrollbar-container,
-.app-shell--guide .app-shell__content .n-scrollbar-content {
+.app-shell--guide .app-shell__content > .n-scrollbar > .n-scrollbar-container,
+.app-shell--guide .app-shell__content > .n-scrollbar > .n-scrollbar-container > .n-scrollbar-content {
   overflow: visible !important;
 }
 
@@ -1632,6 +1725,37 @@ watch(
   background: #ede9fe;
   color: #6d28d9;
   content: '↗';
+}
+
+/* The chip the renderer appends to a heading whose markdown carried a
+   {core}, {deep} or {tips} marker. */
+.guide-content__body .guide-tier {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  color: rgba(15, 23, 42, 0.55);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.guide-content__body .guide-tier[data-guide-tier='core'] {
+  background: rgba(32, 128, 240, 0.12);
+  color: #1d4ed8;
+}
+
+.guide-content__body .guide-tier[data-guide-tier='deep'] {
+  background: rgba(100, 116, 139, 0.16);
+  color: #475569;
+}
+
+.guide-content__body .guide-tier[data-guide-tier='tips'] {
+  background: rgba(194, 128, 26, 0.14);
+  color: #8a5a11;
 }
 
 @media (max-width: 767px) {

@@ -40,24 +40,30 @@ classes: {
 gates: {
   label: ""
   grid-rows: 3
-  grid-columns: 3
+  grid-columns: 4
   grid-gap: 40
   style.fill: transparent
   style.stroke-width: 0
 
-  blank_a: " " { style.fill: transparent; style.stroke-width: 0 }
-  daily_tokens: "日 Token\n当天累计用量" { class: node }
-  weekly_tokens: "周 Token\n当周累计用量" { class: node }
-  daily_tasks: "日任务数\n当天累计任务数" { class: node }
-  create: "创建任务\n超限即被拒绝" { class: accent }
-  weekly_tasks: "周任务数\n当周累计任务数" { class: node }
-  blank_b: " " { style.fill: transparent; style.stroke-width: 0 }
-  execute: "开始执行前\n再次校验，超限即失败" { class: accent }
-  blank_c: " " { style.fill: transparent; style.stroke-width: 0 }
+  daily_tokens: "日 Token\n当天" { class: node }
+  weekly_tokens: "周 Token\n当周" { class: node }
+  daily_tasks: "日任务数\n当天" { class: node }
+  gap1: " " { style.fill: transparent; style.stroke-width: 0 }
+  weekly_tasks: "周任务数\n当周" { class: node }
+  created: "创建任务\n第一道检查" { class: accent }
+  queued: "任务入队\n等待并发容量" { class: node }
+  start: "开始执行前\n第二道检查" { class: accent }
+  gap2: " " { style.fill: transparent; style.stroke-width: 0 }
+  rejected: "请求被拒绝\n任务不会写入" { class: node }
+  gap3: " " { style.fill: transparent; style.stroke-width: 0 }
+  failed: "任务失败\n未做任何工作" { class: node }
 
-  daily_tokens -> create
-  weekly_tokens -> create
-  daily_tasks -> create
-  weekly_tasks -> create
-  create -> execute
+  daily_tokens -> created
+  weekly_tokens -> created
+  daily_tasks -> created
+  weekly_tasks -> created
+  created -> queued
+  queued -> start
+  created -> rejected: "超限"
+  start -> failed: "超限"
 }

@@ -1,6 +1,7 @@
 ---
 title: Admin Configuration
 section: Admin Guide
+tier: core
 ---
 
 ## Configuration overview
@@ -43,17 +44,17 @@ Encryption uses a key that is fixed for the instance. A missing key, or the plac
 
 **Max Concurrency** caps how many tasks execute at the same time; the accepted range is 1 to 20. **Scheduler Interval (seconds)** controls how often the scheduler checks for work; the accepted range is 1 to 60. **Default Target Branch** is used when a task does not name one.
 
-Raising concurrency increases pressure on the workers, the model endpoint, and GitLab at the same time. Lower the interval only after confirming the platform keeps up with the task volume.
+Raising concurrency increases pressure on the workers, the model endpoint, and GitLab. Lower the interval only after confirming the platform keeps up with the task volume.
 
 ### Task timeout policy
 
 The panel shows the business timezone as **Business timezone: Asia/Shanghai**. **Peak start time** and **Peak end time** are strict 24-hour `HH:mm` values; start is inclusive and end is exclusive, and the two must differ. **Peak timeout (seconds)** and **Off-peak timeout (seconds)** accept 60 to 28800 seconds.
 
-The panel hint states the rule for the limit: **Each task selects one limit when it enters RUNNING and keeps it while running.** A task that exceeds the limit fails with a message of the form `Task timed out after {timeout_seconds}s` followed by the tail of its sanitized logs.
+The panel hint gives the rule: **Each task selects one limit when it enters RUNNING and keeps it while running.** A task that exceeds the limit fails with a message of the form `Task timed out after {timeout_seconds}s` followed by the tail of its sanitized logs.
 
 ### Retry and alerts
 
-**Max Retries** accepts 0 to 10 and **Retry Delay (seconds)** accepts 1 to 3600. The platform stores and validates both values. Re-queuing a failed task is an explicit action from the task view: the retry creates a new task that references the failed one, so the original record keeps its error state.
+**Max Retries** accepts 0 to 10 and **Retry Delay (seconds)** accepts 1 to 3600. Re-queuing a failed task is an explicit action from the task view: the retry creates a new task that references the failed one, so the original record keeps its error state.
 
 **Alert on Failure** sends a webhook notification when a task fails, using **Alert Webhook URL**. The stored URL is never returned to the browser; the panel shows **Alert Webhook Status** instead, and a blank field keeps the current value. Clearing the stored webhook is a separate action.
 
@@ -88,7 +89,7 @@ The page header summarizes how many of these are enabled under **Shared Pages**.
 - **GitLab Bot Token**: the token used to execute tasks. Only **GitLab Bot Token Status** is returned to the browser.
 - **GitLab Admin Token**: used only for project webhook management, under **Webhook automation**. Only **GitLab Admin Token Status** is returned.
 
-**Test GitLab connection** validates the values currently in the form, including unsaved ones, by calling the GitLab version and user endpoints. A success reports the server version and the authenticated username. If the project list looks stale, **Invalidate project cache** forces the next request to fetch a fresh list.
+**Test GitLab connection** validates the values currently in the form, including unsaved ones, by calling the GitLab version and user endpoints. A successful test reports the server version and the authenticated username. If the project list looks stale, **Invalidate project cache** forces the next request to fetch a fresh list.
 
 ### Webhook automation
 
@@ -122,13 +123,13 @@ Results recorded by the handler include **Issue closed**, **Already closed**, **
 
 ### Provider basics
 
-**Enable OIDC Login** makes the dashboard require GitLab sign-in. As the hint notes, dashboard APIs also require GitLab sign-in once it is on. Enabling it requires all four provider fields to be present: **Issuer URL**, **Client ID**, **Client Secret**, and **Redirect URI**. The API refuses to enable OIDC while any of them is empty.
+**Enable OIDC Login** makes the dashboard require GitLab sign-in. Turning it on also makes the dashboard APIs require GitLab sign-in, as the hint notes. Enabling it requires all four provider fields to be present, and the API refuses while any is empty: **Issuer URL**, **Client ID**, **Client Secret**, and **Redirect URI**.
 
 **Client Secret Status** shows **Configured** or **Missing**; the actual secret is never returned to the browser, and leaving the field blank keeps the stored value. **Redirect URI** normally ends with `/api/auth/callback`.
 
 The OAuth application must allow the scopes the dashboard requests: `openid profile email read_api`.
 
-**Test OIDC connection** fetches the discovery document for the values in the form and reports the issuer, the authorization, token, and userinfo endpoints, the authorization URL preview, and any operator warnings. It does not enable OIDC. Configure and test first, then enable.
+**Test OIDC connection** fetches the discovery document for the values in the form and reports the issuer, the authorization, token, and userinfo endpoints, the authorization URL preview, and any operator warnings. It does not enable OIDC; configure and test first, then enable.
 
 ### Session and access
 
@@ -140,7 +141,7 @@ Session TTL values are clamped to the range 300 to 604800 seconds.
 
 **Admin Usernames** is a comma-separated list of GitLab usernames that are granted the platform admin role at login. **Admin GitLab Groups** optionally lists group names checked during login; a user in any listed group is granted the admin role.
 
-Bootstrap rules apply to accounts whose role has not been set manually. Changing a role on the **Access Management** page marks that account as a manual override, and later logins no longer recompute it. If group-based bootstrap is enabled while GitLab does not return groups in the claims or userinfo response, the grants never apply, and the diagnostics panel warns about exactly this case.
+Bootstrap rules apply to accounts whose role has not been set manually. Changing a role on the **Access Management** page marks that account as a manual override, and later logins no longer recompute it. If group-based bootstrap is enabled while GitLab does not return groups in the claims or userinfo response, the grants never apply, and the diagnostics panel warns when that happens.
 
 ### OIDC diagnostics
 
@@ -153,7 +154,7 @@ Bootstrap rules apply to accounts whose role has not been set manually. Changing
 
 Individual checks report **OK**, **Warning**, or **Error**. Typical warnings are a redirect URI outside `/api/auth/callback`, `COOKIE_SECURE=true` with an `http` redirect URI, an `https` redirect URI without secure cookies, a session TTL longer than 24 hours, and group-based bootstrap without groups in the login response.
 
-When the discovery document cannot be fetched, the discovery check is the one that reports the error; treat that first, because the endpoint checks depend on it.
+When the discovery document cannot be fetched, the discovery check reports the error; treat that first, because the endpoint checks depend on it.
 
 Break-glass login is environment-controlled and cannot be edited from this page. Keep it disabled during normal operation and use it only for OIDC recovery or administrator lockout, as the sign-in page states.
 
@@ -175,7 +176,7 @@ Break-glass login is environment-controlled and cannot be edited from this page.
 
 ### Provider kind and wire protocol
 
-**Provider Kind** and **Wire Protocol** are validated as a pair, so that a provider can never be saved with an endpoint that its harness cannot consume:
+**Provider Kind** and **Wire Protocol** are validated as a pair:
 
 | Provider Kind | Allowed Wire Protocol | Used by |
 | --- | --- | --- |
@@ -208,7 +209,7 @@ The **Worker** tab separates the system baseline from the profiles built on top 
 
 ### Shared configuration and inheritance
 
-**Shared configuration** is the system baseline: **Worker Kit**, shared volume mounts, shared environment variables, shared scripts, and shared run instructions. The revision, shown as **Revision {revision}**, increments on every save. **Save shared configuration** validates every enabled profile's combined configuration before committing, so a shared change can never leave an inheriting profile invalid. If another admin saved a newer revision while you were editing, the save is rejected with **The shared configuration changed. Reload this page before saving again.**, so you do not overwrite their change.
+**Shared configuration** is the system baseline: **Worker Kit**, shared volume mounts, shared environment variables, shared scripts, and shared run instructions. The revision, shown as **Revision {revision}**, increments on every save. **Save shared configuration** validates every enabled profile's combined configuration before committing, so a shared change can never leave an inheriting profile invalid. If another admin saved a newer revision while you were editing, the save is rejected with **The shared configuration changed. Reload this page before saving again.**
 
 Profiles either follow the baseline or override individual entries. Each entry shows its **Source**:
 
@@ -237,11 +238,11 @@ A profile that is still assigned to open issues cannot be disabled directly: **D
 
 ### Docker target
 
-Each profile can run on the shared execution target or on one of its own. **Use system Docker target** keeps the profile on the target the platform already uses; turning it off exposes **Docker Host** and the optional **TLS CA path**, **TLS client certificate path**, and **TLS client key path**. **Test connection** verifies the target, and a remote TCP endpoint configured without TLS is flagged with **This remote TCP endpoint is configured without TLS.** Treat that combination as a finding.
+Each profile can run on the shared execution target or on one of its own. **Use system Docker target** keeps the profile on the target the platform already uses; turning it off exposes **Docker Host** and the optional **TLS CA path**, **TLS client certificate path**, and **TLS client key path**. **Test connection** verifies the target, and a remote TCP endpoint configured without TLS is flagged with **This remote TCP endpoint is configured without TLS.**
 
 ### Runtime verification
 
-**Profile runtime verification** records whether the profile's image and Worker Kit were actually probed. **Verify runtime** runs a deterministic Kit probe and a verification container, then freezes the observed identity into the profile. The badge shows **Verified**, **Unverified**, or **Verifying…**, together with a **Last checked** timestamp; a verification failure clears the state, so a profile cannot keep claiming a runtime that no longer matches.
+**Profile runtime verification** records whether the profile's image and Worker Kit were probed. **Verify runtime** runs a deterministic Kit probe and a verification container, then freezes the observed identity into the profile. The badge shows **Verified**, **Unverified**, or **Verifying…**, together with a **Last checked** timestamp; a verification failure clears the state, so a profile cannot keep claiming a runtime that no longer matches.
 
 **Worker Kit readiness** reports the harness inventory of the kit: each harness is **available** or **unavailable**, and an unavailable harness is annotated with one of these reasons: **not selected**, **missing payload**, or **reason unknown**. Readiness also reports **Ready**, **Not verified**, or **Runtime unavailable**.
 
@@ -249,7 +250,7 @@ Each profile can run on the shared execution target or on one of its own. **Use 
 
 Two operational budgets sit above the profile list and apply to the whole platform.
 
-**Workspace Cleanup** sets where issue workspaces live and how long issue workspaces and CI evidence bundles survive without file updates. A retention value of `0` disables automatic cleanup. The location is deployment-time configuration: it cannot be changed from this page, and a save that submits a different path is refused rather than silently accepted, because workers that are already running would not honor it.
+**Workspace Cleanup** sets where issue workspaces live and how long issue workspaces and CI evidence bundles survive without file updates. A retention value of `0` disables automatic cleanup. The location is deployment-time configuration: it cannot be changed from this page, and a save that submits a different path is refused, because workers that are already running would not honor it.
 
 **Task Artifacts** governs the artifact budget of a run: maximum total size in MiB, maximum single-file size in MiB, maximum files and directories, and how many days runtime archives are kept. The single-file limit cannot exceed the total limit; the panel reports **The single-file limit cannot exceed the total limit.** and the API rejects the pair. Expired runtime archives are deleted without deleting their Tasks or Issues.
 
@@ -259,78 +260,9 @@ Saving a profile does not change tasks that already exist. When a task is create
 
 ![You edit a Worker Profile; a task runs a frozen snapshot](assets/diagrams/en/profile-to-bundle.svg)
 
-The Task Snapshot records the resolved values (**Worker image**, runtime mode, Worker Kit version and path, **Profile volume mounts**, **Profile environment variables**, scripts, run instructions, harness key, and the model endpoint), together with the shared configuration revision it was resolved against and a digest of the effective configuration. The Runtime Bundle is stored by digest and holds the frozen runtime source and Harness identity. Because the binding is immutable, editing a profile, a shared script, a Skill, or a provider only affects tasks created afterwards; the hint on the shared configuration card states the same rule for the baseline: **Changes become the baseline for future tasks created from profiles that follow the system value. Existing task snapshots do not change.** A task therefore keeps running when you disable or edit a Skill or a provider, because the snapshot already carries what it needs.
+The Task Snapshot records the resolved values (**Worker image**, runtime mode, Worker Kit version and path, **Profile volume mounts**, **Profile environment variables**, scripts, run instructions, harness key, and the model endpoint), together with the shared configuration revision it was resolved against and a digest of the effective configuration. The Runtime Bundle is stored by digest and holds the frozen runtime source and Harness identity. Because the binding is immutable, editing a profile, a shared script, a Skill, or a provider only affects tasks created afterwards; the hint on the shared configuration card states the same rule for the baseline: **Changes become the baseline for future tasks created from profiles that follow the system value. Existing task snapshots do not change.** A task keeps running when you disable or edit a Skill or a provider, because the snapshot already carries what it needs.
 
-## Worker filesystem
-
-Every Docker host that runs tasks keeps one directory tree per Issue under a root path that is fixed at deployment time.
-
-### Host layout
-
-The root is `worker_workspace_host_path`, read from `WORKER_WORKSPACE_HOST_PATH` and defaulting to `/opt/codify-workspaces`. It must exist at the same path on every Docker host. Codify keeps one directory per Issue inside it:
-
-```text
-{worker_workspace_host_path}/project-{project_id}/issue-{issue_id}/
-  repo/
-  claude/
-  shared/
-  meta/
-```
-
-The path is deployment-time configuration, so the Configuration page cannot change it. Changing it means updating `WORKER_WORKSPACE_HOST_PATH` and recreating Backend and Scheduler.
-
-### Container mounts
-
-A Task does not see the workspace directory as a whole. It mounts four of its children, all read-write, and all four outlive the container:
-
-| Container path | Host source | What it holds |
-| --- | --- | --- |
-| `/workspace` | `repo/` | The checkout, including the commits earlier Tasks left behind |
-| `/home/codify/.claude` | `claude/` | Claude CLI state: session transcripts, settings, and backups |
-| `/opt/codify-issue-shared` | `shared/` | Issue-shared space, including the state directories other Harnesses keep there |
-| `/opt/codify-issue-meta` | `meta/` | Root-owned bookkeeping: `workspace.json`, the `ownership` marker, and the `owner` delete guard |
-
-Every Task on an Issue uses the same mount set, so a follow-up Task starts from the previous checkout and session instead of cloning again.
-
-### Where each Harness keeps its state
-
-The four mount paths are fixed, but each Harness points its own home, config, cache, and session directories at a different one of them, and only Claude uses the `claude/` mount.
-
-| Harness | Kept across Tasks | Built again for each run |
-| --- | --- | --- |
-| Claude | `/home/codify/.claude`, the `claude/` mount: session transcripts, settings, and the backup that `.claude.json` is restored from | `/home/codify/.claude.json` and the per-run prompt file |
-| Codex | `CODEX_HOME` on the `shared/` mount, `/opt/codify-issue-shared/codex-home`: `config.toml`, `execpolicy.rules`, session transcripts, and `.agents/skills` | `codex-home` under `/tmp/codify-runtime`, used when the `shared/` mount is unavailable |
-| Pi | `PI_HOME` on the `shared/` mount, `/opt/codify-issue-shared/pi-home`, holding `sessions/` | `/home/codify/.pi/agent`: `models.json`, `settings.json`, agent definitions, extensions, and skills |
-| OpenCode | `XDG_DATA_HOME` on the `shared/` mount, `/opt/codify-issue-shared/opencode-data`, holding the session store | `HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` under `/tmp/codify-runtime/opencode` |
-
-`/home/codify` itself is not a mount. Only its `.claude` subdirectory survives the container, so anything a Harness keeps elsewhere under that home directory is rebuilt on the next run.
-
-### Worker Kit
-
-With **Runtime delivery** set to **Mounted worker kit**, Codify mounts the kit read-only at `/opt/codify-kit` and its `nix/store` at `/nix/store`, then starts the container through `/opt/codify-kit/launcher` as root. Kits live on the host under `/opt/codify/worker-kits/<content-addressed name>`, a root-owned directory that other users cannot write to.
-
-**Profile volume mounts** cannot hide `/workspace`, `/home/codify/.claude`, or `/opt/codify-issue-shared`, and cannot enter the sealed `/opt/codify-issue-meta` or `/tmp/codify-runtime` paths. The same rule protects the kit mounts at `/opt/codify-kit` and `/nix/store`.
-
-### Per-run scratch
-
-`/tmp/codify-runtime` exists inside the container only. Codify creates it for each Task and discards it with the container when the run ends. It holds the evidence the run produces:
-
-- `event.jsonl`, the canonical event stream, plus the raw per-harness streams under `harness-events/`
-- `console.log` and the harness result `harness-result.json`
-- `artifacts/`, the staging area for user artifacts
-- `orchestration/`, the frozen Runtime Bundle uploaded before the run starts
-
-The runtime archive is built from this directory as the container exits, and the Backend streams it to the archive store at `/opt/codify-archives`.
-
-### Lifetimes and reclamation
-
-| Item | Setting | Default | Reclaimed |
-| --- | --- | --- | --- |
-| Issue workspace | `worker_workspace_retention_days` | 14 days, `0` disables cleanup | Once no active Task owns the Issue and the directory has not been used within the window |
-| Runtime archives | `worker_runtime_archive_retention_days` | 30 days | By archive record age |
-| CI failure bundles | `worker_workspace_retention_days` | 14 days | By bundle age under `{worker_workspace_host_path}/ci-failures` |
-
-The workspace timestamp is refreshed when a Task is created and again when it finishes or is cancelled, so an Issue in use is not reclaimed. Workspace reclamation goes through a short-lived maintenance container that mounts the workspace root and reads `meta/owner`; the directory is deleted only if that marker still names the Issue and its Worker Profile. The scheduler runs the workspace scan every 6 hours and the archive scan hourly. Scheduler crash recovery cleans up orphan containers from an interrupted run and leaves workspaces alone.
+The worker filesystem layout and the per-Harness state directories are documented in the Worker Runtime chapter.
 
 ## Prompt templates and skills
 
@@ -395,4 +327,4 @@ Both validation errors are explicit: **Select at least one event** and **Select 
 
 **System Announcement** configures a system-wide message shown in the top bar for all authenticated users. **Enable Announcement** controls whether the banner appears; **Announcement Message** is the text, and the hint notes that HTML markup is supported. **Announcement Level** controls the style and color and accepts **Info**, **Warning**, **Error**, or **Success**.
 
-The banner is read through an endpoint available to every authenticated user, so it is a good channel for planned maintenance. Disable it when the message no longer applies, rather than leaving a stale banner in place.
+The banner is read through an endpoint available to every authenticated user. Disable the announcement when the message no longer applies.

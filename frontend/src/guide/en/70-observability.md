@@ -1,9 +1,10 @@
 ---
 title: Observability
 section: User Guide
+tier: deep
 ---
 
-## Dashboard
+## Dashboard {core}
 
 ![Five pages, five questions: pick the one you are asking](assets/diagrams/en/observability-map.svg)
 
@@ -54,7 +55,7 @@ Access to Analytics depends on your role, or on an administrator enabling it for
 
 ## Monitor
 
-**Monitor** is the operational view. Its data is built from the latest visible task sample, global task stats, and the containers currently in the platform's inventory. The header exposes **Live** and **Clear** (to clear activity highlighting), and **Running Now**, **Queue Pressure**, **Active Containers**, and **System Health** appear as live counters.
+**Monitor** is the operational view. It builds its data from the latest visible task sample, global task stats, and the containers currently in the platform's inventory. The header exposes **Live** and **Clear** (to clear activity highlighting), and **Running Now**, **Queue Pressure**, **Active Containers**, and **System Health** appear as live counters.
 
 The page has three tabs:
 
@@ -104,7 +105,7 @@ Clicking a non-empty hour column or a colored heatmap cell opens **Selected Time
 
 **Full Slots** lists hours at capacity, with the note **Slot capacity: {capacity} per hour**; when nothing is full you see the same capacity statement followed by **None full**. Filters include **My Tasks Only**, a **Status** filter, and a search across project, branch, and prompt. Like Monitor, this page may be restricted by role or by configuration.
 
-## Sessions
+## Sessions {core}
 
 **Sessions** lists your dashboard sign-ins so you can review and revoke them. Its description is: "Review your active dashboard sessions, see whether token refresh is available, and revoke sessions you no longer trust."
 

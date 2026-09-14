@@ -50,10 +50,10 @@ flow: {
   style.stroke-width: 0
 
   profile: "Worker Profile\nadmin-configured" { class: accent }
-  snapshot: "Task Snapshot\nfrozen at creation" { class: node }
+  snapshot: "Task snapshot\nfrozen at creation" { class: node }
   bundle: "Runtime Bundle\nresolved by digest" { class: node }
-  edit: "Profile edits\nmade later" { class: node }
-  no_effect: "Created Tasks\nunaffected" { class: node }
+  edit: "Later profile edits\nreach new Tasks only" { class: node }
+  no_effect: "Existing Tasks\nkeep their snapshot" { class: node }
   task: "Task\nactual run" { class: node }
 
   profile -> snapshot

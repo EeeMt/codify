@@ -1,4 +1,4 @@
-# Chapter: guide/en/20-concepts.md — "Issue", "Task and turn", "Delivery artifacts".
+# Chapter: guide/en/20-concepts.md — "Object model".
 # Reader takeaway: an Issue owns one working branch and one Merge Request, its
 # Tasks are its ordered turns committing to that branch, and each Task carries
 # the configuration frozen at creation plus the archive of its own run.
@@ -45,8 +45,8 @@ issue: "Issue\nthe requirement" { class: accent }
 task: "Task\nordered turn 1..N" { class: node }
 branch: "Branch\nall commits here" { class: node }
 mr: "Merge Request\none per Issue" { class: node }
-snapshot: "Task Snapshot\nfrozen at creation" { class: node }
-archive: "Run archive\none per Task" { class: node }
+snapshot: "Task snapshot\nfrozen at creation" { class: node }
+archive: "Runtime Archive\none per Task" { class: node }
 
 issue -> task
 task -> branch

@@ -42,30 +42,32 @@ classes: {
   }
 }
 
+# Five form groups feed the Issue; the middle cell of each row keeps the connections
+# short, and the two invisible fillers hold the bottom row's outer cells so the Task
+# lands under the Issue. No edge carries a label: each group states in its own card
+# whether its values are fixed or editable, which keeps the connectors clear.
 form: {
   label: ""
   grid-rows: 3
   grid-columns: 3
-  grid-gap: 80
+  grid-gap: 24
   style.fill: transparent
   style.stroke-width: 0
 
   project: "Project\nfixed at creation" { class: node }
-  content: "Issue content\neditable later" { class: node }
-  branch: "Branch Strategy\nfixed at creation" { class: node }
-  env: "Execution\nenvironment" { class: node }
+  content: "Issue content\ntitle, description editable" { class: node }
+  branch: "Branch Strategy\nbranch fixed at creation" { class: node }
+  env: "Execution environment\nWorker fixed, provider editable" { class: node }
   issue: "Issue\nstores every value" { class: accent }
-  advanced: "Advanced settings\nclone fixed" { class: node }
-  task: "Task\ninherits + freezes" { class: node }
-  editable: "Editable later\nprovider · repair" { class: node }
-  gap: " " { style.fill: transparent; style.stroke-width: 0 }
+  advanced: "Advanced settings\nclone fixed, MR repair editable" { class: node }
+  gap_a: " " { style.fill: transparent; style.stroke-width: 0 }
+  task: "Task\ninherits and freezes a snapshot" { class: node }
+  gap_b: " " { style.fill: transparent; style.stroke-width: 0 }
 
   project -> issue
   content -> issue
   branch -> issue
-  env -> issue: "Worker fixed"
+  env -> issue
   advanced -> issue
-  env -> editable
-  advanced -> editable
   issue -> task
 }

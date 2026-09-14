@@ -1,6 +1,7 @@
 ---
 title: Quick Start
 section: User Guide
+tier: core
 ---
 
 ## Prerequisites
@@ -8,10 +9,10 @@ section: User Guide
 Most of the setup happens before you log in. As a user you need three things:
 
 - A Codify account with the `platform_user` or `platform_admin` role.
-- A GitLab project the Codify bot account can see and write to. Codify reaches GitLab through a bot account rather than through your own credentials, so the bot must be a member of the project, or the project must be internal or public so the bot can at least see it, and it must be allowed to push a branch and open a Merge Request. Read-only access is not enough: the Task generates the change, then the push and the Merge Request fail. Adding the bot to a project is an administrator or project-owner action.
+- A GitLab project the Codify bot account can see and write to. Codify reaches GitLab through a bot account rather than through your own credentials, so the bot must be a member of the project, or the project must be internal or public so the bot can at least see it. The bot also has to be allowed to push a branch and open a Merge Request; read-only access is not enough, because the Task generates the change and then the push and the Merge Request fail. Adding the bot to a project is an administrator or project-owner action.
 - A Harness that an administrator has enabled for you: **Claude**, **Codex**, **Pi**, or **OpenCode**.
 
-Administrators set all of these up from **Configuration**. If a page reports that no project or Harness is available, your account is not ready yet; ask an administrator, and see the Admin Guide.
+Administrators set all of these up from **Configuration**. If a page reports that no project or Harness is available, the platform is not set up for you yet; ask an administrator, and see the Admin Guide.
 
 > [!tip] **The shortest path:** Create an Issue → create its first Task → watch the event stream → review the commit → append or close from the same Issue. Get this loop working before you move on to administration.
 
@@ -19,11 +20,11 @@ Your sign-in method is decided by whoever runs the platform: a local account, Gi
 
 ## The issue loop
 
-An Issue holds one piece of work and outlives any single run. You create it once, and it owns the workspace, the AI session, and one branch; every run after that is a turn on the same Issue. The Issue page's primary button is **Create Task** while the Issue has no task, and **Append Task** afterwards. An appended turn shares the workspace, session, and branch, so it continues from where the previous turn stopped. Review each turn before deciding what the next one should be; when the result is good, merge the single Merge Request and the Issue closes.
+An Issue holds one piece of work and outlives any single run. You create it once, and it owns the workspace, the AI session, and one branch; every run after that is a turn on the same Issue. The Issue page's primary button is **Create Task** while the Issue has no task, and **Append Task** afterwards, which continues on the same workspace, session, and branch from where the previous turn stopped. Review each turn before deciding what the next one should be; when the result is good, merge the single Merge Request and the Issue closes.
 
-- **Create the Issue once.** Pick the project and branches and write the description; it becomes the default prompt for the Issue's tasks. The workspace, the session, and the branch start here and are not rebuilt.
+- **Create the Issue once.** Pick the project and branches and write the description; it becomes the default prompt for the Issue's tasks. The workspace, session, and branch are created here and reused by every later turn.
 - **Create or append a Task for the next turn.** On the Issue page, choose a Task Mode and priority, then use **Execute Now** or **Schedule**. Codify queues the Task, runs it in an isolated container, and streams events back.
-- **Review the turn.** Open the Task to read the process log, the commit record, the change and token statistics, and the Merge Request link. Steer it while it runs when it drifts, and append a follow-up turn when the work should go further.
+- **Review the turn.** Open the Task to read the process log, the commit record, the change and token statistics, and the Merge Request link. Steer it while it runs if it drifts, and append a follow-up turn when the work should go further.
 - **Finish once.** Every turn commits to the same branch and feeds the same Merge Request; when you are happy with it, merge it and the Issue is done.
 
 ![One Issue, many turns, one Merge Request](assets/diagrams/en/issue-loop.svg)
@@ -40,7 +41,7 @@ A first turn means one Issue and one Task on it. The shortest path from an empty
 
 If the Task ends as **Failed**, the **Error** section of **Task Result** gives you the failure reason and its kind before you retry. A **Retry** reuses the same frozen configuration, so change something only when the cause was the prompt, the configuration, or the environment; a transient failure needs no change.
 
-One turn rarely finishes the work, and the Issue stays open for the rest of it. What normally comes next is another turn on the same Issue: use **Append Task** rather than going back to **Issues** and creating a new one. An appended Task shares the same workspace, AI session, and Git branch, so it continues from where the previous turn stopped, and everything still ends in this Issue's single Merge Request.
+One turn rarely finishes the work, and the Issue stays open for the rest of it. Use **Append Task** rather than going back to **Issues** and creating a new one, so the next turn continues from where the previous one stopped and everything still ends in this Issue's single Merge Request.
 
 ## Navigating the interface
 
@@ -64,7 +65,7 @@ Under **Insights & Operations**:
 
 **Administration** holds Configuration, Access Management, Usage Management, and System Statistics. Those pages are for operators; the Admin Guide covers them.
 
-Analytics, Schedule Overview, and Monitor are shared pages. If your role or the platform policy does not grant them, they are hidden from navigation.
+Analytics, Schedule Overview, and Monitor are shared pages. If your role or the platform policy does not grant access, they are hidden from navigation.
 
 The task detail page is the control surface for a single run: **Current execution**, **Task overview**, **Run instruction**, **Task Process**, **Run Statistics**, and **Task Result**. Open it from the task table, from a task card on the Dashboard board, or from **View Task #{id}** on the Issue page.
 
@@ -74,7 +75,9 @@ The task detail page is the control surface for a single run: **Current executio
 - Creating an Issue chapter: the Issue form field by field. It covers project, content, branch strategy, execution environment, advanced settings, and what happens after creation.
 - Creating a Task chapter: Task Modes, priority, scheduling, run-instruction templates, and Worker and provider selection.
 - Running and Steering chapter: the process log, live steering, follow-up tasks, cancel, retry, and force-finish.
-- Delivery chapter: branches, Merge Requests, change and token statistics, and the run archive.
+- Delivery chapter: branches, Merge Requests, change and token statistics.
+- Delivery Internals chapter: the publish rule, the codes a refused push reports, and everything the run archive holds.
 - Scheduling chapter: queue arbitration, concurrency, the per-issue mutex, slot capacity, and timeouts.
 - Observability chapter: Dashboard, Analytics, Monitor, Schedule Overview, and Sessions.
 - Harness Support chapter: per-Harness differences, steering support, and model protocol pairing.
+- Techniques chapter: managing context across Issues, Tasks, and sessions, mixing the Task Modes, and sharing a branch with Codify.

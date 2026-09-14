@@ -1,6 +1,7 @@
 ---
 title: Harness 支持
 section: User Guide
+tier: deep
 ---
 
 ## 什么是 Harness
@@ -16,7 +17,7 @@ Harness 是执行 Task 的编码代理。Codify 按 key 区分它们：
 
 Worker 按 key 加载适配器 `${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/adapters/${CODIFY_HARNESS_KEY}.sh`，并对每个适配器调用同一组操作：`metadata`、`verify_runtime`、`detect_capabilities`、`prepare_config`、`build_command`、`materialize_skills`、`stream_events`、`normalize_result`、`terminate` 和 `run`。
 
-四者使用同一份契约版本。Harness 契约是 `codify.worker.harness/v2`，事件、结果与命令分别是 `codify.worker.event/v2`、`codify.worker.result/v2` 和 `codify.worker.command/v2`。执行模式只有 `v2_only`，v1 bundle 只能读取历史，不能执行。
+四者使用同一份契约版本。Harness 契约是 `codify.worker.harness/v2`，事件、结果与命令分别是 `codify.worker.event/v2`、`codify.worker.result/v2` 和 `codify.worker.command/v2`。执行模式只有 `v2_only`，v1 bundle 只能读取，不能执行。
 
 CLI 不来自镜像的 `PATH`。适配器从 `CODIFY_HARNESS_CLI_BIN` 或 Kit manifest 中的 `harness_inventory[key].path` 解析可执行文件，两者都没有时以 `<X> CLI is not available from the Worker Kit inventory` 失败。
 
@@ -36,9 +37,9 @@ Worker Profile 用 `harness_runtimes[key].source` 记录每个 Harness 的来源
 
 失败类型是同一份清单：`configuration_error`、`authentication_error`、`rate_limited`、`sandbox_error`、`protocol_error`、`timeout`、`cancelled`、`engine_error`、`crash` 和 `settled_race`。事件词表也共用，包括 `run.started`、`model.resolved`、`message.delta`、`tool.started`、`tool.completed`、`context.compacted`、`usage.updated`、`usage.final`、`harness.completed`、`run.completed`、`delivery.*` 系列与 `diagnostic`。
 
-调度、优先级、需求互斥、时段容量与整条 Git 交付链路也不按 Harness 分支：提交、推送、Merge Request 与交付摘要的产生方式相同，切换 Harness 不会改变其中任何一项，只有 `run_text` 辅助函数存在差异。
+调度、优先级、需求互斥、时段容量与整条 Git 交付链路也不按 Harness 分支：提交、推送、Merge Request 与交付摘要的产生方式相同，只有 `run_text` 辅助函数存在差异。
 
-## 各 Harness 的差异
+## 各 Harness 的差异 {core}
 
 | Harness | 模型协议 | 引导与续接 | 会话续接 | 任务 Skills | 用量事件 | 提交信息与 MR 摘要 | 最大轮次 |
 |---|---|---|---|---|---|---|---|
@@ -66,7 +67,7 @@ Worker Profile 用 `harness_runtimes[key].source` 记录每个 Harness 的来源
 | Pi | `PI_HOME` 落在需求的共享挂载上，即 `/opt/codify-issue-shared/pi-home` 下的 `sessions/` | 复制到 `/home/codify/.pi/agent/skills`，容器不会保留该目录 |
 | OpenCode | `XDG_DATA_HOME` 落在需求的共享挂载上，即 `/opt/codify-issue-shared/opencode-data` | 复制到本次运行的配置目录，并用 `opencode debug skill --pure` 验证可被发现 |
 
-完整的目录布局，以及哪些内容会跨任务保留，见《系统配置》。
+完整的目录布局，以及哪些内容会跨任务保留，见《Worker 运行时》。
 
 ## 模型协议配对
 
@@ -114,7 +115,7 @@ manifest 为每个 Harness 固定了可接受的版本范围：
 
 Kit 构建把 `claude` 固定在 2.1.153、`codex` 固定在 0.146.0、`pi` 固定在 0.84.2、`opencode` 固定在 1.18.19。对 Claude，runner 会在任务使用 Skills 时再检查一次 2.1.33 下限。
 
-## 界面上的可见差异
+## 界面上的可见差异 {core}
 
 - 任务表单的「Harness」选择器列出全部四个 key，并标注可用性与原因。「Harness」属于任务快照，续跑任务必须沿用；要切换必须开新会话。
 - 「实时引导」只在冻结 bundle 声明 `steering` 时出现，目前只有 Pi 的 bundle 声明了它，因此面板只出现在 Pi 任务上；「转向」与「续接指令」按能力分别启用。

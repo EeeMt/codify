@@ -75,6 +75,25 @@ describe('Guide view', () => {
     expect(wrapper.findAll('.guide-nav__chapter')).toHaveLength(chapters.length)
   })
 
+  it('groups the sidebar by reading tier inside each audience section', async () => {
+    const { wrapper } = await mountGuide()
+
+    expect(wrapper.findAll('.guide-nav__tier').map((node) => node.text())).toEqual([
+      'Essentials',
+      'How it works',
+      'Techniques',
+      'Essentials',
+      'How it works',
+    ])
+    expect(wrapper.find('.guide-nav__tier').text()).toBe('Essentials')
+  })
+
+  it('uses the shared Naive UI scrollbar for the sidebar', async () => {
+    const { wrapper } = await mountGuide()
+
+    expect(wrapper.find('.guide-nav__scroll').classes()).toContain('n-scrollbar')
+  })
+
   it('canonicalises an unknown chapter to the first chapter', async () => {
     const { router } = await mountGuide('/guide/does-not-exist')
 

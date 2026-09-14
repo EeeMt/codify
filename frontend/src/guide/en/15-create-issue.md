@@ -1,11 +1,12 @@
 ---
 title: Creating an Issue
+tier: core
 section: User Guide
 ---
 
 ## When you create an issue
 
-An Issue is the container for a piece of work in Codify. Everything else hangs off one: its description becomes the default prompt for the Tasks you run, its branch strategy decides where the change lands, its execution environment decides where it runs, and every Task you launch or append to it belongs to it.
+An Issue is the container for a piece of work in Codify. Its description becomes the default prompt for the Tasks you run, its branch strategy decides where the change lands, and its execution environment decides where it runs. Every Task you launch or append belongs to it.
 
 - **Fixed when you submit:** the project, the starting branch, the merge target, the **Worker** (hint: "Fixed after creation; tasks run on this Worker."), and the repository clone settings. None of them can be changed afterwards.
 - **Still editable later** from the Issue page: the title, the description, the **MR pipeline failure auto-repair** switch, and the **Default AI Provider**.
@@ -20,7 +21,7 @@ Open **Issues** and select **Create Issue**, or go straight to `/issues/create`.
 
 ![Five parts, one Issue: some values fixed, some editable](assets/diagrams/en/create-issue-form.svg)
 
-Each table lists the fields of one form group. **Default** is what a freshly opened form contains. **Applies to** states whether the value is stored on the Issue or belongs to a single Task; in this form, always the Issue.
+Each table lists the fields of one form group. **Default** is what a freshly opened form contains. **Applies to** states whether the value is stored on the Issue or belongs to a single Task; in this form it is always the Issue.
 
 ### Project
 
@@ -55,7 +56,7 @@ The section carries the hint "Worker is required and fixed for this issue; AI Pr
 
 ### Advanced settings
 
-The whole section is a collapsed disclosure, closed by default. Its summary always shows the current state, so an unusual configuration is visible without opening it: **Repository clone:** with **Full clone** or **Shallow · depth {depth}**, **File contents:** with **On demand** when deferral is on, **Branch cleanup:** with **Auto-delete** or **Keep branch**, and **MR pipeline auto-repair:** with **On**, **Off**, **Checking**, or **Unavailable**.
+The whole section is a disclosure, closed by default. Its summary always shows the current state, so an unusual configuration is visible without opening it: **Repository clone:** with **Full clone** or **Shallow · depth {depth}**, **File contents:** with **On demand** when deferral is on, **Branch cleanup:** with **Auto-delete** or **Keep branch**, and **MR pipeline auto-repair:** with **On**, **Off**, **Checking**, or **Unavailable**.
 
 **Repository preparation** holds the clone controls:
 
@@ -100,6 +101,10 @@ The branch panel previews the whole flow before you submit:
 The switch is disabled until a project is chosen, because the branch list and the default branch used to prefill both fields come from the project.
 
 Choose **Shallow clone** with **History depth** when a large repository makes startup slow and the work does not need deep history. **Defer historical file contents** helps when the repository is large mostly because of old file contents and the tasks touch only a small part of it; file contents are then downloaded only when a task needs them.
+
+### Starting from another Issue's branch {tips}
+
+The picker lists every branch in the project, so another Issue's `codify/issue-{id}` can go into **Starting Branch**, and the new Issue's branch is created from that tip. Only commits come across; the workspace and the session do not follow, and the source branch has to still exist when the new Issue's first Task runs. The Techniques chapter covers the failure modes and what to set **Merge Target** to.
 
 ## After creation
 

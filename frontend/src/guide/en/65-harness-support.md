@@ -1,6 +1,7 @@
 ---
 title: Harness Support
 section: User Guide
+tier: deep
 ---
 
 ## What a Harness is
@@ -16,11 +17,11 @@ A Harness is the coding agent that runs a Task. Codify identifies each one by ke
 
 The worker loads one adapter per key from `${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/adapters/${CODIFY_HARNESS_KEY}.sh` and calls the same operations on every one of them: `metadata`, `verify_runtime`, `detect_capabilities`, `prepare_config`, `build_command`, `materialize_skills`, `stream_events`, `normalize_result`, `terminate`, and `run`.
 
-All four speak one contract version. `codify.worker.harness/v2` covers the Harness itself, and `codify.worker.event/v2`, `codify.worker.result/v2`, and `codify.worker.command/v2` cover events, results, and commands. Execution is `v2_only`, so a v1 bundle is history you can read but not run.
+All four speak one contract version. `codify.worker.harness/v2` covers the Harness itself, and `codify.worker.event/v2`, `codify.worker.result/v2`, and `codify.worker.command/v2` cover events, results, and commands. Execution is `v2_only`, so a v1 bundle can be read but not run.
 
 The CLI never comes from the image `PATH`. The adapter resolves it from `CODIFY_HARNESS_CLI_BIN`, or from `harness_inventory[key].path` in the Kit manifest, and fails with `<X> CLI is not available from the Worker Kit inventory` when neither source supplies it.
 
-A Worker Profile records where each Harness comes from in `harness_runtimes[key].source`, which is `worker_kit` or `host_mount`. A host mount needs an absolute `executable_path` and can pin `version` and `binary_digest`; its `contract_version` must equal `codify.worker.harness/v2`. Codex is the Harness documented as arriving this way, as a host binary mounted read-only, and the offline bundle writes the format as `harness_key | host_path | container_path | version | sha256`. The Kit is mounted at `/opt/codify-kit` and its store at `/nix/store`, both read-only.
+A Worker Profile records where each Harness comes from in `harness_runtimes[key].source`, which is `worker_kit` or `host_mount`. A host mount needs an absolute `executable_path` and can pin `version` and `binary_digest`; its `contract_version` must equal `codify.worker.harness/v2`. Codex is the Harness documented to arrive this way: a host binary mounted read-only. The offline bundle writes the format as `harness_key | host_path | container_path | version | sha256`. The Kit is mounted at `/opt/codify-kit` and its store at `/nix/store`, both read-only.
 
 ## What every Harness shares
 
@@ -34,11 +35,11 @@ The authoritative usage event is `usage.final`, the same for all four, and it wr
 
 Timeout policy is shared as well: configure 60 to 28800 seconds, the peak or off-peak tier is fixed when the task enters RUNNING, and every adapter runs the CLI under an outer `timeout ${TASK_TIMEOUT:-1800}`.
 
-Failure kinds are one list for all four: `configuration_error`, `authentication_error`, `rate_limited`, `sandbox_error`, `protocol_error`, `timeout`, `cancelled`, `engine_error`, `crash`, and `settled_race`. The event vocabulary is shared as well, and includes `run.started`, `model.resolved`, `message.delta`, `tool.started`, `tool.completed`, `context.compacted`, `usage.updated`, `usage.final`, `harness.completed`, `run.completed`, the `delivery.*` family, and `diagnostic`.
+Failure kinds are one list for all four: `configuration_error`, `authentication_error`, `rate_limited`, `sandbox_error`, `protocol_error`, `timeout`, `cancelled`, `engine_error`, `crash`, and `settled_race`. Events use one shared vocabulary, which includes `run.started`, `model.resolved`, `message.delta`, `tool.started`, `tool.completed`, `context.compacted`, `usage.updated`, `usage.final`, `harness.completed`, `run.completed`, the `delivery.*` family, and `diagnostic`.
 
-Scheduling, priority, the Issue mutex, slot capacity, and the Git delivery path are identical too. Commit, push, Merge Request, and the delivery summary are produced the same way, and switching Harness changes none of this; only the `run_text` helper differs per Harness.
+Scheduling, priority, the Issue mutex, slot capacity, and the Git delivery path are identical; commit, push, Merge Request, and the delivery summary are produced the same way. Only the `run_text` helper differs per Harness.
 
-## Where the Harnesses differ
+## Where the Harnesses differ {core}
 
 | Harness | Model protocols | Steering and follow-up | Session resume | Task skills | Token usage events | Commit message and MR summary | Max turns |
 |---|---|---|---|---|---|---|---|
@@ -50,7 +51,7 @@ Scheduling, priority, the Issue mutex, slot capacity, and the Git delivery path 
 All four keys allow subagents, and a frozen bundle only enables them when it declares the capability.
 
 - Steering and follow-up are Pi-only. The control gate follows `capabilities.steering` from the frozen bundle, so Claude, Codex, and OpenCode start with the gate disabled and their **Steer** and **Follow-up** controls stay disabled.
-- OpenCode also rejects a command that reaches its bridge anyway, deterministically, with `control_gate_closed`.
+- If a command reaches OpenCode's bridge anyway, the bridge rejects it deterministically with `control_gate_closed`.
 - A model-written commit message or MR summary exists only on Claude. Codex ships a `run_text` helper that returns nonzero by design, Pi and OpenCode export no helper at all, so those runs write a fixed fallback commit message and keep the previous MR summary.
 
 > [!warning] **Max Turns only constrains Claude**: the value reaches the CLI as `CLAUDE_MAX_TURNS`, and no other adapter reads it.
@@ -66,7 +67,7 @@ Each Harness keeps its session state in its own directory, so a session id only 
 | Pi | `PI_HOME` on the Issue's shared mount, `/opt/codify-issue-shared/pi-home`, under `sessions/` | copied into `/home/codify/.pi/agent/skills`, which the container does not keep |
 | OpenCode | `XDG_DATA_HOME` on the Issue's shared mount, `/opt/codify-issue-shared/opencode-data` | copied into the per-run config directory, then verified with `opencode debug skill --pure` |
 
-The Admin Configuration chapter lists the full directory map and which parts survive a run.
+The Worker Runtime chapter lists the full directory map and which parts survive a run.
 
 ## Model protocol pairing
 
@@ -114,7 +115,7 @@ The manifest pins an accepted version range per Harness:
 
 The Kit build pins `claude` at 2.1.153, `codex` at 0.146.0, `pi` at 0.84.2, and `opencode` at 1.18.19. For Claude, the runner also checks the 2.1.33 floor when a task uses skills.
 
-## What changes in the interface
+## What changes in the interface {core}
 
 - The **Harness** selector on the task form lists all four keys with their availability and reason. **Harness** is part of the task snapshot, so a Continue task must reuse it and switching requires a new session.
 - **Live steering** appears only when the frozen bundle declares `steering`, and only Pi's bundle does, so the panel shows up on Pi tasks. Its **Steer** and **Follow-up** controls are enabled per capability.

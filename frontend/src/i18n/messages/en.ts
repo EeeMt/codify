@@ -68,6 +68,11 @@ const en = {
     sections: {
       user: 'User Guide',
       admin: 'Admin Guide'
+    },
+    tiers: {
+      core: 'Essentials',
+      deep: 'How it works',
+      tips: 'Techniques'
     }
   },
   systemStatistics: {

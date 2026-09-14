@@ -29,22 +29,26 @@ classes: {
   }
 }
 
+# 三行三列：第一行是执行与观察、引导它的两个面板，第二行正中是运行结果，第三行
+# 是针对结果可选的三种操作。结果节点居中之后，它发出的三条箭头都短，也不会压到
+# 旁边的卡片；两个透明占位节点托住第二行两侧，于是结果正好落在「实时引导」下方。
 flow: {
   label: ""
-  grid-rows: 2
-  grid-columns: 4
+  grid-rows: 3
+  grid-columns: 3
   grid-gap: 42
   style.fill: transparent
   style.stroke-width: 0
 
   run: "执行任务\nWorker 容器" { class: accent }
-  observe: "观察运行\n事件流 + 原始日志" { class: node }
-  guide: "实时引导\n转向 / 续接指令" { class: node }
+  observe: "观察运行\n事件流、原始日志" { class: node }
+  guide: "实时引导\n转向、续接指令" { class: node }
+  gap_a: " " { style.fill: transparent; style.stroke-width: 0 }
   finish: "任务结束\n已完成 / 失败 / 已取消" { class: node }
-  append: "继续推进\n追加后续任务" { class: node }
+  gap_b: " " { style.fill: transparent; style.stroke-width: 0 }
+  append: "继续推进\n追加任务" { class: node }
   retry: "恢复执行\n重试任务" { class: node }
   archive: "保留证据\n运行归档" { class: node }
-  gap: " " { style.fill: transparent; style.stroke-width: 0 }
 
   run -> observe
   observe -> guide

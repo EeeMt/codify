@@ -1,8 +1,8 @@
 # Chapter: guide/en/10-quick-start.md — "The issue loop".
 # Reader takeaway: creating the Issue happens once and everything after it is a
-# repeated turn on that same Issue — create or append a Task, let the turn run,
-# review the result, then either start the next turn or take the single Merge
-# Request that closes the Issue.
+# repeated turn on that same Issue — create or append a Task, let the turn run in an
+# isolated container, review the result, then either start the next turn or merge the
+# single Merge Request that closes the Issue.
 # Render: d2 issue-loop.d2 issue-loop.svg --pad 36 --theme 0 --layout elk, then set
 # width and height on the root <svg> to the viewBox size so the asset also renders
 # 1:1 outside the guide's <img>.
@@ -42,31 +42,30 @@ classes: {
   }
 }
 
-# The empty cells are invisible fillers: they hold the "Review" row in place so
-# the loop-back edge to the next turn is a short vertical arrow, and the terminal
-# pair sits to its right.
+# Three rows of three cells keep the canvas close to the width the guide's figure box
+# renders at, so the 14px labels lose almost nothing when the SVG is scaled down. The
+# two invisible fillers hold the first column of the lower rows open, so `continue_turn`
+# sits directly under `task` (a short vertical arrow back into the loop) and the
+# closing pair shares the last row.
 loop: {
   label: ""
   grid-rows: 3
-  grid-columns: 4
+  grid-columns: 3
   grid-gap: 48
   style.fill: transparent
   style.stroke-width: 0
 
   # Decision words live inside the branch cards instead of on edges. This keeps
   # arrows clear and prevents labels from sitting on card borders.
-  issue: "Create the Issue\nonce; workspace + branch" { class: accent }
-  task: "Create or append\nTask; shared context" { class: node }
-  run: "Run the turn\nin an isolated Worker" { class: node }
-  review: "Review the result\nchoose what is next" { class: node }
+  issue: "Create the Issue once\nworkspace, session, branch" { class: accent }
+  task: "Create or append a Task\nfor the next turn" { class: node }
+  run: "Run the turn\nin an isolated container" { class: node }
   gap_a: " " { style.fill: transparent; style.stroke-width: 0 }
   continue_turn: "Continue the loop\nappend a Task" { class: accent }
+  review: "Review the result\nnext turn or MR" { class: node }
   gap_b: " " { style.fill: transparent; style.stroke-width: 0 }
   mr: "When satisfied\nmerge the one MR" { class: node }
-  gap_c: " " { style.fill: transparent; style.stroke-width: 0 }
-  gap_d: " " { style.fill: transparent; style.stroke-width: 0 }
-  gap_e: " " { style.fill: transparent; style.stroke-width: 0 }
-  closed: "Issue closes\nwork is complete" { class: node }
+  closed: "Issue closes\nMR merged" { class: node }
 
   issue -> task
   task -> run
