@@ -1,6 +1,8 @@
-"""Mock services server — GitLab API + Git HTTP backend + Anthropic API stub.
+"""Mock services server — GitLab API + Git HTTP backend.
 
-A single FastAPI app that replaces all external dependencies for integration testing.
+A single FastAPI app that replaces the GitLab dependency for integration testing.
+The harness itself is faked by ``fake_claude/fake-claude-binary``, not by a model
+HTTP stub in this process.
 Runs in a Docker container within the test compose network.
 """
 

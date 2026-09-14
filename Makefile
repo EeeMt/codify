@@ -273,28 +273,28 @@ test-mock-integration-logs: ## View mock integration test logs
 	docker-compose -f $(MOCK_INT_COMPOSE) logs -f
 
 .PHONY: test-mock-integration
-*276|test-mock-integration: test-mock-integration-build ## Run mock integration tests (build + start + test, sequential)
+test-mock-integration: test-mock-integration-build ## Run mock integration tests (build + start + test, sequential)
 	$(MOCK_STACK_SCRIPT) $(_MOCK_COMMON) -d || \
 		{ docker-compose -f $(MOCK_INT_COMPOSE) logs; false; }
 
 # --- Three-stack parallel mock integration tests ---
 # Test file counts: remaining_endpoints(25), health_access_sse(25), notifications_and_operations(17),
-# mutex_and_scheduling(15), system_apis(14), admin_and_templates(13), validation_and_dedup(12),
-# security_and_resilience(12), entrypoint_paths(12), edge_cases_advanced(12), api_endpoints(12),
-# mr_followup_and_env(11), entrypoint(11), failure_injection(10), webhook_and_lifecycle(7),
-# gap_analysis(7), edge_cases(7), advanced(6), happy_path(4), coverage_gaps(4), additional(4),
+# mutex_and_scheduling(15), system_apis(14), admin_and_templates(13), failure_injection(13),
+# validation_and_dedup(12), security_and_resilience(12), entrypoint_paths(12), edge_cases_advanced(12),
+# api_endpoints(12), entrypoint(12), mr_followup_and_env(11), webhook_and_lifecycle(7),
+# gap_analysis(7), edge_cases(6), advanced(6), happy_path(4), coverage_gaps(4), additional(4),
 # failure_paths(3), scheduling(2)
 
-# Group A: 82 tests
+# Group A: 79 tests
 MOCK_GROUP_A := test_remaining_endpoints.py test_entrypoint_paths.py \
 	test_api_endpoints.py test_failure_injection.py test_happy_path.py \
 	test_additional.py test_coverage_gaps.py test_failure_paths.py \
 	test_scheduling.py
-# Group B: 82 tests
+# Group B: 80 tests
 MOCK_GROUP_B := test_health_access_sse.py test_mutex_and_scheduling.py \
 	test_system_apis.py test_edge_cases.py test_webhook_and_lifecycle.py \
 	test_gap_analysis.py test_advanced.py
-# Group C: 81 tests
+# Group C: 89 tests
 MOCK_GROUP_C := test_notifications_and_operations.py test_admin_and_templates.py \
 	test_validation_and_dedup.py test_security_and_resilience.py \
 	test_edge_cases_advanced.py test_mr_followup_and_env.py \
@@ -465,7 +465,7 @@ test-e2e: test-e2e-up ## Run ALL E2E tests: UI parallel + UI serial + GitLab [RE
 	[ $$_ok -eq 3 ]
 
 .PHONY: test-e2e-parallel
-test-e2e-parallel: ## Run parallel E2E tests only (116 tests, ~44s) [RECORD_VIDEO=1 for video]
+test-e2e-parallel: ## Run parallel E2E tests only (292 tests) [RECORD_VIDEO=1 for video]
 	$(_E2E_PRE) $(_E2E_RUN) pytest tests/e2e/tests/ -m "not serial" $(_E2E_POST)
 
 .PHONY: test-e2e-serial
@@ -592,7 +592,7 @@ help:
 	@echo "  make test-e2e RECORD_VIDEO=1               Run ALL E2E with video recording"
 	@echo "  make test-e2e-ui                     Run Playwright UI tests only (parallel + serial)"
 	@echo "  make test-e2e-gitlab                 Run GitLab integration tests only"
-	@echo "  make test-e2e-parallel               Run parallel Playwright tests only (~44s)"
+	@echo "  make test-e2e-parallel               Run parallel Playwright tests only (292 tests)"
 	@echo "  make test-e2e-serial                 Run serial Playwright tests only (~42s)"
 	@echo "  make test-e2e-specific TEST_FILE=..  Run specific test file"
 	@echo "  make test-e2e-up                     Start E2E environment"

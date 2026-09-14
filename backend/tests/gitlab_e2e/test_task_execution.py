@@ -146,7 +146,7 @@ def _get_be_session() -> requests.Session:
         pytest.skip(
             f"Backend login failed ({resp.status_code}). "
             f"For API tests, run against the E2E environment: "
-            f"BACKEND_URL=http://192.168.50.129:18980 make test-gitlab-e2e"
+            f"BACKEND_URL=http://192.168.50.129:18980 make test-e2e-gitlab"
         )
 
     log.info(f"Authenticated as {_TEST_USERNAME!r} at {BACKEND_URL}")

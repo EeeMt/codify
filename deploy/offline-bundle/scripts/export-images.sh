@@ -23,8 +23,8 @@ mkdir -p "$(dirname "${ARCHIVE}")"
 echo "Exporting images to ${ARCHIVE}..."
 docker save "${IMAGES[@]}" | gzip -1 > "${ARCHIVE}"
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "${ARCHIVE}" > "${ROOT_DIR}/images/SHA256SUMS"
+  (cd "$(dirname "${ARCHIVE}")" && sha256sum "$(basename "${ARCHIVE}")") > "${ROOT_DIR}/images/SHA256SUMS"
 else
-  shasum -a 256 "${ARCHIVE}" > "${ROOT_DIR}/images/SHA256SUMS"
+  (cd "$(dirname "${ARCHIVE}")" && shasum -a 256 "$(basename "${ARCHIVE}")") > "${ROOT_DIR}/images/SHA256SUMS"
 fi
 echo "Done."

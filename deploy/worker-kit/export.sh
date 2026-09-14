@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VERSION="${WORKER_KIT_VERSION:-0.4.0}"
+VERSION="${WORKER_KIT_VERSION:-0.6.17}"   # keep in step with ARG WORKER_KIT_VERSION in deploy/Dockerfile.worker-kit
 PLATFORM="${WORKER_KIT_PLATFORM:-linux/amd64}"
 ARCH="${PLATFORM#linux/}"
 SELECTION="${WORKER_KIT_CLI_SELECTION:-pi,opencode}"

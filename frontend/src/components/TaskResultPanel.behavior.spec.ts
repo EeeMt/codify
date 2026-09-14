@@ -37,6 +37,18 @@ const messages: Record<string, string> = {
   'taskView.gitDeliveryFailed': 'Delivery failed — not confirmed',
   'taskView.gitDeliveryShowAll': 'Show all',
   'taskView.gitDeliveryCollapse': 'Collapse',
+  // Mirrors the labels in frontend/src/i18n/messages/en.ts, which the panel must
+  // resolve for every failure kind the backend can report.
+  'taskView.failureTimeout': 'Timeout',
+  'taskView.failureProtocolError': 'Protocol error',
+  'taskView.failureCancelled': 'Cancelled',
+  'taskView.failureConfigurationError': 'Configuration error',
+  'taskView.failureAuth': 'Authentication failed',
+  'taskView.failureRateLimit': 'Rate limited',
+  'taskView.failureSandbox': 'Sandbox failure',
+  'taskView.failureEngineError': 'Harness error',
+  'taskView.failureCrash': 'Harness crashed',
+  'taskView.failureSettledRace': 'Run settled twice',
 }
 
 vi.mock('vue-i18n', () => ({
@@ -521,5 +533,37 @@ describe('TaskResultPanel git delivery', () => {
     expect(text).toContain('legacy summary commit')
     expect(text).toContain('+12')
     expect(text).toContain('-3')
+  })
+})
+
+describe('TaskResultPanel failure kind chips', () => {
+  // One row per member of FailureKind in backend/app/core/harness_protocol.py.
+  const kinds: Array<[string, string]> = [
+    ['timeout', 'Timeout'],
+    ['protocol_error', 'Protocol error'],
+    ['cancelled', 'Cancelled'],
+    ['configuration_error', 'Configuration error'],
+    ['authentication_error', 'Authentication failed'],
+    ['rate_limited', 'Rate limited'],
+    ['sandbox_error', 'Sandbox failure'],
+    ['engine_error', 'Harness error'],
+    ['crash', 'Harness crashed'],
+    ['settled_race', 'Run settled twice'],
+  ]
+
+  it.each(kinds)('renders the translated label for %s', (kind, label) => {
+    const wrapper = mount(TaskResultPanel, {
+      props: { task: createMockTask({ id: 7, status: 'failed', failure_kind: kind }) },
+    })
+
+    expect(wrapper.get('.error-kind-chip').text()).toBe(label)
+  })
+
+  it('falls back to the raw kind for one the panel does not know', () => {
+    const wrapper = mount(TaskResultPanel, {
+      props: { task: createMockTask({ id: 7, status: 'failed', failure_kind: 'future_kind' }) },
+    })
+
+    expect(wrapper.get('.error-kind-chip').text()).toBe('future_kind')
   })
 })

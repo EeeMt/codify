@@ -435,10 +435,13 @@ const failureKindLabel = computed(() => {
     timeout: t('taskView.failureTimeout'),
     protocol_error: t('taskView.failureProtocolError'),
     cancelled: t('taskView.failureCancelled'),
-    auth: t('taskView.failureAuth'),
-    rate_limit: t('taskView.failureRateLimit'),
-    sandbox: t('taskView.failureSandbox'),
+    configuration_error: t('taskView.failureConfigurationError'),
+    authentication_error: t('taskView.failureAuth'),
+    rate_limited: t('taskView.failureRateLimit'),
+    sandbox_error: t('taskView.failureSandbox'),
     engine_error: t('taskView.failureEngineError'),
+    crash: t('taskView.failureCrash'),
+    settled_race: t('taskView.failureSettledRace'),
   }
   return labels[props.task.failure_kind] || props.task.failure_kind
 })

@@ -46,10 +46,14 @@ TIER2=0
 
 WORK="$(mktemp -d)"
 COOKIE="$(mktemp)"
-ORIG_TIMEOUT=""          # saved task_timeout override, restored via restore_timeout()
-TIMEOUT_CHANGED=0        # set once task_timeout has been mutated; cleared only on verified restore
+ORIG_TIMEOUT_JSON=""     # effective timeouts captured before tier 2 mutates them
+TIMEOUT_CHANGED=0        # set only after a successful PATCH, so the trap never restores unmodified config
 cleanup() {
-  restore_timeout >/dev/null 2>&1 || true   # last-chance restore even if tier2's restore failed
+  # Only put the timeouts back when this run actually changed them: the trap also fires
+  # for tier 1 runs and for failures before tier 2, which must not touch runtime config.
+  if [ "$TIMEOUT_CHANGED" = "1" ]; then
+    restore_timeout >/dev/null 2>&1 || true
+  fi
   rm -f "$COOKIE"; rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -57,17 +61,19 @@ trap cleanup EXIT
 # Build a JSON body safely (jq escapes every interpolated value).
 json_build() { jq -nc "$@"; }
 
-# Restore task_timeout to its pre-test value; disarm the safety net only on a verified success.
+# Put the timeouts back after tier 2 changed them.
+#
+# The API reports effective values only, not which keys are persisted overrides, so this
+# PATCHes the captured values back instead of deleting the keys: a DELETE would silently
+# drop an override an administrator had set before the run. Callers only reach this after
+# a successful PATCH, so an unset ORIG_TIMEOUT_JSON means there is nothing to restore.
 restore_timeout() {
   local code
-  if [ -n "$ORIG_TIMEOUT" ]; then
-    api PATCH /api/config/runtime "$(json_build --argjson t "$ORIG_TIMEOUT" '{task_timeout:$t}')"
-  else
-    api DELETE /api/config/runtime/task_timeout
-  fi
+  [ -n "$ORIG_TIMEOUT_JSON" ] || return 1
+  api PATCH /api/config/runtime "$ORIG_TIMEOUT_JSON"
   code="$HTTP_CODE"
   if [ "$code" = "200" ]; then
-    ORIG_TIMEOUT=""; TIMEOUT_CHANGED=0
+    ORIG_TIMEOUT_JSON=""; TIMEOUT_CHANGED=0
     return 0
   fi
   return 1   # keep the safety net armed; the EXIT trap retries on exit
@@ -309,18 +315,19 @@ tier2_cancel() {
 }
 
 tier2_timeout_retry() {
-  log "== T2-3: timeout (task_timeout=60) then retry (bundle freeze) =="
+  log "== T2-3: timeout (peak + off-peak 60s) then retry (bundle freeze) =="
   api GET /api/config/runtime
   [ "$HTTP_CODE" = "200" ] || die "GET /config/runtime failed (HTTP $HTTP_CODE)"
-  ORIG_TIMEOUT="$(echo "$BODY" | jq -r '.task_timeout // ""')"
-  TIMEOUT_CHANGED=1
-  api PATCH /api/config/runtime '{"task_timeout":60}'
+  # Both tiers, so the cap applies whatever tier the run starts under.
+  ORIG_TIMEOUT_JSON="$(echo "$BODY" | jq -c '{task_timeout_peak_seconds, task_timeout_off_peak_seconds}')"
+  api PATCH /api/config/runtime '{"task_timeout_peak_seconds":60,"task_timeout_off_peak_seconds":60}'
   if [ "$HTTP_CODE" != "200" ]; then
-    fail "timeout: PATCH task_timeout=60 failed (HTTP $HTTP_CODE): $BODY"
-    restore_timeout || true
+    fail "timeout: PATCH timeouts=60 failed (HTTP $HTTP_CODE): $BODY"
+    ORIG_TIMEOUT_JSON=""   # nothing changed, so there is nothing for the trap to restore
     return
   fi
-  ok "timeout: set task_timeout=60"
+  TIMEOUT_CHANGED=1
+  ok "timeout: set peak and off-peak timeout to 60s"
 
   create_task codex fresh "$P_CODEX" "$PROMPT_SLOW"
   local id="$TASK_ID"
@@ -336,10 +343,10 @@ tier2_timeout_retry() {
     fail "timeout: expected failed(timeout), got status=$st"
   fi
 
-  # Restore timeout before retry so the retried task is not subject to the 60s cap.
+  # Restore the timeouts before the retry so the retried task is not subject to the 60s cap.
   # On failure the EXIT trap retries; do not proceed to retry under a 60s cap.
   if restore_timeout; then
-    ok "timeout: restored task_timeout"
+    ok "timeout: restored task timeouts"
   else
     fail "timeout: restore failed (HTTP $HTTP_CODE) — EXIT trap will retry; skipping retry"
     return
