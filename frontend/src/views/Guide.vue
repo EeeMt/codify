@@ -87,8 +87,12 @@
                           :href="`#${heading.id}`"
                           @click.prevent="revealHeading(heading.id)"
                         >
-                          <span v-if="heading.tier" class="guide-nav__heading-tier" :data-guide-tier="heading.tier" />
-                          {{ heading.text }}
+                          <span
+                            class="guide-nav__heading-tier"
+                            :data-guide-tier="heading.tier ?? undefined"
+                            aria-hidden="true"
+                          />
+                          <span class="guide-nav__heading-text">{{ heading.text }}</span>
                         </a>
                       </li>
                     </ul>
@@ -1084,6 +1088,12 @@ watch(
 }
 
 .guide-nav__heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  /* The dot band hangs into the list's left padding instead of pushing the text
+     right: the row shifts back by the same amount it spends on the dot. */
+  margin-left: -10px;
   padding: 4px 7px;
   border-radius: 6px;
   color: rgba(19, 35, 63, 0.55);
@@ -1099,23 +1109,32 @@ watch(
   color: rgba(19, 35, 63, 0.44);
 }
 
-/* The tier dot on a table-of-contents entry mirrors the chip on the heading. */
+/* The tier dot sits in a fixed gutter, so every entry's text starts at the same
+   x whether or not the heading carries a tier; the dot only colours in for a
+   marked heading. 5px centres the 6px dot on the first line box (11.5px x 1.4). */
 .guide-nav__heading-tier {
-  display: inline-block;
+  flex: 0 0 6px;
   width: 6px;
   height: 6px;
-  margin-right: 5px;
+  margin-top: 5px;
   border-radius: 999px;
-  background: rgba(19, 35, 63, 0.26);
-  vertical-align: middle;
+  background: transparent;
 }
 
 .guide-nav__heading-tier[data-guide-tier='core'] {
   background: var(--guide-blue);
 }
 
+.guide-nav__heading-tier[data-guide-tier='deep'] {
+  background: #64748b;
+}
+
 .guide-nav__heading-tier[data-guide-tier='tips'] {
   background: #c2801a;
+}
+
+.guide-nav__heading-text {
+  min-width: 0;
 }
 
 .guide-content {

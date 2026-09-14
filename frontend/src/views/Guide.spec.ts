@@ -113,6 +113,18 @@ describe('Guide view', () => {
     expect(tocIds).toEqual(anchorIds)
   })
 
+  it('gives every table-of-contents entry a tier slot and marks the tiered ones', async () => {
+    const { wrapper } = await mountGuide('/guide/30-create-task')
+
+    const entries = wrapper.findAll('.guide-nav__heading')
+    // The slot is always rendered so every entry's text starts at the same x;
+    // only a heading that carries a tier marker fills it in.
+    expect(wrapper.findAll('.guide-nav__heading-tier')).toHaveLength(entries.length)
+    expect(
+      wrapper.findAll('.guide-nav__heading-tier[data-guide-tier]').map((node) => node.attributes('data-guide-tier')),
+    ).toEqual(['tips'])
+  })
+
   it('navigates to another chapter from the sidebar', async () => {
     const { wrapper, router } = await mountGuide()
     const target = guideChapters('en')[1]
