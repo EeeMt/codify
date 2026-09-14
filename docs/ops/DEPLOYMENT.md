@@ -57,7 +57,7 @@ compose 里还定义了第五个服务 `migrate`，它挂在 `maintenance` profi
 
 #### 应用安全
 
-- `SESSION_SECRET`：会话令牌签名密钥。`deploy/.env.example` 与 `deploy/offline-bundle/config/.env.offline.example` 都已带这一项；`deploy/.env.test` 仍然只有 `SECRET_KEY`，而 `SECRET_KEY` 在代码里只有一个默认值、没有任何读取点，所以以 `.env.test` 为底复制正式环境文件时，要把它换成 `SESSION_SECRET`
+- `SESSION_SECRET`：会话令牌签名密钥。三份模板（`deploy/.env.example`、`deploy/.env.test`、`deploy/offline-bundle/config/.env.offline.example`）都带这一项；代码里没有 `SECRET_KEY` 设置，环境里残留的同名变量不生效
 - `CONFIG_ENCRYPTION_KEY`：加密写入 `system_config` 的敏感值。留空时回退到 `SESSION_SECRET`，两者都停留在默认值时保存密钥类配置会失败
 
 #### 调度与 Worker

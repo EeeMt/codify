@@ -133,7 +133,6 @@ class Settings(BaseSettings):
     custom_ca_bundle: str | None = Field(default=None)
 
     # Application Configuration
-    secret_key: str = Field(default="change-me-in-production")
     session_secret: str = Field(default="change-me-in-production")
     config_encryption_key: str = Field(default="")
     log_level: str = Field(default="INFO")

@@ -13,7 +13,6 @@
 - 每个请求的开始、结束（或异常）各写一条日志，都带同一个 Trace ID
 - 响应头固定返回 `X-Trace-ID`，错误响应体里也带 `trace_id`
 - 前端不生成也不回传 Trace ID：`frontend/src/api/client.ts` 只把错误响应体里的 `trace_id` 挂到 `error.apiError.traceId`，由各页面自行展示
-- `frontend/src/api/interceptors.ts` 里另有一套保存并回传 Trace ID 的拦截器，但没有任何模块使用它创建的实例，引用它的 `ErrorToast.vue`（`showError` 无调用方）与 `TraceBadge.vue`（无人 import）也都没有渲染
 
 要定位某一次具体请求，用那次响应或错误响应体返回的值；后端不校验请求头的格式，任何客户端
 都可以自带任意值，服务端日志因此可能被伪造的 ID 误导。
@@ -200,91 +199,30 @@ async def create_task(request: Request, task_data: TaskCreate):
 
 ## 前端实现
 
-### 2.1 API 拦截器
-
-`frontend/src/api/interceptors.ts` 提供 axios 实例与两个取值函数。拦截器的关键部分：
+前端不生成、也不回传 Trace ID。应用里的请求都走 `frontend/src/api/client.ts` 的 axios 实例，
+它只做两件事：401 且未显式跳过时跳到登录页，其余错误把响应体里的 `trace_id` 挂到 `error.apiError`。
 
 ```typescript
-let lastTraceId = ''
-
-api.interceptors.request.use((config) => {
-  // 把上一次的 Trace ID 传下去
-  if (lastTraceId) {
-    config.headers['X-Trace-ID'] = lastTraceId
-  }
-  return config
-})
+export const api = axios.create({ baseURL: '/api', timeout: 30000, withCredentials: true })
 
 api.interceptors.response.use(
-  (response: AxiosResponse) => {
-    const traceId = response.headers['x-trace-id']
-    if (traceId) {
-      lastTraceId = traceId
-      window.__lastTraceId = traceId
+  (response) => response,
+  (error) => {
+    // 401 且未带 X-Skip-Auth-Redirect 时 window.location.assign('/login?next=…&reason=…')
+    error.apiError = {
+      status: error?.response?.status ?? 0,
+      message: error?.message ?? 'Unknown error',
+      traceId: error?.response?.data?.trace_id,
+      detail: typeof error?.response?.data?.detail === 'string' ? error.response.data.detail : undefined,
     }
-    return response
-  },
-  async (error: AxiosError) => {
-    const errorData = error.response?.data as Record<string, unknown> | undefined
-    const traceId =
-      error.response?.headers?.['x-trace-id'] ||
-      errorData?.trace_id ||
-      lastTraceId ||
-      'unknown'
-
-    window.__lastTraceId = traceId
-    window.__lastError = {
-      message: (typeof errorData?.error === 'string' ? errorData.error : undefined) || error.message,
-      traceId,
-      timestamp: new Date().toISOString(),
-      status: error.response?.status,
-    }
-
-    return Promise.reject({ ...error, traceId, trace_id: traceId })
+    return Promise.reject(error)
   }
 )
-
-export { api }
-export function getLastTraceId(): string { return lastTraceId }
-export function getLastError(): { message: string; traceId: string; timestamp: string; status?: number } | null {
-  return (window as any).__lastError || null
-}
 ```
 
-错误对象同时带 `traceId` 与 `trace_id` 两个字段。
-
-### 2.2 错误提示组件
-
-`frontend/src/components/ErrorToast.vue` 读取 `getLastError()`，把错误信息和 Trace ID 显示在右下角，
-点击 Trace ID 复制到剪贴板，面板在 5000ms 后自动隐藏。显示入口是组件暴露的 `showError()`，
-目前没有调用方，页面上的报错不会自动弹出这个提示。
-
-### 2.3 全局挂载
-
-`frontend/src/main.ts` 单独挂载一个 ErrorToast 实例，并挂到 `window.__errorToast`：
-
-```typescript
-const app = createApp(App)
-app.use(i18n)
-app.use(router)
-
-const errorToast = createApp(ErrorToast)
-const errorToastMount = errorToast.mount(document.createElement('div'))
-document.body.appendChild(errorToastMount.$el)
-
-;(window as any).__errorToast = errorToastMount
-
-app.config.errorHandler = (err, _instance, info) => {
-  console.error('Vue Error:', err, info)
-}
-```
-
-组件通过 `defineExpose({ showError })` 暴露显示方法，调用方从 `window.__errorToast` 取。
-
-### 2.4 调试面板
-
-`frontend/src/components/TraceBadge.vue` 是一个固定右下角的小徽标，每 1000ms 从 `getLastTraceId()`
-刷新一次，点击复制当前 ID。这个组件没有被 `main.ts` 或任何页面引用，需要时自己 import 并挂载。
+所以页面上的错误提示由各视图自己用 `message.error` 给出，错误对象上带 `error.apiError.traceId`。
+要反查一次请求，用后端返回的那个值：响应头 `X-Trace-ID`、错误响应体的 `trace_id`，或者让用户
+提供任务 / 需求编号与大致时间。
 
 ---
 
@@ -340,10 +278,8 @@ grep "user_id=123" logs/app_2026-04-01.log | grep "a1b2c3d4"
 
 | 文件 | 说明 |
 |------|------|
-| `frontend/src/api/interceptors.ts` | axios 实例、`getLastTraceId` / `getLastError` |
-| `frontend/src/components/ErrorToast.vue` | 错误提示组件 |
-| `frontend/src/components/TraceBadge.vue` | 调试徽标组件（未被引用，按需挂载） |
-| `frontend/src/main.ts` | 挂载 ErrorToast 并暴露到 `window.__errorToast` |
+| `frontend/src/api/client.ts` | 应用唯一的 axios 实例；401 跳转与 `error.apiError.traceId` |
+| `frontend/src/main.ts` | 挂载应用；`errorHandler` 只写控制台 |
 
 ### 运维
 
@@ -367,15 +303,16 @@ grep "user_id=123" logs/app_2026-04-01.log | grep "a1b2c3d4"
 
 `text` 字段就是控制台看到的那一行。要看某个请求的全部日志，过滤 `record.extra.trace_id`。
 
-### 前端错误提示
+### 前端错误对象
 
-组件挂载后的渲染效果（需要调用方触发 `showError()`）：
+页面从 `catch` 里拿到的是挂过 `apiError` 的 axios 错误，可以直接把 `traceId` 一起展示：
 
+```typescript
+{
+  message: 'Request failed with status code 500',
+  apiError: { status: 500, message: '...', traceId: 'a1b2c3d4', detail: '...' },
+}
 ```
-┌─────────────────────────────────────┐
-│ ⚠️ 请求失败                           │
-│ ID: a1b2c3d4 (点击复制)              │
-└─────────────────────────────────────┘
 ```
 
 ### 运维查询

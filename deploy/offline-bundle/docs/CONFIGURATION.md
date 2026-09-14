@@ -46,7 +46,7 @@ If the environment is fully offline, both endpoints must exist inside the intran
 
 - `SESSION_SECRET`: signs dashboard session tokens. Generate a long random value.
 - `CONFIG_ENCRYPTION_KEY`: encrypts sensitive configuration stored in the database. When left empty the app falls back to `SESSION_SECRET`; if both are missing or still hold the built-in default, saving a secret from the Config page fails.
-- `SECRET_KEY`: the application never reads it, and the template no longer ships it. `SESSION_SECRET` is the value that matters.
+- `SECRET_KEY`: not a setting. The application has no such key, so a leftover `SECRET_KEY` in an older environment file does nothing; `SESSION_SECRET` is the value that matters.
 
 Values written through the dashboard Config page are encrypted with Fernet before they reach `system_config`. The encrypted keys are `gitlab_bot_token`, `gitlab_admin_token`, `anthropic_api_key`, `oidc_client_secret`, `mattermost_bot_token`, and `alert_webhook_url`. Every other key in `system_config` is stored as plain text.
 
