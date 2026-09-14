@@ -60,7 +60,7 @@ const zhCN = {
       admin: '管理指南'
     },
     tiers: {
-      core: '强烈建议了解',
+      core: '核心内容',
       deep: '深入原理',
       tips: '使用技巧'
     }

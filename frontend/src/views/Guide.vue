@@ -69,35 +69,37 @@
             <template v-for="section in navSections" :key="section.key">
               <p class="guide-nav__section">{{ t(SECTION_LABEL[section.key]) }}</p>
               <template v-for="group in section.groups" :key="group.tier">
-                <p class="guide-nav__tier">{{ t(TIER_LABEL[group.tier]) }}</p>
-                <ul class="guide-nav__list">
-                  <li v-for="chapter in group.chapters" :key="chapter.slug">
-                    <RouterLink
-                      class="guide-nav__chapter"
-                      :class="{ 'guide-nav__chapter--active': chapter.slug === activeChapter?.slug }"
-                      :to="{ name: 'Guide', params: { chapter: chapter.slug } }"
-                    >
-                      {{ chapter.title }}
-                    </RouterLink>
-                    <ul v-if="chapter.slug === activeChapter?.slug && headings.length" class="guide-nav__headings">
-                      <li v-for="heading in headings" :key="heading.id">
-                        <a
-                          class="guide-nav__heading"
-                          :class="`guide-nav__heading--level-${heading.level}`"
-                          :href="`#${heading.id}`"
-                          @click.prevent="revealHeading(heading.id)"
-                        >
-                          <span
-                            class="guide-nav__heading-tier"
-                            :data-guide-tier="heading.tier ?? undefined"
-                            aria-hidden="true"
-                          />
-                          <span class="guide-nav__heading-text">{{ heading.text }}</span>
-                        </a>
-                      </li>
-                    </ul>
-                  </li>
-                </ul>
+                <section class="guide-nav__tier-group">
+                  <h3 class="guide-nav__tier">{{ t(TIER_LABEL[group.tier]) }}</h3>
+                  <ul class="guide-nav__list">
+                    <li v-for="chapter in group.chapters" :key="chapter.slug">
+                      <RouterLink
+                        class="guide-nav__chapter"
+                        :class="{ 'guide-nav__chapter--active': chapter.slug === activeChapter?.slug }"
+                        :to="{ name: 'Guide', params: { chapter: chapter.slug } }"
+                      >
+                        {{ chapter.title }}
+                      </RouterLink>
+                      <ul v-if="chapter.slug === activeChapter?.slug && headings.length" class="guide-nav__headings">
+                        <li v-for="heading in headings" :key="heading.id">
+                          <a
+                            class="guide-nav__heading"
+                            :class="`guide-nav__heading--level-${heading.level}`"
+                            :href="`#${heading.id}`"
+                            @click.prevent="revealHeading(heading.id)"
+                          >
+                            <span
+                              class="guide-nav__heading-tier"
+                              :data-guide-tier="heading.tier ?? undefined"
+                              aria-hidden="true"
+                            />
+                            <span class="guide-nav__heading-text">{{ heading.text }}</span>
+                          </a>
+                        </li>
+                      </ul>
+                    </li>
+                  </ul>
+                </section>
               </template>
             </template>
           </n-scrollbar>
@@ -1045,6 +1047,45 @@ watch(
   color: rgba(19, 35, 63, 0.42);
   font-size: 10px;
   letter-spacing: 0.1em;
+}
+
+.guide-nav__tier-group {
+  margin: 14px 0 18px;
+}
+
+.guide-nav__tier {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 7px;
+  padding: 0;
+  color: rgba(19, 35, 63, 0.48);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+}
+
+.guide-nav__tier::before {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  border-radius: 999px;
+  background: var(--guide-blue);
+  content: '';
+}
+
+.guide-nav__tier::after {
+  height: 1px;
+  flex: 1;
+  background: var(--guide-line);
+  content: '';
+}
+
+.guide-nav__list {
+  margin: 0 0 0 10px;
+  padding: 0 0 0 10px;
+  border-left: 1px solid rgba(49, 100, 232, 0.14);
 }
 
 .guide-nav__chapter {
