@@ -6,73 +6,64 @@ tier: deep
 
 ## Worker 文件系统
 
-每台运行任务的 Docker 主机都按部署时固定的根路径，为每个需求保留一份目录。目录里存放代码检出、跨任务保留的 Harness 状态，以及决定工作区能否被回收的记账文件；单次运行产生的证据只存在于容器内，随容器一起丢弃。这套目录布局面向准备 Docker 主机与 Worker Profile 的人员，也便于确认某个会话或某份运行归档存放在哪里。
+每台 Docker 主机会按需求保留一份目录，里面是代码检出、跨任务保留的 Harness 状态和清理元数据。单次运行的证据位于容器临时目录，容器退出前会封装成归档。
 
 ### 宿主机目录结构
 
-根路径由 `worker_workspace_host_path` 指定，对应环境变量 `WORKER_WORKSPACE_HOST_PATH`，默认 `/opt/codify-workspaces`；它必须在每台 Docker 主机上位于同一路径。根路径下按需求分目录：
+根路径由 `WORKER_WORKSPACE_HOST_PATH` 提供，对应 `worker_workspace_host_path`，默认是 `/opt/codify-workspaces`。每台 Docker 主机都必须使用同一路径。
 
-```text
+~~~text
 {worker_workspace_host_path}/project-{project_id}/issue-{issue_id}/
   repo/
   claude/
   shared/
   meta/
-```
+~~~
 
-这些路径属于部署期配置，配置页不提供修改入口；要改只能更新 `WORKER_WORKSPACE_HOST_PATH`，并重建 Backend 与 Scheduler。
+配置页面不能修改该路径。要修改环境变量并重建 Backend 与 Scheduler。
 
 ### 容器内挂载
 
-任务只挂载需求目录下的四个子目录，全部以读写方式挂载，并在容器结束后保留：
+需求上的每个任务都会得到以下四个读写挂载：
 
-| 容器内路径 | 宿主机来源 | 存放内容 |
-|---|---|---|
-| `/workspace` | `repo/` | 代码检出，含之前任务留下的提交 |
-| `/home/codify/.claude` | `claude/` | Claude CLI 状态：会话记录、设置与备份 |
-| `/opt/codify-issue-shared` | `shared/` | 需求内共享空间，其他 Harness 的状态目录也在这里 |
-| `/opt/codify-issue-meta` | `meta/` | 记账文件：`workspace.json`、`ownership` 标记与 `owner` 删除保护标记 |
+| 容器路径 | 持久化内容 |
+|---|---|
+| `/workspace` | 代码检出和前序任务提交 |
+| `/home/codify/.claude` | Claude 会话与 CLI 状态 |
+| `/opt/codify-issue-shared` | 需求共享状态及其他 Harness 目录 |
+| `/opt/codify-issue-meta` | `workspace.json`、所有权和删除保护元数据 |
 
-同一需求的所有任务使用同一套挂载，因此后续任务接着上一份检出与会话继续，不需要重新克隆。
+挂载会跨容器保留，因此追加任务可以复用代码检出和会话。
 
 ### 各 Harness 的状态目录
 
-四个挂载路径是固定的，但每个 Harness 把自己的 home、配置、缓存与会话目录指向其中不同的一个；只有 Claude 使用 `claude/` 这个挂载。
-
 | Harness | 跨任务保留 | 每次运行重建 |
 |---|---|---|
-| Claude | `/home/codify/.claude`，即 `claude/` 挂载：会话记录、设置，以及用于恢复 `.claude.json` 的备份 | `/home/codify/.claude.json` 与本次运行的提示词文件 |
-| Codex | `CODEX_HOME` 落在 `shared/` 挂载上，即 `/opt/codify-issue-shared/codex-home`：`config.toml`、`execpolicy.rules`、会话记录与 `.agents/skills` | `/tmp/codify-runtime` 下的 `codex-home`，仅在 `shared/` 挂载不可用时使用 |
-| Pi | `PI_HOME` 落在 `shared/` 挂载上，即 `/opt/codify-issue-shared/pi-home`，其中存放 `sessions/` | `/home/codify/.pi/agent`：`models.json`、`settings.json`、agent 定义、扩展与 Skills |
-| OpenCode | `XDG_DATA_HOME` 落在 `shared/` 挂载上，即 `/opt/codify-issue-shared/opencode-data`，其中存放会话数据 | `/tmp/codify-runtime/opencode` 下的 `HOME`、`XDG_CONFIG_HOME`、`XDG_CACHE_HOME` 与 `XDG_STATE_HOME` |
+| Claude | `/home/codify/.claude` | `.claude.json` 和本次运行提示词 |
+| Codex | `shared/codex-home` 下的 `CODEX_HOME` | `/tmp/codify-runtime` 下的备用 home |
+| Pi | `shared/pi-home/sessions` 下的 `PI_HOME` | `/home/codify/.pi/agent` 下的设置和 Skills |
+| OpenCode | `shared/opencode-data` 下的 `XDG_DATA_HOME` | `/tmp/codify-runtime/opencode` 下的 HOME 和 XDG 目录 |
 
-`/home/codify` 本身不是挂载点，只有它下面的 `.claude` 会随容器保留；Harness 放在这个 home 其他位置的任何内容都会在下次运行时重建。
+只有 `/home/codify` 下的 Claude 子目录是直接挂载的，其他内容下次运行会重建。
 
 ### Worker Kit
 
-**运行时交付方式** 为 **挂载 Worker Kit** 时，Codify 把 Kit 以只读方式挂载到 `/opt/codify-kit`、把其中的 `nix/store` 挂载到 `/nix/store`，并以 root 身份通过 `/opt/codify-kit/launcher` 启动容器。Kit 在宿主机上的安装根目录是 `/opt/codify/worker-kits/<内容寻址名称>`，由 root 所有且其他用户不可写。
+挂载模式的 Worker Kit 以只读方式放在 `/opt/codify-kit`，其中的 Nix store 放在 `/nix/store`，容器通过 `/opt/codify-kit/launcher` 启动。Kit 安装在 Docker 主机的内容寻址目录中。
 
-**Profile 存储卷挂载** 不能与上述挂载冲突：自定义挂载不能隐藏 `/workspace`、`/home/codify/.claude` 或 `/opt/codify-issue-shared`，也不能进入已封闭的 `/opt/codify-issue-meta` 与 `/tmp/codify-runtime`；同样的规则保护 `/opt/codify-kit` 与 `/nix/store` 两个 Kit 挂载。
+Profile 的自定义挂载不能覆盖工作区、Harness 状态、元数据、临时目录、Kit 或 Nix store 挂载。这些保护避免 Profile 替换运行时或覆盖其他需求的状态。
 
 ### 任务临时目录
 
-`/tmp/codify-runtime` 只存在于容器内部，每个任务创建一次，随容器一起丢弃。本次运行的证据都在这里：
-
-- 规范化事件流 `event.jsonl`，以及 `harness-events/` 下各 Harness 的原始事件流
-- `console.log` 与 Harness 结果 `harness-result.json`
-- `artifacts/`，用户产物的暂存目录
-- `orchestration/`，运行开始前上传的冻结 Runtime Bundle
-
-容器退出时，运行归档就从这个目录打包，再由 Backend 传输到控制面的归档存储 `/opt/codify-archives`。
+`/tmp/codify-runtime` 只存在于容器内，每条任务重新创建。里面有归一化事件、Harness 原始事件、控制台日志、Harness 结果、用户制品和冻结的编排包。容器退出时从这里生成归档，再传到 `/opt/codify-archives`。
 
 ### 生命周期与回收
 
-保留期是平台配置，不要把本页的目录说明当成当前实例的取值。默认值和扫描范围集中记录在[《平台参考》](/guide/96-platform-reference)；这里仅说明对象之间的关系。
+保留期来自系统配置，实际取值可能随部署变化：
 
-| 对象 | 配置项 | 当前取值 | 回收条件 |
-|---|---|---|---|
-| Issue workspace | `worker_workspace_retention_days` | 以系统配置为准 | 没有活跃任务占用，且目录在保留期内未被使用 |
-| 运行归档 | `worker_runtime_archive_retention_days` | 以系统配置为准 | 按归档记录的生成时间 |
-| CI 失败证据包 | 跟随 `worker_workspace_retention_days` | 以系统配置为准 | 按 `{worker_workspace_host_path}/ci-failures` 下证据包的时间 |
+| 对象 | 配置项 | 回收条件 |
+|---|---|---|
+| Issue workspace | `worker_workspace_retention_days` | 没有活跃任务占用，且闲置超过保留期 |
+| 运行归档 | `worker_runtime_archive_retention_days` | 归档记录超过保留期 |
+| CI 失败证据包 | 跟随 Workspace 保留期 | 证据包超过保留期 |
 
-workspace 的使用时间会在创建任务、任务结束和取消时刷新，因此正在使用的需求不会被回收。回收时会启动一个临时维护容器：挂载 workspace 根目录并检查 `meta/owner`，该标记指向其他需求或 Worker Profile 时拒绝删除。调度器每 6 小时扫描一次 workspace，每小时扫描一次运行归档。调度器崩溃恢复会清理中断运行留下的孤儿容器，但不会删除 workspace。
+任务创建、完成或取消时会刷新工作区使用时间。清理前检查 `meta/owner`，若目录属于其他需求或 Profile 就拒绝删除。调度器每 6 小时扫描工作区、每小时扫描归档；崩溃恢复会清理孤儿容器，但不会删除工作区。

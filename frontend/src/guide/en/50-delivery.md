@@ -8,93 +8,50 @@ tier: core
 
 ![One branch; with or without an MR, the Issue still closes](assets/diagrams/en/delivery-path.svg)
 
-> [!route] **Delivery principle**: every turn on an Issue shares one working branch. The MR switch changes how the result is delivered; execution and commits run the same either way.
+One Issue uses one working branch, codify/issue-{id}. The id is Codify's Issue id, not GitLab's issue IID. Every Task on the Issue uses this branch and workspace.
 
-The working branch is named `codify/issue-{id}`, where `id` is Codify's internal Issue id, not the GitLab issue IID. The name is stored on the Issue once and passed into every container of that Issue, so all of its Tasks share it.
+Codify creates the branch on the first run that needs it. It uses an existing local or remote branch when available; otherwise it starts from the Issue's **Starting Branch**, then the merge target or project default. The branch appears on the remote after the first successful push.
 
-Nothing creates the branch in advance. The worker creates it locally on the first run that needs it: it checks out the local branch when one exists, otherwise it creates one from the branch of that name on the remote, otherwise it creates a new branch from the base branch. The branch appears on the remote only when the first successful publish creates it. The base branch is the Issue's **Starting Branch** when it has one, otherwise the target branch, otherwise the project's default branch.
+The Task overview shows **Base branch**, **Working branch**, and **Target branch**. A Task without an Issue shows **Direct Push** and **Manual** instead.
 
-The **Branch Config** row of the Task overview panel names three roles:
+Analysis Tasks discard their changes. Implementation Tasks commit them, and Freeform Tasks deliver a commit when the Harness produced one. A later Task starts from the previous checkout, including uncommitted work left there.
 
-| Role | Label |
+You may commit to the working branch yourself. Codify fast-forwards to a remote tip that is ahead, but refuses a diverged, rewound, or unsafe history. If the remote moved while the workspace has uncommitted changes, reconcile the branch before running again or continue in a new Issue.
+
+The **Commit Record** separates **This task commits ({count})** from **Previous task commits ({count})**. The push result is one of:
+
+| Result | Meaning |
 |---|---|
-| Source | **Base branch** |
-| Working | **Working branch** |
-| Merge target | **Target branch** |
+| **Pushed** | The branch was pushed and confirmed |
+| **Already on remote** | The remote already has the commits |
+| **Nothing to deliver** | The run produced no commit |
+| **Push not attempted** | The run did not reach delivery |
+| **Delivery failed — not confirmed** | Push failed or its result could not be confirmed |
 
-One Issue owns one branch and one workspace. Every Task commits to that branch, and a later Task picks up the checkout the previous Task left behind instead of cloning the repository again, so it starts from those commits. The workspace persists between Tasks, including uncommitted work a previous Task left behind. Tasks in **Analysis** mode discard their changes instead of committing them, and such a Task still completes successfully.
-
-You and Codify write to the same branch. If you push your own commits to the working branch, the next Task fast-forwards onto them and builds on top; it never rewrites or rebases history. Preparation refuses instead of overwriting when the remote branch moved while the persistent workspace still holds uncommitted changes, and it refuses as well when the two histories have diverged or the remote branch was rewound. Reconcile the branch in GitLab so that the remote matches the workspace, or continue the work from a new Issue, whose workspace starts fresh.
-
-The **Commit Record** section lists what the Task produced. Commits added by the current Task are grouped separately from commits recovered from previous Tasks, so a re-run that finds earlier uncommitted work does not claim it as new:
-
-- **This task commits ({count})**: commits created by this run.
-- **Previous task commits ({count})**: commits from earlier runs that were picked up.
-- Each row carries the shortened commit SHA and the commit subject.
-
-The push result is recorded as one of:
-
-| State | Meaning |
-|---|---|
-| **Pushed** | The branch was pushed successfully |
-| **Already on remote** | The commits were already present remotely |
-| **Nothing to deliver** | The run produced no new commits |
-| **Push not attempted** | Delivery was not reached |
-| **Delivery failed — not confirmed** | The push failed and delivery is not confirmed |
-
-The remote state the push is compared against, and the codes a refused or unconfirmed push carries, are described in [Delivery Internals](/guide/75-delivery-internals).
-
-Whether the result becomes a Merge Request depends on how the Issue was configured:
-
-- **Will create MR**: the default. Commits are pushed and a Merge Request is opened or updated.
-- **No MR**: the Issue was created without **Create Merge Request**, so only the branch is pushed.
-
-A task that has no Issue behind it shows **Direct Push** where the working branch would be, and its **Source** row reads **Manual**.
+The comparison and failure codes are in [Delivery Internals](/guide/75-delivery-internals).
 
 ## Merge request
 
-One Merge Request serves the whole Issue. Codify creates it as a draft MR when the branch first needs one, labelled `Codify` and owned by the task initiator's GitLab identity when an admin token lets Codify impersonate that account, falling back to the bot account otherwise.
+When **Create Merge Request** is enabled, Codify pushes the working branch and creates or updates one MR for the Issue. When it is disabled, Codify pushes the branch only. This choice is frozen with the Issue.
 
-The **Task overview** panel carries the Merge Request state for the Issue:
+The Task overview shows a link to !{iid}, **Will create MR**, or **No MR**. Subsequent Tasks update the same MR. Codify starts it as a draft, applies the Codify label, and removes the draft state after successful delivery. The creator is the initiator when the GitLab admin token permits impersonation; otherwise it is the bot account.
 
-- Once the MR exists, the **Merge Request** row links to it and shows `!{iid}`.
-- Before it exists but a merge target is set, the row reads **Will create MR** followed by the target branch.
-- When the Issue has no merge target configured, the row reads **No MR**.
+Merging the tracked MR closes the Issue after the GitLab webhook arrives. Closing an Issue by hand offers **Close and Keep Branch** or **Close and Delete Branch**. The Issue's branch-cleanup setting controls whether MR auto-close also deletes the working branch.
 
-Each subsequent Task updates the same MR instead of opening a new one, and its description carries a per-task table of status, commit message, and change line counts, plus the Issue context. A failed delivery is recorded in the MR body.
-
-Both directions are automatic:
-
-- When the tracked MR is merged, the Issue is closed by webhook. The Issue records this under **Closed Via** as **Auto-closed (MR Merged)**, **Manually Closed**, or **Auto-closed (Worker Profile disabled)**.
-- When the Issue is closed, the working branch is deleted unless the Issue was configured to keep it. The Issue's advanced settings describe the toggle as: the AI working branch will be deleted when an MR merge webhook auto-closes this issue, or will be kept. Badges read **Webhook auto-close deletes branch** and **Webhook auto-close keeps branch**.
-
-Closing an Issue by hand asks first and offers the branch choice: **Close and Keep Branch** or **Close and Delete Branch**, with the prompt naming the branch. A branch can also be deleted from the Issue page with **Delete Branch** after confirmation; an already deleted branch reports **Branch already deleted**.
-
-**MR pipeline failure auto-repair** is opt-in per Issue. When enabled, Codify creates a repair task if the tracked MR pipeline fails; when disabled, pipeline failures are still recorded but no repair task is created automatically. The Issue page tracks this under **CI Automation**, with counters for **Failed pipelines**, **Repair tasks**, and **Root cause jobs**, and a **Processing timeline** for each recorded run. Auto-created repair tasks are capped per MR; once the cap is reached, further failures are recorded as **Max attempts reached** and ignored.
+**MR pipeline failure auto-repair** is opt-in per Issue. It creates repair Tasks only when enabled, the MR is tracked, and the project webhook has the required events and secret. Further failures stop creating repair Tasks after the configured attempt cap.
 
 ## Change and usage statistics
 
-Statistics cover how much code changed and what it cost. Change statistics come from the Git delivery record:
+The Task records Git diff facts and Harness token usage.
 
-| Field | Label |
+| Record | Includes |
 |---|---|
-| Lines added | **Additions** |
-| Lines removed | **Deletions** |
-| New files | **{count} new file(s)** |
-| Modified files | **{count} modified file(s)** |
-| Deleted files | **{count} deleted file(s)** |
+| **Changes** | Additions, deletions, and new, modified, or deleted files |
+| **Token Usage** | Input and output tokens reported by the Harness |
+| **Run Statistics** | Duration, tokens, context compression, and Skill usage when available |
 
-A run that changed nothing reports **No net file changes**; a run whose statistics could not be collected is marked **Change stats not collected** instead of showing zeros. The Issue overview aggregates the same data across its Tasks as **Changes** (with `+additions` and `-deletions` detail), alongside **Total Duration** and a combined **Tokens** figure.
-
-Token usage is captured per Task as input and output tokens. The **Run Statistics** panel on the task page shows a **Token Usage** total with **Input** and **Output** breakdowns. Analytics adds derived metrics over a time window:
-
-- **Total Tokens**, annotated as `In {input} / Out {output}` for the tasks that reported token data.
-- **Avg Tokens / Task** across tasks that have token data, with **Max {value}**.
-- **Avg Tokens / Sec**: computed from output tokens only, so it is not directly comparable with the other token metrics.
-- **Avg Tokens / Changed Line** and **Avg Sec / Changed Line**.
-
-Statistics cover finished work only: tasks still running are excluded from the finished-task aggregates, and the finished-task line breaks them down as completed, failed, and cancelled.
+No diff reports **No net file changes**. If collection failed, the page reports **Change stats not collected** rather than zero. Issue and Analytics totals include finished Tasks with usable data; missing values are excluded from the corresponding aggregate.
 
 ## Run archive
 
-The **Actions** area of a **completed** or **failed** task offers **Download runtime archive**; the entries the archive holds, its size limits, and its retention are described in [Delivery Internals](/guide/75-delivery-internals).
+Completed and failed Tasks offer **Download runtime archive**. Its contents, limits, and retention are described in [Delivery Internals](/guide/75-delivery-internals).

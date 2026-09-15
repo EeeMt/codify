@@ -6,23 +6,23 @@ tier: core
 
 ## Issues and tasks
 
-An Issue is a continuing line of work. A Task is one run within it. The Issue owns the workspace, session history, and working branch `codify/issue-{id}`. Its Tasks run in order and send their commits to the same branch and, when enabled, the same Merge Request.
+An Issue is the long-lived work item. A Task is one execution on it. The Issue owns the workspace, session history, and working branch `codify/issue-{id}`; its Tasks run in order and share that branch and, when enabled, one Merge Request.
 
-Append a Task when the result needs another pass. Create a new Issue when the project, starting branch, merge target, or Worker needs to change.
+Append a Task for another pass. Create a new Issue when the project, starting branch, merge target, or Worker changes.
 
 ![One Issue, many turns, one Merge Request](assets/diagrams/en/issue-loop.svg)
 
 ## Complete your first task
 
-You need an account, a GitLab project you can access, and a Worker with at least one enabled Harness. If the form has no project or Worker to choose, ask an administrator to check [Configuration](/guide/80-admin-configuration) and the GitLab bot account's project access.
+You need a signed-in account, an accessible GitLab project, and a Worker with an enabled Harness. If the form has no project or Worker, ask an administrator to check [Configuration](/guide/80-admin-configuration) and the bot account's GitLab access.
 
 Follow these steps to produce a change you can review:
 
-1. Open [Create Issue](/issues/create). Choose the project, starting branch, merge target, and Worker. Use the title for the problem and the description for durable context; put this turn's goal, scope, and acceptance criteria in the Task prompt.
-2. Submit the Issue, then select **Create Task** on its detail page. Choose **Implementation** when the Task should change and commit code. The default P1 priority suits ordinary work.
-3. Keep **Execute Now** selected and submit. The Task enters the queue and starts when concurrency is available.
-4. Open the Task. Read the event stream to follow its work, and switch to the raw log when you need container output.
-5. When the status is **Completed**, review the commits, delivery result, and run statistics. Then open the Merge Request and inspect the code.
+1. Open [Create Issue](/issues/create). Choose the project, starting branch, merge target, and Worker. Put durable context in the description; put this turn's goal, scope, and acceptance checks in the Task prompt.
+2. Submit the Issue and select **Create Task**. Choose **Implementation** when code should be changed and committed. P1 is a sensible default for ordinary work.
+3. Leave **Execute Now** selected and submit. The Task enters the queue and starts when capacity is available.
+4. Follow **Events** on the Task page. Open **Raw Logs** when you need container output.
+5. When it is **Completed**, review the commits, delivery result, and run statistics, then inspect the Merge Request.
 
 [Creating an Issue](/guide/15-create-issue) explains the fields and frozen settings. [Creating a Task](/guide/30-create-task) covers Task Modes and scheduling.
 
@@ -31,13 +31,13 @@ Follow these steps to produce a change you can review:
 | Current situation | Next action |
 |---|---|
 | The result is ready | Review and merge the Merge Request. The Issue closes after the merge webhook arrives. |
-| The code needs another change or more tests | Select **Append Task** on the same Issue to keep the workspace, session, and branch. |
-| The Task failed because of a transient service problem | Retry it. The retry uses the source Task's frozen configuration. |
-| The prompt, configuration, or environment caused the failure | Correct the cause, then retry or append a Task with clearer instructions. |
-| The project, branch strategy, or Worker needs to change | Create a new Issue. Those settings cannot be changed after creation. |
+| The code needs another change or more tests | Use **Append Task** on the same Issue. |
+| A transient service problem caused failure | Retry. The retry uses the source Task's frozen configuration. |
+| The prompt or environment was wrong | Fix the cause, then retry or append a clearer Task. |
+| The project, branch strategy, or Worker must change | Create a new Issue. These settings are fixed after creation. |
 | The Task has not started | Read its queue message, then check [Running and Steering](/guide/40-run-and-steer) and [Scheduling](/guide/60-scheduling). |
 
-An appended Task continues from the code already on the Issue. Enable **Run in a new session** when you need another Harness or when the old conversation is getting in the way. The workspace and branch stay in place.
+An appended Task starts from the code already on the Issue. Enable **Run in a new session** when you need another Harness or the old conversation is no longer useful; the workspace and branch stay in place.
 
 ## Find the right chapter
 

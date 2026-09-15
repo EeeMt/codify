@@ -5,8 +5,8 @@ import { mount } from '@vue/test-utils'
 import { h, nextTick, type SetupContext } from 'vue'
 
 const messages: Record<string, string> = {
-  'onboarding.modalTitle': 'A short tour of Codify',
-  'onboarding.modalDescription': 'See how a request moves from intent to a reviewable change.',
+  'onboarding.modalTitle': 'Four steps to get oriented',
+  'onboarding.modalDescription': 'See how one Issue becomes a change you can review.',
   'onboarding.progressLabel': 'Step {current} of {total}',
   'onboarding.actions.closeOnboarding': 'Close onboarding',
   'onboarding.actions.viewGuide': 'View full guide',
@@ -16,11 +16,10 @@ const messages: Record<string, string> = {
   'onboarding.actions.next': 'Next',
   'onboarding.actions.viewDashboard': 'View Dashboard',
   'onboarding.actions.createIssue': 'Create Issue',
-  'onboarding.slides.intent.title': 'Turn a clear goal into a reviewable change',
-  'onboarding.slides.issue.title': 'One Issue keeps one line of work moving',
+  'onboarding.slides.issue.title': 'One Issue carries one line of work',
+  'onboarding.slides.prompt.title': 'Goal, scope, finish line',
   'onboarding.slides.system.title': 'Tasks run where the system can watch them',
-  'onboarding.slides.review.title': 'Every turn leaves something you can review',
-  'onboarding.slides.start.title': 'Give the next task a finish line',
+  'onboarding.slides.review.title': 'Read the events and commits, then choose the next move',
 }
 
 vi.mock('vue-i18n', () => ({
@@ -63,15 +62,15 @@ function activeSlide(wrapper: ReturnType<typeof mountComponent>) {
 }
 
 describe('OnboardingModal', () => {
-  it('renders the product tour as a fixed-stage five-slide deck', () => {
+  it('renders the product tour as a fixed-stage four-slide deck', () => {
     const wrapper = mountComponent()
 
     expect(wrapper.find('.onboarding-modal').exists()).toBe(true)
     expect(wrapper.find('.deck-stage').classes()).toContain('product-slides__stage')
-    expect(wrapper.findAll('[data-testid="onboarding-slide"]')).toHaveLength(5)
+    expect(wrapper.findAll('[data-testid="onboarding-slide"]')).toHaveLength(4)
     expect(wrapper.findAll('.product-slide.active')).toHaveLength(1)
     expect(wrapper.findAll('.product-slide.visible')).toHaveLength(1)
-    expect(activeSlide(wrapper).find('.product-slide__title').text()).toBe('Turn a clear goal into a reviewable change')
+    expect(activeSlide(wrapper).find('.product-slide__title').text()).toBe('One Issue carries one line of work')
   })
 
   it('keeps every slide authored at 1920 by 1080 and switches visibility with active classes', () => {
@@ -86,11 +85,11 @@ describe('OnboardingModal', () => {
     const wrapper = mountComponent()
 
     await wrapper.get('[data-testid="onboarding-next"]').trigger('click')
-    expect(activeSlide(wrapper).attributes('data-slide')).toBe('issue')
-    expect(activeSlide(wrapper).find('.product-slide__title').text()).toBe('One Issue keeps one line of work moving')
+    expect(activeSlide(wrapper).attributes('data-slide')).toBe('prompt')
+    expect(activeSlide(wrapper).find('.product-slide__title').text()).toBe('Goal, scope, finish line')
 
     await wrapper.get('[data-testid="onboarding-previous"]').trigger('click')
-    expect(activeSlide(wrapper).attributes('data-slide')).toBe('intent')
+    expect(activeSlide(wrapper).attributes('data-slide')).toBe('issue')
   })
 
   it('supports keyboard and slide-dot navigation', async () => {
@@ -98,13 +97,13 @@ describe('OnboardingModal', () => {
     const viewport = wrapper.get('.product-slides__viewport')
 
     await viewport.trigger('keydown', { key: 'ArrowRight' })
-    expect(activeSlide(wrapper).attributes('data-slide')).toBe('issue')
+    expect(activeSlide(wrapper).attributes('data-slide')).toBe('prompt')
 
     await wrapper.findAll('.product-slides__control')[3].trigger('click')
     expect(activeSlide(wrapper).attributes('data-slide')).toBe('review')
 
     await viewport.trigger('keydown', { key: 'Home' })
-    expect(activeSlide(wrapper).attributes('data-slide')).toBe('intent')
+    expect(activeSlide(wrapper).attributes('data-slide')).toBe('issue')
   })
 
   it('resets to the first slide when reopened', async () => {
@@ -118,7 +117,7 @@ describe('OnboardingModal', () => {
     await wrapper.setProps({ show: true })
     await nextTick()
 
-    expect(activeSlide(wrapper).attributes('data-slide')).toBe('intent')
+    expect(activeSlide(wrapper).attributes('data-slide')).toBe('issue')
   })
 
   it('uses a localized accessibility label for the close button', () => {
@@ -146,7 +145,7 @@ describe('OnboardingModal', () => {
   it('emits view-dashboard on the final primary action', async () => {
     const wrapper = mountComponent()
 
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < 3; index += 1) {
       await wrapper.get('[data-testid="onboarding-next"]').trigger('click')
     }
     await wrapper.get('[data-testid="onboarding-view-dashboard"]').trigger('click')
@@ -158,7 +157,7 @@ describe('OnboardingModal', () => {
   it('emits create-issue on the final secondary action', async () => {
     const wrapper = mountComponent()
 
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < 3; index += 1) {
       await wrapper.get('[data-testid="onboarding-next"]').trigger('click')
     }
     await wrapper.get('[data-testid="onboarding-create-issue"]').trigger('click')

@@ -6,70 +6,54 @@ tier: tips
 
 ## Context belongs to the Issue
 
-Every Task belongs to an Issue, and the Issue owns the three things that carry state from one round to the next: its workspace, its AI session, and the working branch `codify/issue-{id}`. An appended Task reuses all three.
+An Issue carries the workspace, AI session, and working branch `codify/issue-{id}` from one Task to the next.
 
-What an appended Task inherits, and what it does not:
-
-| Carried forward | Behaviour |
+| Carries forward | Does not carry forward |
 |---|---|
-| Workspace | The same issue-scoped working copy on the same branch. Nothing is cloned again between rounds. |
-| Session | The Harness conversation, while the Task keeps the default **Continue session** mode and the Issue's lineage still has a session recorded. The task page reports this in the **Session mode** row. |
-| Previous-task summaries | A file describing earlier Tasks on the Issue, written into the container for every run. The model sees it only if the run instruction asks for it. |
-| Prompt and run instruction | New for every Task, never inherited. |
+| Workspace and branch | New Task prompt |
+| Continue-session conversation | New Task run instruction |
+| Previous-task summary file, when the instruction references it | Mode-specific input |
 
-**Run in a new session** is the control that cuts the conversation while everything else stays. Its hint reads: "Do not inherit the current conversation context. The workspace, Git branch, and previous session records are preserved." Use it when the Issue has moved on to a different question and you no longer want that conversation carried forward, or when you need a different Harness, since a continue-session Task must keep the one it started with.
+Choose **Run in a new session** when the conversation is no longer useful or you need another Harness. The workspace, branch, and old session records remain. A continued Task must keep the current Harness.
 
-The same choice comes up on retry, through **Session lineage**, which offers **Continue current session** and **Start a new session generation**. When the retry source belongs to an older session lineage than the current queue tail, Codify asks for a fresh session instead of continuing a conversation that no longer matches.
-
-A new Issue is the only way to get a separate workspace, a separate branch, and a separate session lineage. Append when the next round should build on the code and the conversation you have now; otherwise create a new Issue.
+Retries make the same choice through **Session lineage**. If the source is older than the current queue tail, Codify may require a new session generation. A new Issue is the only way to get a separate workspace, branch, and session lineage.
 
 ## Look without touching the branch
 
-**Analysis** mode runs against a live branch without moving it. The run discards its changes when it ends, and the Task still completes successfully: an analysis Task is not expected to produce commits, `require_changes` is fixed to false, and Codify records no commit for it.
-
-Use it for questions you want answered against the real code, such as what the current implementation does or where a failure comes from. The branch stays where it was, so an Implementation Task on the same Issue afterwards starts from the same tip.
+**Analysis** mode inspects the live branch and discards its changes when the run ends. It completes without a commit and always uses Require Changes off. Use it to understand an implementation, investigate a failure, or compare options before an Implementation Task.
 
 ## Mixing the task modes
 
-Task Mode is stored per Task, so one Issue can run different modes across its rounds.
+Modes are stored per Task, so one Issue can use all three:
 
-| Mode | Run instruction | Changes at the end of the run | Delivery |
-|---|---|---|---|
-| **Implementation** | The mode's default template, or a template you supply | Committed by the worker | Branch pushed, Merge Request created or reused |
-| **Analysis** | The mode's default template, or a template you supply | Discarded | Nothing pushed |
-| **Freeform** | Fixed to `{{user_prompt}}` | Whatever the Harness produced | A Merge Request only when the run produced a commit |
+| Mode | Expected result | Delivery |
+|---|---|---|
+| **Implementation** | Worker commits the change | Branch and MR delivery |
+| **Analysis** | Worker reports without changing the branch | No push |
+| **Freeform** | Harness decides whether to answer, inspect, or edit | MR only when it creates a commit |
 
-Freeform rejects any template other than `{{user_prompt}}`, so the Harness receives your requirement without a wrapper. Use it when the Harness should decide whether to answer, analyse, or edit, and accept that the run may end with nothing to merge; with **Require Changes** off, that outcome is a success. **Require Changes** exists for Implementation only, where turning it on fails a Task that produced no commits.
-
-Run Analysis first to pin down the problem and the intended change, then append an Implementation Task to carry it out on the same branch. Each mode keeps its own template, so a template you edited under Implementation is waiting when you switch back to it, and it is never applied to a mode you have not touched.
+Freeform's run instruction is fixed to `{{user_prompt}}`. With **Require Changes** off, a run that produces no commit still succeeds. A common sequence is Analysis first, then Implementation on the same branch.
 
 ## Previous-task summaries in context
 
-Every run that belongs to an Issue gets a summaries file inside the container at `/tmp/codify-runtime/previous-task-summaries.md`, exposed to run instructions as `{{previous_task_summaries_path}}`. The built-in Implementation and Analysis templates never reference it, so the file goes unread unless you add the placeholder yourself.
+Every Issue run writes `/tmp/codify-runtime/previous-task-summaries.md` and exposes its path as `{{previous_task_summaries_path}}`. Built-in Implementation and Analysis templates do not reference it, so add the placeholder yourself when earlier-round summaries are useful. Freeform cannot add it because its template is fixed.
 
-To do that, open **Advanced** in the task form, edit the **Run Instruction Template** of an Implementation or Analysis Task, place `{{previous_task_summaries_path}}` where the instruction should consult the earlier rounds, and check the result in **Preview**. The rendered prompt is stored on the Task, so you can confirm afterwards what the Harness received. Freeform does not accept the placeholder, since its template has to be `{{user_prompt}}`.
-
-The file starts with the Issue title and description, then holds one entry per earlier Task, with its status, goal, commit message, and execution summary. When the Issue has no earlier Task, the file says so. It is a summary of the earlier rounds; for the conversation itself, use **Continue session**.
+Open **Advanced**, edit the mode's **Run Instruction Template**, add the placeholder, and check **Preview**. The rendered prompt is stored on the Task. The file contains the Issue title and description plus earlier Task status, goal, commit message, and execution summary.
 
 ## Continuing across Issues
 
-**Starting Branch** lists every branch in the project, with no filtering, so another Issue's `codify/issue-{id}` can be selected there. The new Issue's branch is then created from that branch at its current tip: the first Task clones the chosen branch and runs `git checkout -b` against its remote tip. The source Issue does not need to be merged or closed: nothing in the flow reads its status, and a source that has never run works just as well.
+Select any existing project branch in **Starting Branch**, including another Issue's `codify/issue-{id}`. The new Issue gets a new workspace, session lineage, and Task history; only the branch's commits carry over.
 
-What does not come across:
+Watch for three cases:
 
-- **Only commits carry over.** The new Issue gets its own workspace, its own session lineage, and its own task history.
-- **No link between the Merge Requests.** Each Issue keeps its own MR, keyed by its own branch.
-
-What goes wrong:
-
-- **The source branch is gone.** If the branch no longer exists when the new Issue's first Task runs, Codify logs a warning, falls back to the project's default branch, and the Task succeeds from there with the intended work missing. Closing the source Issue with **Close and Delete Branch** before the new Issue has ever run is the usual way to reach that state; run the new Issue once before cleaning up the old branch.
-- **The Merge Target points at the default branch.** The field prefills to the project's default branch, so an MR from the new Issue carries the source Issue's unmerged commits into that branch, since they are ancestors of the new branch. If those commits should not land in the default branch, point the target at the source branch or merge the source Issue first.
-- **Push rights belong to GitLab.** Codify manages no protected branches. A protected-branch rule matching `codify/*` blocks the push for the bot and for you.
+- If the source branch is deleted before the new Issue's first run, preparation falls back to the project default branch and logs a warning. Run the new Issue once before cleaning up the source.
+- The new Issue's Merge Target defaults to the project default branch. Point it at the source branch when the source commits should not enter the default branch yet.
+- Codify does not manage GitLab protected-branch rules. A rule matching `codify/*` can block both the bot and your own push.
 
 ## Sharing the branch with Codify
 
-`codify/issue-{id}` is an ordinary remote branch, and your commits belong on it as much as the worker's. Codify accepts a remote that is ahead of its workspace: the workspace fast-forwards to your tip, and the next run continues from there. At delivery Codify observes the remote tip again and uses it as the `--force-with-lease` lease, so a push of yours that lands mid-run is rejected rather than overwritten.
+The working branch is an ordinary remote branch. Your commits can be used by the next Task; Codify fast-forwards the workspace when the remote is ahead.
 
-The history has to stay a straight line. A diverged local and remote, a remote that was rewound, a remote branch deleted while the workspace still remembers it, and a workspace whose uncommitted changes meet a remote that has moved on are each refused: preparation fails before the Harness starts, and neither side is overwritten. Under a shallow clone some ancestry cannot be proven, and that is refused in the same way. Adding commits on top is fine; rewriting the branch is not.
+Codify rechecks the remote before delivery and uses it as the `--force-with-lease` value. A push that lands during the run is rejected rather than overwritten. Diverged or rewound history, a deleted remote branch, an unverifiable shallow history, or uncommitted local work meeting a moved remote is also refused.
 
-Codify itself offers no way to move commits to a different branch: there is no cross-branch copy inside the platform. Those commits are ordinary git history, so cherry-pick them from that branch in your own clone when you need them elsewhere.
+Codify has no cross-branch copy action. Move commits with normal Git commands, such as cherry-pick, in your own clone.

@@ -100,6 +100,11 @@ describe('Guide view', () => {
     expect(wrapper.find('.guide-content__slides').exists()).toBe(true)
     expect(wrapper.find('.product-slides__viewport--quick-start').exists()).toBe(true)
 
+    await router.push('/guide/15-create-issue')
+    await flushPromises()
+    expect(wrapper.find('.product-slides__viewport--create-issue').exists()).toBe(true)
+    expect(wrapper.findAll('.product-slides__viewport--create-issue .product-slide')).toHaveLength(3)
+
     await router.push('/guide/58-how-it-works')
     await flushPromises()
     expect(wrapper.find('.product-slides__viewport--how-it-works').exists()).toBe(true)

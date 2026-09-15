@@ -4,62 +4,52 @@ section: User Guide
 tier: deep
 ---
 
-这一章说明任务最后一次提交之后、代码到达远端分支之前发生的事，以及一次运行结束后会留下什么：推送时比对哪一份远端状态、推送被拒绝会带上哪些错误码、运行归档收录什么以及保留多久。推送被拒绝而错误码不足以判断下一步时，或者需要一次运行的完整日志时，可以从这里查起。日常使用可先阅读[《交付》](/guide/50-delivery)，其中已经覆盖分支、合并请求、变更统计和用量统计。
+推送结果不清楚，或需要一次运行的完整证据时，查这页。日常的分支、MR 和统计流程见[《交付》](/guide/50-delivery)。
 
 ## 推送规则
 
-任务执行结束时会自动把工作分支推送到远端。推送以推送前刚取到的远端位置作为比对基准（`--force-with-lease`）：远端仍停在该位置时推送才会成功，Codify 不会退回普通的强制推送。第一次推送则要求远端分支尚不存在。
+推送前，Codify 会先获取远端分支位置，再以这一次获取到的位置作比对。它使用 `--force-with-lease`，只有远端仍停在该位置时才会推送，永远不会退回普通强制推送。第一次推送还会确认远端分支不存在。
 
 ## 推送失败
 
-推送被拒绝或未获确认时，任务判定为失败，提交仍保留在工作区。失败会带上下列错误码之一：
+推送被拒绝或结果无法确认时，任务失败，但提交仍保留在工作区。
 
 | 错误码 | 含义 |
-|--------|------|
-| `remote_diverged` | 远端分支已移动，本地与远端互不包含；不做合并，直接拒绝 |
-| `remote_rewound` | 远端分支不再包含本次执行开始时的提交 |
-| `remote_deleted` | 执行开始后远端分支被删除 |
-| `remote_changed` | 推送被拒绝，复查时远端分支又发生了变化 |
-| `branch_changed` | 收尾期间本地分支发生了变化 |
-| `history_rewritten` | 分支历史与记录的起点不再一致 |
-| `history_unverifiable` | 无法在本地确认祖先关系（通常是浅克隆），因此没有尝试推送 |
-| `push_failed` | 推送被拒绝，且远端分支没有变化 |
-| `remote_unconfirmed` | 推送后无法确认远端状态，交付不算完成 |
+|---|---|
+| `remote_diverged` | 本地与远端历史已经分叉 |
+| `remote_rewound` | 远端不再包含本次运行的起始提交 |
+| `remote_deleted` | 运行期间远端分支被删除 |
+| `remote_changed` | 推送被拒绝后，复查时远端又发生变化 |
+| `branch_changed` | 收尾期间本地分支发生变化 |
+| `history_rewritten` | 分支历史不再符合记录的起点 |
+| `history_unverifiable` | 本地历史太浅，无法证明祖先关系，因此没有尝试推送 |
+| `push_failed` | 推送被拒绝，但远端位置没有变化 |
+| `remote_unconfirmed` | 推送后无法观察远端状态 |
 
-界面会原样显示原始错误文本，不做翻译。
-
-任务如果在 Worker 提交残留改动之前就失败，工作区会留下这些改动：下一次执行开始时文件仍在，可能随本次改动一起提交，因此下一个任务的 diff 里可能包含并非它产生的内容。
+界面会在结果旁显示原始 Git 错误。任务如果在提交残留改动前失败，这些未提交文件会留在工作区，下一条任务可能把它们一起提交；继续之前先检查工作区。
 
 ## 运行归档
 
-任务页的「操作」区块提供「下载运行归档」，得到的是本次运行的证据包 `task-{id}-runtime-archive.tar.gz`，一个 gzip 打包的 tar 文件。
+容器退出后，Codify 从 `/tmp/codify-runtime` 封装本次运行证据，生成 `task-{id}-runtime-archive.tar.gz` 并存到控制面主机。只有「已完成」和「失败」任务显示下载入口，下载权限与任务页相同。取消或超时的运行也可能有归档，只是界面入口不可用。
 
-归档由容器在进程退出时从本次运行的临时目录 `/tmp/codify-runtime` 封装生成，因此只要任务收尾就会生成，无论结果是成功、失败、取消还是超时；后端随后把它流式写入控制机上的归档存储 `/opt/codify-archives`。只有「已完成」与「失败」的任务会显示下载入口，它和任务页走同一套项目权限校验；下载失败时页面会提示「下载运行归档失败」。
-
-条目只在运行确实产生时才收录，因此提前结束的执行会得到更小的归档：
+文件只有在运行确实产生时才会出现：
 
 | 文件 | 内容 |
-|------|------|
-| `event.jsonl` | 规范化事件流，界面「事件流」页签的数据来源 |
-| `opencode-http-audit.jsonl` | HTTP 审计记录，只有 OpenCode 运行会产生 |
+|---|---|
+| `event.jsonl` | 「事件流」使用的归一化事件 |
+| `harness-events/` | 本次 Harness 的原始事件 |
+| `console.log` | 容器原始输出 |
 | `harness-result.json` | Harness 最终结果 |
-| `runtime.json` | 运行时信息，含实际使用的模型；由 Claude 的 runner 写入，其他 Harness 不产生该文件 |
-| `console.log` | 容器控制台原始输出 |
+| `runtime.json` | 运行时与模型信息，Claude 运行会写入 |
+| `repository-preparation.json` | 仓库准备遥测数据 |
 | `delivery-summary.md` | 交付摘要 |
 | `delivery-summary-validation.json` | 交付摘要校验结果 |
-| `repository-preparation.json` | 仓库克隆与准备的遥测数据 |
-| `artifacts-validation.json` | 制品收集与封装的校验结果 |
-| `harness-events/` | 本次使用 Harness 的原始事件流，命名为 `claude.jsonl`、`codex.jsonl`、`pi.jsonl` 或 `opencode.jsonl`；`claude.jsonl` 每次运行都会预创建，未使用 Claude 时为空文件 |
-| `artifacts/` | 本次运行的用户制品，封装后原样收录 |
+| `artifacts-validation.json` | 制品收集与封装结果 |
+| `artifacts/` | 在预算内的用户制品 |
+| `opencode-http-audit.jsonl` | OpenCode HTTP 审计记录 |
 
-按钮上的提示只列出常见的几项：`console.log`、`repository-preparation.json`，以及进入 AI 执行阶段后才会有的 `event.jsonl` 和 `runtime.json`。
+归档不包含提示词文件、制品策略、脚本、编排用 Runtime Bundle、超时标记、仓库、工作区挂载和 Harness 状态目录。它只收录本次运行写入临时目录的内容。
 
-其余临时文件不会进归档：提示词文件、制品策略、前置与后置脚本、编排用的运行时包（Runtime Bundle）和超时标记都不在其中；工作区与 Git 仓库本身不打包，`claude/` 与 `shared/` 挂载上的 Harness 状态目录也不打包，归档只收录本次运行写进自己临时目录的内容。
+整包硬上限、制品预算和保留期见[《平台参考》](/guide/96-platform-reference)。超过预算或封装上限时，Codify 会省略用户制品目录，并把原因写进 `artifacts-validation.json`。清理按归档记录时间计算，不会删除任务。
 
-归档整包的硬上限、默认制品预算和可调整范围见[《平台参考》](/guide/96-platform-reference)。封装失败，或加入 `artifacts/` 后会超过上限时，Codify 会省略用户制品目录，并把省略原因写进 `artifacts-validation.json`。
-
-归档按系统配置中的保留期清理，具体默认值见[《平台参考》](/guide/96-platform-reference)。清理按归档记录的创建时间计算；过期后页头的「下载运行归档」按钮停用，侧栏操作卡片同时显示「文件已过期」与原因说明。任务本身记录的事件流与元数据仍可查看，删除归档不会删除任务记录。
-
-日志面板里的「原始日志」在内容过大时只渲染最近片段，完整日志可以从运行归档里下载。
-
-如果同一份文件能以结构化数据获取（例如某次工具调用的输入或输出），过程面板可以直接加载；数据不可再取到时面板提示「加载内容失败」，加载归档数据时显示加载中状态。
+浏览器日志被截断时，用归档取得完整输出。结构化工具数据可以直接在进程面板中加载；数据不可用时会显示「加载内容失败」。

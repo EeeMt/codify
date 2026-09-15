@@ -254,7 +254,7 @@
             <div v-else-if="slide.visual === 'modes'" class="visual-modes">
               <div class="visual-modes__choice visual-modes__choice--active"><span>01</span><div><strong>{{ t('productSlides.labels.implementation') }}</strong><small>{{ t('productSlides.labels.changeAndCommit') }}</small></div><b>✓</b></div>
               <div class="visual-modes__choice"><span>02</span><div><strong>{{ t('productSlides.labels.analysis') }}</strong><small>{{ t('productSlides.labels.inspectAndReport') }}</small></div><b>○</b></div>
-              <div class="visual-modes__choice"><span>03</span><div><strong>{{ t('productSlides.labels.ciRepair') }}</strong><small>{{ t('productSlides.labels.repairFailedPipeline') }}</small></div><b>○</b></div>
+              <div class="visual-modes__choice"><span>03</span><div><strong>{{ t('productSlides.labels.freeform') }}</strong><small>{{ t('productSlides.labels.freeformHandling') }}</small></div><b>○</b></div>
               <div class="visual-modes__tip"><span>↳</span>{{ t('productSlides.labels.chooseByOutcome') }}</div>
             </div>
 
@@ -302,7 +302,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-export type ProductSlidesVariant = 'onboarding' | 'quick-start' | 'create-task' | 'delivery' | 'how-it-works'
+export type ProductSlidesVariant = 'onboarding' | 'quick-start' | 'create-issue' | 'create-task' | 'delivery' | 'how-it-works'
 type ProductSlideVisual = 'intent' | 'issue' | 'system' | 'review' | 'start' | 'prompt' | 'modes' | 'followup' | 'delivery' | 'layers' | 'model' | 'harness' | 'boundary' | 'codify' | 'stack' | 'debug'
 type ProductSlideAccent = 'blue' | 'mint' | 'amber' | 'violet'
 
@@ -318,11 +318,10 @@ interface ProductSlideDefinition {
 }
 
 const ONBOARDING_SLIDES: ProductSlideDefinition[] = [
-  { id: 'intent', visual: 'intent', accent: 'blue', kickerKey: 'onboarding.slides.intent.kicker', overlineKey: 'onboarding.slides.intent.overline', titleKey: 'onboarding.slides.intent.title', bodyKey: 'onboarding.slides.intent.body', noteKey: 'onboarding.slides.intent.note' },
   { id: 'issue', visual: 'issue', accent: 'mint', kickerKey: 'onboarding.slides.issue.kicker', overlineKey: 'onboarding.slides.issue.overline', titleKey: 'onboarding.slides.issue.title', bodyKey: 'onboarding.slides.issue.body', noteKey: 'onboarding.slides.issue.note' },
-  { id: 'system', visual: 'system', accent: 'blue', kickerKey: 'onboarding.slides.system.kicker', overlineKey: 'onboarding.slides.system.overline', titleKey: 'onboarding.slides.system.title', bodyKey: 'onboarding.slides.system.body', noteKey: 'onboarding.slides.system.note' },
+  { id: 'prompt', visual: 'prompt', accent: 'blue', kickerKey: 'onboarding.slides.prompt.kicker', overlineKey: 'onboarding.slides.prompt.overline', titleKey: 'onboarding.slides.prompt.title', bodyKey: 'onboarding.slides.prompt.body', noteKey: 'onboarding.slides.prompt.note' },
+  { id: 'system', visual: 'system', accent: 'violet', kickerKey: 'onboarding.slides.system.kicker', overlineKey: 'onboarding.slides.system.overline', titleKey: 'onboarding.slides.system.title', bodyKey: 'onboarding.slides.system.body', noteKey: 'onboarding.slides.system.note' },
   { id: 'review', visual: 'review', accent: 'amber', kickerKey: 'onboarding.slides.review.kicker', overlineKey: 'onboarding.slides.review.overline', titleKey: 'onboarding.slides.review.title', bodyKey: 'onboarding.slides.review.body', noteKey: 'onboarding.slides.review.note' },
-  { id: 'start', visual: 'start', accent: 'violet', kickerKey: 'onboarding.slides.start.kicker', overlineKey: 'onboarding.slides.start.overline', titleKey: 'onboarding.slides.start.title', bodyKey: 'onboarding.slides.start.body', noteKey: 'onboarding.slides.start.note' },
 ]
 
 const QUICK_START_SLIDES: ProductSlideDefinition[] = [
@@ -330,6 +329,12 @@ const QUICK_START_SLIDES: ProductSlideDefinition[] = [
   { id: 'prompt', visual: 'prompt', accent: 'blue', kickerKey: 'guide.slides.quickStart.task.kicker', overlineKey: 'guide.slides.quickStart.task.overline', titleKey: 'guide.slides.quickStart.task.title', bodyKey: 'guide.slides.quickStart.task.body', noteKey: 'guide.slides.quickStart.task.note' },
   { id: 'system', visual: 'system', accent: 'violet', kickerKey: 'guide.slides.quickStart.run.kicker', overlineKey: 'guide.slides.quickStart.run.overline', titleKey: 'guide.slides.quickStart.run.title', bodyKey: 'guide.slides.quickStart.run.body', noteKey: 'guide.slides.quickStart.run.note' },
   { id: 'review', visual: 'review', accent: 'amber', kickerKey: 'guide.slides.quickStart.review.kicker', overlineKey: 'guide.slides.quickStart.review.overline', titleKey: 'guide.slides.quickStart.review.title', bodyKey: 'guide.slides.quickStart.review.body', noteKey: 'guide.slides.quickStart.review.note' },
+]
+
+const CREATE_ISSUE_SLIDES: ProductSlideDefinition[] = [
+  { id: 'boundary', visual: 'boundary', accent: 'blue', kickerKey: 'guide.slides.createIssue.boundary.kicker', overlineKey: 'guide.slides.createIssue.boundary.overline', titleKey: 'guide.slides.createIssue.boundary.title', bodyKey: 'guide.slides.createIssue.boundary.body', noteKey: 'guide.slides.createIssue.boundary.note' },
+  { id: 'context', visual: 'prompt', accent: 'mint', kickerKey: 'guide.slides.createIssue.context.kicker', overlineKey: 'guide.slides.createIssue.context.overline', titleKey: 'guide.slides.createIssue.context.title', bodyKey: 'guide.slides.createIssue.context.body', noteKey: 'guide.slides.createIssue.context.note' },
+  { id: 'delivery', visual: 'delivery', accent: 'amber', kickerKey: 'guide.slides.createIssue.delivery.kicker', overlineKey: 'guide.slides.createIssue.delivery.overline', titleKey: 'guide.slides.createIssue.delivery.title', bodyKey: 'guide.slides.createIssue.delivery.body', noteKey: 'guide.slides.createIssue.delivery.note' },
 ]
 
 const CREATE_TASK_SLIDES: ProductSlideDefinition[] = [
@@ -358,6 +363,7 @@ const HOW_IT_WORKS_SLIDES: ProductSlideDefinition[] = [
 const SLIDE_DECKS: Record<ProductSlidesVariant, ProductSlideDefinition[]> = {
   onboarding: ONBOARDING_SLIDES,
   'quick-start': QUICK_START_SLIDES,
+  'create-issue': CREATE_ISSUE_SLIDES,
   'create-task': CREATE_TASK_SLIDES,
   delivery: DELIVERY_SLIDES,
   'how-it-works': HOW_IT_WORKS_SLIDES,

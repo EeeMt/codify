@@ -6,44 +6,46 @@ tier: deep
 
 ## 先看数据来源
 
-这页集中放容易随版本或部署变化的边界值，避免用户在多个章节之间寻找不同的说法。实际排障时以当前系统配置、任务快照和运行时验证结果为准；下表是代码支持的范围与安装默认值，不是对每个实例当前取值的承诺。
+平台当前取值看「系统配置」，某条任务实际使用的值看 Task Snapshot，能否执行看 Worker 运行时验证。
 
-| 要确认的内容 | 首选位置 | 说明 |
-|---|---|---|
-| 当前超时、并发和保留期 | **系统配置** 页面 | 数据库覆盖可能已经替换环境变量和内置默认值 |
-| 某个任务实际使用的值 | 任务详情页的 **任务快照** | 任务创建或开始执行时冻结，之后配置改动不回写 |
-| Worker Kit、镜像和 Harness | **Worker** 的运行时验证，以及任务快照 | 版本和来源随 Profile、主机和 Runtime Bundle 变化 |
-| 宿主机路径与密钥 | 部署环境变量和主机 | 页面不会显示或修改所有部署约束 |
+| 要确认什么 | 去哪里看 |
+|---|---|
+| 当前超时、容量和保留期 | 「系统配置」 |
+| 某条任务用了什么值 | 任务详情页的 Task Snapshot |
+| 哪个 Worker Kit、镜像或 Harness 可用 | 「Worker」验证结果和 Task Snapshot |
+| 宿主机路径和密钥在哪里设置 | 部署环境和 Docker 主机 |
+
+下面的默认值和范围来自当前代码；某个实例可能已经用数据库覆盖值替换它们。
 
 ## 容量、超时与保留期
 
-| 配置项 | 内置默认值 | 支持范围或生效规则 |
+| 配置项 | 默认值 | 规则 |
 |---|---:|---|
-| `MAX_CONCURRENCY` | `3` | `1` 至 `20`；同时运行的任务数 |
-| `TASK_TIMEOUT_PEAK_SECONDS` | `1800` 秒 | 60 至 28800 秒；任务进入 RUNNING 时冻结 |
-| `TASK_TIMEOUT_OFF_PEAK_SECONDS` | `3600` 秒 | 60 至 28800 秒；任务进入 RUNNING 时冻结 |
-| `TASK_TIMEOUT_PEAK_START` / `END` | `09:00` / `18:00` | 业务时区的 `HH:mm`；开始包含，结束不包含 |
-| `SCHEDULER_INTERVAL` | `5` 秒 | `1` 至 `60` 秒；调度器轮询间隔 |
-| `worker_workspace_retention_days` | `14` 天 | `0` 至 `365` 天；0 表示关闭普通 workspace 自动清理，仅回收没有活跃任务且超过保留期的目录 |
-| `worker_runtime_archive_retention_days` | `30` 天 | `1` 至 `3650` 天；按归档记录时间清理运行归档，不删除任务记录 |
-| `SLOT_MAX_TASKS` | `0` | `0` 至 `100` 个/小时；0 表示不限制 |
-| `SLOT_MAX_TASKS_ENFORCE` | `false` | 满载时拒绝创建，关闭时只给出警告 |
+| MAX_CONCURRENCY | 3 | 同时运行 1–20 条任务 |
+| TASK_TIMEOUT_PEAK_SECONDS | 1800 秒 | 60–28800 秒，任务开始时冻结 |
+| TASK_TIMEOUT_OFF_PEAK_SECONDS | 3600 秒 | 60–28800 秒，任务开始时冻结 |
+| TASK_TIMEOUT_PEAK_START / END | 09:00 / 18:00 | 业务时区 HH:mm，开始包含、结束不包含 |
+| SCHEDULER_INTERVAL | 5 秒 | 1–60 秒 |
+| worker_workspace_retention_days | 14 天 | 0–365 天，0 表示关闭普通工作区清理 |
+| worker_runtime_archive_retention_days | 30 天 | 1–3650 天，不删除任务记录 |
+| SLOT_MAX_TASKS | 0 | 每小时 0–100 条任务，0 表示不限制 |
+| SLOT_MAX_TASKS_ENFORCE | false | 开启时满载拒绝创建，关闭时只警告 |
 
-超时策略使用配置页显示的业务时区。高峰、低峰值只在任务开始执行时选择一次，跨过时间边界也不会切换。任务详情页的「本次超时上限」和「执行截止时间」是判断单个任务的准确信息。
+任务进入「执行中」时只选择一次高峰或低峰档位。判断单条任务时，以任务记录的「本次超时上限」和「执行截止时间」为准。
 
 ## Worker Kit 与运行时边界
 
-| 能力 | 最低条件 | 备注 |
-|---|---|---|
-| 浅克隆、延迟下载历史文件内容 | 挂载 Worker Kit，版本 `0.3.0` 或更高 | 不满足时创建需求表单会禁用选项 |
-| Skills | 挂载 Worker Kit，版本 `0.3.5` 或更高 | 镜像内置交付方式不支持 Skills |
-| Harness | Profile 已选择且运行时验证通过 | 实际可用性还取决于 Kit inventory、Provider 协议和 Runtime Bundle |
-| Worker Kit 路径 | Docker 主机上的绝对路径 | 任务容器内通常挂载为 `/opt/codify-kit`，详情见[《Worker 运行时》](/guide/92-worker-runtime) |
+| 能力 | 最低条件 |
+|---|---|
+| 浅克隆和延迟下载历史文件内容 | 挂载 Worker Kit 0.3.0 或更高 |
+| Skills | 挂载 Worker Kit 0.3.5 或更高 |
+| Harness 执行 | Profile 已选择 Harness 且运行时验证通过 |
+| Worker Kit 路径 | Docker 主机上的绝对路径，通常挂载到 /opt/codify-kit |
 
-Worker Kit 的具体版本、镜像标签和 Harness 二进制版本不在指南中固定列出，因为它们会随部署和 Profile 变化。以 Worker 配置、运行时验证结果和 Task Snapshot 中的身份为准。Runtime Bundle 是按冻结身份生成的不可变工件；替换主机上的 Kit 不会改变已经创建的任务。
+镜像内置交付方式已过时且不支持 Skills。实际 Kit、镜像和 Harness 版本属于 Profile 与部署环境。Runtime Bundle 不可变，替换主机 Kit 不会改变已有任务。
 
 ## 归档与制品上限
 
-运行归档有 `640 MiB` 的硬上限。默认制品预算为总计 `200 MiB`、单文件 `100 MiB`、最多 `5,000` 个条目；系统配置的 Worker 设置支持把总量和单文件上限设为 `1 MiB` 至 `512 MiB`，条目上限设为 `1` 至 `100,000`，且单文件上限不能超过总量。归档整包仍受 `640 MiB` 硬上限约束。超过预算时，Codify 会省略用户制品目录并在 `artifacts-validation.json` 中记录原因；事件流和任务记录不会因此删除。
+运行归档硬上限为 640 MiB。默认用户制品预算为总计 200 MiB、单文件 100 MiB、5,000 个条目；可配置范围为总量和单文件 1–512 MiB、条目 1–100,000 个。单文件上限不能超过总上限。
 
-工作区清理和运行归档清理互相独立。清理工作区不会删除任务记录，清理运行归档也不会删除任务；需要查看清理结果和强制清理的风险时，先读[《管理员治理》](/guide/85-admin-governance)。
+超过制品预算或归档上限时，Codify 会省略用户制品目录，并把原因写进 artifacts-validation.json；事件和任务记录仍保留。工作区清理与归档清理相互独立，都不会删除任务记录。

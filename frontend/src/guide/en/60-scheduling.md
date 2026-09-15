@@ -6,99 +6,62 @@ tier: deep
 
 ## Queue and priority arbitration {core}
 
-Codify tracks three states between a Task's creation and its run:
-
-- **Pending**: created, not yet eligible to run.
-- **Queued**: eligible, waiting for capacity.
-- **Running**: claimed by a worker.
-
-Codify looks for work on a fixed interval, set by **Scheduler Interval (seconds)** ("How often the scheduler checks for work."). Each cycle promotes only the legal head of each unlocked Issue from **Pending** to **Queued**, then starts at most one Task. A Task that is not the head of its Issue is never promoted, no matter how high its priority.
+After creation, a Task is **Pending** until it is eligible, **Queued** until a Worker claims it, and **Running** while the Worker executes it. The scheduler checks on its configured interval. Each cycle promotes eligible Issue heads and starts at most one Task.
 
 ![Three gates before a run: turn order, schedule, capacity](assets/diagrams/en/why-a-task-waits.svg)
 
-> [!warning] Waiting is not automatically an error. A Task may be behind another turn, before its scheduled time, or waiting for a free concurrency slot. The task card names which gate is holding it.
+An Issue's turn order is the first gate. A Task that is not the active head of its Issue cannot be promoted, regardless of priority. Among eligible heads, Codify chooses:
 
-Among the eligible heads, Codify picks in this order:
+1. Priority: **P0**, then **P1**, then **P2**.
+2. Due scheduled Tasks before immediate Tasks.
+3. Earlier scheduled time.
+4. Earlier creation time, then Task id.
 
-1. Priority ascending: **P0 (Highest)**, then **P1 (High)**, then **P2 (Normal)**.
-2. Scheduled Tasks before immediate Tasks, because a user who booked a slot expects it to run near that time.
-3. Earlier scheduled times first.
-4. Creation order as the final tiebreaker, oldest first.
+> [!warning] A waiting Task is not necessarily broken. Read its queue message to tell whether it is behind a predecessor, before its schedule, or waiting for capacity.
 
-Monitor prints the same rule in one line: Running → Ready (Priority P0 first, then due scheduled before immediate, then earlier schedule first, then FIFO) → Waiting, with waiting tasks sorted by scheduled time.
-
-Priority arbitrates between Issues only, never between the turns inside one Issue. A queued Task belonging to a busy Issue never becomes a candidate, so it cannot sit at the head of the global order and starve runnable work from other Issues.
-
-The claim is atomic: Codify re-checks the Task's turn number at the moment it moves the Task from **Queued** to **Running**.
+The claim checks the Task's turn again when it changes from **Queued** to **Running**, so a stale queue view cannot start the wrong turn.
 
 ## Concurrency and per-issue mutex
 
-Global concurrency is capped by **Max Concurrency**, the maximum number of tasks that can run at the same time. When all slots are taken, eligible Tasks stay **Queued** with the message that they will start automatically when capacity becomes available.
+**Max Concurrency** is the platform-wide number of Tasks that may run at once. When all slots are in use, eligible Tasks remain **Queued**.
 
-A per-issue mutex allows only one Task per Issue to run at a time. Codify holds the Issue for the whole run and releases it only after the Task is terminal and its isolated container is gone. Two Tasks on the same Issue can never write the same checkout concurrently, which is what keeps the shared workspace and session safe.
+Codify also holds a mutex per Issue. Only one Task on an Issue can run at a time, and the lock is released after the Task is terminal and its container is gone. This protects the shared workspace and Harness session.
 
-An Issue therefore behaves like a long-lived CLI session. You can append as many Tasks as you like and schedule them freely; they execute strictly in turn order, each one seeing the results of the previous turn.
-
-Because of the mutex, a Task that is the head of a busy Issue stays **Queued** while its predecessor runs, and the task page reports the reason, for example that it is waiting for the Task ahead of it to complete, or that it is queued at a specific position.
+If work should proceed in parallel, use separate Issues. Tasks appended to one Issue always run in turn order.
 
 ## Schedule windows and slot capacity
 
-Scheduling a Task has two independent constraints.
+Scheduling has two independent limits:
 
-**The Issue queue window.** Within one Issue, scheduled times must stay monotonic. A new or rescheduled Task cannot be earlier than the latest scheduled time of any earlier active Task, and cannot be later than the earliest scheduled time of any later active Task. The UI reports the violation as a floor or ceiling constraint naming the Task that causes it, and shows the available window when one exists. If no valid window exists for that Issue's queue, the form says so and refuses the time.
+- **Issue queue window**: inside one Issue, a new or rescheduled time cannot move before an earlier active Task's scheduled time or after a later active Task's scheduled time. The form shows the available floor and ceiling; it rejects the Task when no valid time remains.
+- **Slot capacity**: **Max Tasks per Hour Slot** limits how many active scheduled Tasks fall in one hour. 0 means unlimited. **Enforce Slot Limit** rejects a full slot; with it off, the form warns and allows creation.
 
-**Slot capacity.** Separately from the queue window, an administrator can cap how much work lands in the same hour:
-
-| Setting | Meaning |
-|---|---|
-| **Max Tasks per Hour Slot** | Maximum number of tasks that can be scheduled in the same 1-hour window. `0` means unlimited |
-| **Enforce Slot Limit** | When enabled, reject task creation if the target hour slot is full. Otherwise, show a warning only |
-
-The task form and the **Schedule Load (7 days)** preview expose this before you commit. Clicking a cell sets that hour as the scheduled time; darker cells mean more tasks are already scheduled there. When a slot fills up you get one of two responses:
-
-- **Time slot {start}–{end} is near/at capacity ({count}/{max} tasks).** This is a warning, and creation can proceed.
-- **Time slot {start}–{end} is at full capacity ({count}/{max} tasks). Task creation is blocked.** Enforcement is on and the slot is full.
-
-Schedule Overview renders the same data at platform scale. **Next 24 Hours** counts scheduled tasks per hour, **Busy & Idle Windows** summarises the same window, and the **7-Day Heatmap** marks cells **Light**, **Busy**, or **Full** with the task count in each cell and **{count}/{max}** on hover. Times in these views are shown in UTC+8.
-
-The count covers every Task whose scheduled time falls inside the hour and that is still **Pending**, **Queued**, or **Running**. Slot capacity is a planning guard against landing twenty Tasks on the same hour; it does not throttle runs.
+The creation preview and **Schedule Overview** count Tasks that are still **Pending**, **Queued**, or **Running** and have a scheduled time. Slot capacity helps distribute planned work; it does not throttle running Tasks. Rescheduling still requires a future time and the Issue queue window.
 
 ## Timeout policy {core}
 
-Every Task has a maximum execution time, chosen from a two-tier policy configured under **Task Timeout Policy**:
+The administrator sets separate peak and off-peak limits:
 
 | Setting | Meaning |
 |---|---|
-| **Peak start time** / **Peak end time** | The daily peak window, in strict 24-hour `HH:mm`. Start is inclusive and end is exclusive |
-| **Peak timeout (seconds)** | Limit applied to runs that start inside the window |
-| **Off-peak timeout (seconds)** | Limit applied to runs that start outside it |
+| **Peak start / end** | A 24-hour HH:mm window in the business timezone |
+| **Peak timeout** | Limit for Tasks that start inside the window |
+| **Off-peak timeout** | Limit for Tasks that start outside it |
 
-Both limits must be between 60 and 28800 seconds. The window is evaluated in the business timezone shown next to the policy, labelled **Business timezone: {timezone}**, so the peak window follows human working hours rather than UTC. If the window is configured to wrap past midnight, the peak range is the span from start to end through midnight; setting both ends to the same value is rejected.
+The tier and limit are selected once when a Task enters **Running**. Crossing the time boundary later does not change that run. The Task page records **Execution timeout** and **Execution deadline** when available. Exceeding the limit ends the Task as **Failed** with type **Timeout**; cancelling it produces **Cancelled**.
 
-The tier is selected once, at the moment the Task enters **Running**, and frozen for that execution: a long run that started at 08:59 does not inherit a new, shorter limit halfway through.
-
-The task page shows the frozen value:
-
-- **Execution deadline**: the absolute time the run must finish by, shown once it has been recorded.
-- **Execution timeout**: how many seconds it was given. Before the Task starts the field reads **Determined when execution starts**; an execution that started before the field existed reads **Not recorded for this execution**.
-
-A run that exceeds its limit fails with the failure type **Timeout**. Increase the limits when legitimate work is being cut off; do not read a timeout as a model problem until you have checked the log for progress near the deadline.
+Supported ranges and installation defaults are in [Platform reference](/guide/96-platform-reference).
 
 ## Crash recovery
 
-A run can be interrupted at any moment: the work dies mid-turn, or the platform restarts while Tasks are still in flight. Codify reconciles what it finds.
+When a platform or Worker is interrupted, recovery compares the Task record with the container:
 
-A Task that was still **Running** when the interruption happened is picked up again: Codify resumes watching it and collects its logs and results. One of three outcomes follows:
-
-| Situation | What you see |
+| Situation | Recovery result |
 |---|---|
-| The interrupted run is still alive | The Task keeps running and its event stream continues |
-| The interrupted run is gone | The Task is marked **Failed**, or **Cancelled** if a cancellation had been requested, with the reason recorded |
-| Work is left behind with no Task owning it | It is cleaned up as an orphan |
+| Running container still exists | Reattach and continue collecting events and logs |
+| Container exited while the Task was Running | Drain its result, then finalize the Task |
+| Running Task has no container | Mark it **Failed**, or **Cancelled** when cancellation had been requested |
+| Container has no matching running Task | Clean it up as an orphan |
+| Docker target is temporarily unreachable | Keep the Task owned while recovery retries |
 
-Recovery never silently fails a Task whose outcome it cannot verify: while the answer is unknown the Task stays owned and the check is retried, and the Task is not re-queued. Recovery holds captured logs until it finalizes them, then cleans up the leftover work.
-
-Two related guards affect what you see:
-
-- Leftover work keeps its Issue unavailable until cleanup finishes, so a Task created immediately after a crash may report that it is waiting for its predecessor to clean up the workspace.
-- Recovery never resets a Task's turn number or reorders the queue. If an Issue's sequence is found to be inconsistent, Codify repairs it while that Issue is held; while the repair is pending, new scheduling for that Issue is temporarily unavailable and says so.
+Recovery does not reorder Tasks or reset turn numbers. A following Task waits while an earlier run is being finalized or its workspace is cleaned. If the turn sequence needs repair, scheduling for that Issue is paused until an administrator resolves it.

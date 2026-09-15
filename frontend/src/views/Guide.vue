@@ -370,6 +370,8 @@ const activeSlidesVariant = computed<ProductSlidesVariant | null>(() => {
   switch (activeChapter.value?.slug) {
     case '10-quick-start':
       return 'quick-start'
+    case '15-create-issue':
+      return 'create-issue'
     case '58-how-it-works':
       return 'how-it-works'
     case '30-create-task':

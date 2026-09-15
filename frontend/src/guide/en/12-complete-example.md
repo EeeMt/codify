@@ -6,9 +6,9 @@ tier: core
 
 ## Start with the example
 
-This fictional repository shows the full path from a new Issue to a reviewed result. The goal is to add a test for an expired token returning 401 from a login endpoint. Your project may use different files and endpoints, so replace the names with the ones in your repository.
+This fictional repository shows one complete pass: add a test for a login endpoint that should return 401 for an expired token. Replace its file and endpoint names with the ones in your repository.
 
-The example keeps two layers separate: the Issue description holds context that remains true across turns, while the Task prompt describes the work for this turn.
+Keep the two inputs separate. The Issue description holds durable context; the Task prompt defines this turn.
 
 ## Create the Issue first
 
@@ -23,7 +23,7 @@ The example keeps two layers separate: the Issue description holds context that 
 | Branch cleanup | Follow your team practice | Decide whether the AI branch is removed after merge |
 | Worker | A verified Worker with the required Harness | The Worker is fixed after creation, so check it now |
 
-Before submitting, confirm the project, branches, merge-request setting, Worker, and advanced settings. Those choices are frozen with the Issue; create another Issue when you need a different set.
+Before submitting, confirm the project, branches, MR setting, Worker, and advanced settings. These choices are frozen with the Issue.
 
 ## Write the Task prompt
 
@@ -45,7 +45,7 @@ Acceptance criteria:
 Verification: run the focused login tests, then the full test command documented by the repository. Report the commands and the important output.
 ```
 
-This prompt tells the Harness what to do, where it may work, what must stay stable, and how to verify the result. Name known files and commands; when you do not know them, ask the Harness to inspect the repository instead of guessing.
+This prompt gives the Harness a result, a boundary, and a check. Name known files and commands; when you do not know them, ask the Harness to inspect the repository first.
 
 ## Run, review, and continue
 

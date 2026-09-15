@@ -6,9 +6,9 @@ tier: core
 
 ## Issue
 
-An Issue is one requirement plus the state that outlives the Tasks on it: the workspace, the AI conversation session, and one branch. When **Create Merge Request** is on, that branch has one Merge Request lifecycle. Tasks run under the Issue; you cannot run work on an Issue directly.
+An Issue is the requirement and the state shared by its Tasks: one workspace, one AI session lineage, and one working branch. With **Create Merge Request** enabled, that branch has one MR lifecycle. Work always runs through a Task.
 
-An Issue is created from **Create Issue** with a project, a starting branch, and a merge target. Its description is stored separately from each Task prompt and becomes the default starting text for new Tasks.
+The Issue stores its description separately from each Task prompt. That description becomes the starting text for new Tasks.
 
 > [!info] **Where each piece lives**: the workspace, the session, and the branch belong to the Issue; the Task snapshot and the run archive belong to the Task.
 
@@ -22,13 +22,13 @@ An Issue is created from **Create Issue** with a project, a starting branch, and
 | Branch | **Branch** | The AI working branch, generated as `codify/issue-{id}` |
 | Creator | **Initiator** | Who owns the Issue and its tasks |
 
-Issues move through four statuses: **Open**, **In Progress**, **In Review**, and **Closed**. Codify sets **In Progress** automatically when a Task on the Issue starts running, and closes the Issue when the tracked Merge Request is merged by webhook. When the last active Task on an Issue ends, the Issue moves to **In Review** if any completed Task counts as delivery, and back to **Open** if none does. An **Implementation** task always counts; a **Freeform** task counts once it has pushed a commit.
+Issues move through **Open**, **In Progress**, **In Review**, and **Closed**. Codify marks an Issue **In Progress** when one of its Tasks is queued, and closes it when the tracked MR is merged by webhook. After the last active Task ends, the Issue is **In Review** when a completed Task counts as delivery; otherwise it returns to **Open**. An **Implementation** Task always counts, while a **Freeform** Task counts after it pushes a commit.
 
 Every Task on an Issue executes in strict order. Priority and scheduled time arbitrate between different Issues only; inside one Issue, turns never get reordered. A follow-up Task therefore always sees the workspace its predecessor left behind.
 
 ## Task and turn
 
-A Task is one round of execution, called a *turn*, in an Issue's ordered stream. Codify allocates the turn number when the Task is created and lists it in creation toasts as `turn #{sequence}`.
+A Task is one ordered execution, or *turn*, on an Issue. Codify assigns its turn number at creation and shows it as `turn #{sequence}`.
 
 A Task carries the fields you set at creation plus the execution identity Codify freezes for it:
 
@@ -40,13 +40,13 @@ A Task carries the fields you set at creation plus the execution identity Codify
 | Session | Session mode (`Continue session` or `Fresh session`), lineage generation |
 | Outcome | Status, failure reason, commits, change and token statistics, Merge Request |
 
-Task statuses are **Pending**, **Queued**, **Running**, **Completed**, **Failed**, and **Cancelled**. The Dashboard, the task table, Monitor, and Analytics share these statuses, so `Queued` means the same thing on every page.
+Task statuses are **Pending**, **Queued**, **Running**, **Completed**, **Failed**, and **Cancelled**. The Dashboard, task list, Monitor, and Analytics use the same vocabulary.
 
 Trigger sources record where a Task came from: manual creation, a **Retry**, a **Follow-up**, or a **CI auto-repair**.
 
 ## Harness
 
-The Harness is the coding agent CLI that performs the work inside the container. Codify does not run the model itself: it prepares a workspace, renders a prompt, and hands both to a Harness.
+The Harness is the coding-agent CLI that works inside the container. Codify prepares the workspace, renders the prompt, and hands both to the Harness; the model runs through that CLI.
 
 Each Harness has an adapter, a wire protocol, and a capability policy. The capability policy decides what a live run accepts: **steering** and **follow-up** commands are gated per Harness, so the steering controls on a task page are enabled only when the frozen runtime supports them. [Harness Support](/guide/65-harness-support) sets out the per-Harness differences.
 
@@ -56,13 +56,13 @@ A Task's Harness is part of its execution identity. Continue-session tasks must 
 
 ## Workspace, session, and branch
 
-Three things persist across the Tasks of one Issue:
+Three things persist across an Issue's Tasks:
 
 - **Workspace**: the checked-out repository. Codify keeps a per-Issue workspace so a follow-up Task does not clone from scratch. Stale workspaces are cleaned up on a retention schedule.
 - **Session**: the Harness conversation. Each Task records an input session and an output session, so a follow-up continues the same conversation instead of starting cold. `Continue session` inherits the current lineage; `Run in a new session` starts a new generation while keeping the workspace, branch, and history.
 - **Branch**: one working branch per Issue, generated as `codify/issue-{id}` from the Issue's **Starting Branch**. Every Task commits to that branch, and the Merge Request targets the Issue's **Merge Target**.
 
-Because all three are shared, an appended Task continues from where the previous one left off; the appended-task hint in the UI states the same. Workspace and runtime-archive cleanup follows the retention settings in [Platform reference](/guide/96-platform-reference), and cleanup does not delete the Task record.
+An appended Task therefore starts from the previous Task's code and conversation unless you choose a fresh session. Workspace and archive cleanup follows [Platform reference](/guide/96-platform-reference), and neither cleanup removes the Task record.
 
 ## Task snapshot and runtime bundle {deep}
 
@@ -79,7 +79,7 @@ This has several consequences:
 
 ## Delivery artifacts
 
-A finished Task produces these artifacts:
+A finished Task can leave these records:
 
 | Artifact | Where it appears |
 |---|---|
@@ -91,11 +91,11 @@ A finished Task produces these artifacts:
 | Delivery summary | AI-written Markdown summary, rendered with Mermaid diagrams where used |
 | Run archive | A downloadable gzip archive of the container's runtime files |
 
-Artifacts are per Issue as well as per Task: all Tasks deliver to one branch and, when enabled, one Merge Request. The Issue page aggregates them into a **Delivery Overview**.
+All Tasks on an Issue deliver to one branch and, when enabled, one MR. The Issue page aggregates them in **Delivery Overview**.
 
 ## Object model
 
-Six objects carry one piece of work through Codify, and all of them belong to the Issue you create at the start.
+Six records describe one piece of work:
 
 ![One Issue owns the workspace, the branch and all its tasks](assets/diagrams/en/object-model.svg)
 

@@ -83,7 +83,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const totalSteps = 5
+const totalSteps = 4
 const currentStep = ref(0)
 const isLastStep = computed(() => currentStep.value === totalSteps - 1)
 

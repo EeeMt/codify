@@ -6,73 +6,64 @@ tier: deep
 
 ## Worker filesystem
 
-Every Docker host that runs tasks keeps one directory tree per Issue under a root path that is fixed at deployment time. The tree holds what has to survive a container: the checkout, the Harness state that carries over between Tasks, and the bookkeeping that guards cleanup. Evidence from a single run stays inside the container and is discarded with it. The layout below concerns whoever provisions a Docker host or a Worker Profile, and anyone tracing where a session or a run archive is stored.
+Each Docker host keeps one persistent directory per Issue. The directory contains the checkout, cross-Task Harness state, and cleanup metadata. A run's evidence lives in the container scratch directory and is archived before the container is removed.
 
 ### Host layout
 
-The root is `worker_workspace_host_path`, read from `WORKER_WORKSPACE_HOST_PATH` and defaulting to `/opt/codify-workspaces`. It must exist at the same path on every Docker host. Codify keeps one directory per Issue inside it:
+The root is `WORKER_WORKSPACE_HOST_PATH`, exposed as `worker_workspace_host_path`, and defaults to `/opt/codify-workspaces`. It must use the same path on every Docker host.
 
-```text
+~~~text
 {worker_workspace_host_path}/project-{project_id}/issue-{issue_id}/
   repo/
   claude/
   shared/
   meta/
-```
+~~~
 
-The Configuration page cannot change the path. Changing it means updating `WORKER_WORKSPACE_HOST_PATH` and recreating Backend and Scheduler.
+The Configuration page cannot change this path. Change the environment value and recreate Backend and Scheduler.
 
 ### Container mounts
 
-A Task does not see the whole workspace directory. It mounts four of its children, all read-write, and all four outlive the container:
+Every Task on an Issue receives these four read-write mounts:
 
-| Container path | Host source | What it holds |
-| --- | --- | --- |
-| `/workspace` | `repo/` | The checkout, including the commits earlier Tasks left behind |
-| `/home/codify/.claude` | `claude/` | Claude CLI state: session transcripts, settings, and backups |
-| `/opt/codify-issue-shared` | `shared/` | Issue-shared space, including the state directories other Harnesses keep there |
-| `/opt/codify-issue-meta` | `meta/` | Bookkeeping: `workspace.json`, the `ownership` marker, and the `owner` delete guard |
+| Container path | Persistent content |
+|---|---|
+| `/workspace` | Checkout and commits from earlier Tasks |
+| `/home/codify/.claude` | Claude session and CLI state |
+| `/opt/codify-issue-shared` | Shared Issue state, including other Harness directories |
+| `/opt/codify-issue-meta` | `workspace.json`, ownership, and delete-guard metadata |
 
-Every Task on an Issue uses the same mount set, so a follow-up Task starts from the previous checkout and session instead of cloning again.
+The mounts survive the container, so a follow-up Task reuses the checkout and session.
 
 ### Where each Harness keeps its state
 
-The four mount paths are fixed, but each Harness puts its own home, config, cache, and session directories on a different one of them, and only Claude uses the `claude/` mount.
+| Harness | Kept across Tasks | Rebuilt for each run |
+|---|---|---|
+| Claude | `/home/codify/.claude` | `.claude.json` and the run prompt |
+| Codex | `CODEX_HOME` under `shared/codex-home` | Fallback home under `/tmp/codify-runtime` |
+| Pi | `PI_HOME` under `shared/pi-home/sessions` | Agent settings and Skills under `/home/codify/.pi/agent` |
+| OpenCode | `XDG_DATA_HOME` under `shared/opencode-data` | HOME and XDG directories under `/tmp/codify-runtime/opencode` |
 
-| Harness | Kept across Tasks | Built again for each run |
-| --- | --- | --- |
-| Claude | `/home/codify/.claude`, the `claude/` mount: session transcripts, settings, and the backup that `.claude.json` is restored from | `/home/codify/.claude.json` and the per-run prompt file |
-| Codex | `CODEX_HOME` on the `shared/` mount, `/opt/codify-issue-shared/codex-home`: `config.toml`, `execpolicy.rules`, session transcripts, and `.agents/skills` | `codex-home` under `/tmp/codify-runtime`, used when the `shared/` mount is unavailable |
-| Pi | `PI_HOME` on the `shared/` mount, `/opt/codify-issue-shared/pi-home`, holding `sessions/` | `/home/codify/.pi/agent`: `models.json`, `settings.json`, agent definitions, extensions, and skills |
-| OpenCode | `XDG_DATA_HOME` on the `shared/` mount, `/opt/codify-issue-shared/opencode-data`, holding the session store | `HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` under `/tmp/codify-runtime/opencode` |
-
-`/home/codify` itself is not a mount. Only its `.claude` subdirectory survives the container, so anything a Harness keeps elsewhere under that home directory is rebuilt on the next run.
+Only the Claude subdirectory is mounted directly under `/home/codify`. Other files under that home are rebuilt.
 
 ### Worker Kit
 
-With **Runtime delivery** set to **Mounted worker kit**, Codify mounts the kit read-only at `/opt/codify-kit` and its `nix/store` at `/nix/store`, then starts the container through `/opt/codify-kit/launcher` as root. Kits live on the host under `/opt/codify/worker-kits/<content-addressed name>`, a root-owned directory that other users cannot write to.
+Mounted Worker Kits are read-only at `/opt/codify-kit`, with the Kit's Nix store at `/nix/store`. The container starts through `/opt/codify-kit/launcher`. Kits are installed on the Docker host under a content-addressed directory.
 
-**Profile volume mounts** cannot hide `/workspace`, `/home/codify/.claude`, or `/opt/codify-issue-shared`, and cannot enter the sealed `/opt/codify-issue-meta` or `/tmp/codify-runtime` paths. The same rule protects the kit mounts at `/opt/codify-kit` and `/nix/store`.
+Profile volume mounts cannot hide the workspace, Harness-state, metadata, scratch, Kit, or Nix-store mounts. These guards prevent a profile from replacing the runtime or another Issue's state.
 
 ### Per-run scratch
 
-`/tmp/codify-runtime` exists inside the container only. Codify creates it for each Task and discards it with the container when the run ends. It holds the evidence the run produces:
-
-- `event.jsonl`, the canonical event stream, plus the raw per-harness streams under `harness-events/`
-- `console.log` and the harness result `harness-result.json`
-- `artifacts/`, the staging area for user artifacts
-- `orchestration/`, the frozen Runtime Bundle uploaded before the run starts
-
-The runtime archive is built from this directory as the container exits, and the Backend streams it to the archive store at `/opt/codify-archives`.
+`/tmp/codify-runtime` exists only inside the container and is recreated for every Task. It holds the normalized event stream, raw Harness events, console log, Harness result, user artifacts, and the frozen orchestration bundle. On exit, the archive is built from this directory and sent to `/opt/codify-archives`.
 
 ### Lifetimes and reclamation
 
-Retention is a platform setting, so the directory map here is not a promise about the current value on an instance. The defaults and scan boundaries are collected in [Platform reference](/guide/96-platform-reference); this table only explains which setting controls each object.
+Retention comes from Configuration and may differ by installation:
 
-| Item | Setting | Current value | Reclaimed |
-| --- | --- | --- | --- |
-| Issue workspace | `worker_workspace_retention_days` | See Configuration | Once no active Task owns the Issue and the directory has not been used within the window |
-| Runtime archives | `worker_runtime_archive_retention_days` | See Configuration | By archive record age |
-| CI failure bundles | `worker_workspace_retention_days` | See Configuration | By bundle age under `{worker_workspace_host_path}/ci-failures` |
+| Item | Setting | Reclaimed when |
+|---|---|---|
+| Issue workspace | `worker_workspace_retention_days` | No active Task owns it and it has been idle for the retention window |
+| Runtime archive | `worker_runtime_archive_retention_days` | Its archive record is older than the retention window |
+| CI failure bundle | Workspace retention | Its bundle is older than the retention window |
 
-The workspace timestamp is refreshed when a Task is created and again when it finishes or is cancelled, so an Issue in use is not reclaimed. Workspace reclamation goes through a short-lived maintenance container that mounts the workspace root and checks `meta/owner`; the delete is refused when that marker names a different Issue or Worker Profile. The scheduler runs the workspace scan every 6 hours and the archive scan hourly. Scheduler crash recovery cleans up orphan containers from an interrupted run and leaves workspaces alone.
+Workspace use is refreshed when a Task is created, finished, or cancelled. Cleanup checks the `meta/owner` marker and refuses to delete a directory owned by another Issue or Profile. The scheduler scans workspaces every six hours and archives hourly. Crash recovery cleans orphan containers but does not delete workspaces.

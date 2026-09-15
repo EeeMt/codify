@@ -6,130 +6,83 @@ tier: core
 
 ## Access management and roles
 
-**Access Management** (`/access-management`) lists every dashboard user with the current role, state, session activity, and last sign-in. The page subtitle lists what it covers: managing dashboard users, explicit admin overrides, disabled accounts, and active sessions.
+**Access Management** at /access-management lists dashboard users, their role, state, active sessions, and last sign-in.
 
 ### Roles, sources, and states
 
-A dashboard user has exactly one role, `platform_admin` or `platform_user`, shown as **Platform admin** and **Platform user**. The state is either **Active** or **Disabled**. The header counts **Known Users**, **Platform Admins**, **Disabled Users**, and **Active sessions**, and each row shows where the role came from:
+Users have one role, **Platform admin** or **Platform user**, and one state, **Active** or **Disabled**.
 
-| Source | Meaning |
-| --- | --- |
-| **Bootstrap** | Granted by the admin username or admin group rule on the Configuration page |
-| **Manual override** | Set explicitly on this page |
-| **Break-glass** | The environment-controlled emergency administrator account |
+| Role source | Meaning |
+|---|---|
+| **Bootstrap** | Granted by the configured admin username or group |
+| **Manual override** | Set explicitly in Access Management; it wins over bootstrap |
+| **Break-glass** | Deployment-controlled emergency administrator |
 
-Two rules apply here: **Manual role changes override bootstrap username/group rules for that user. Disabling a user immediately revokes their active sessions.**
-
-The first administrator is created by the bootstrap flow on a fresh installation. Later administrators normally come from the OIDC bootstrap rules under **Admin Usernames** and **Admin GitLab Groups** on the Configuration page.
+Disabling a user revokes their active sessions. The last active platform admin cannot be demoted or disabled.
 
 ### Changing access
 
-Use **Filter by role** and **Filter by state**, or search by username, display name, or email. Each row shows the role selector, the state selector, **Active sessions**, and **Last seen**, and marks you with **Current user**.
-
-- **Save access** submits the changed role and state together.
-- **Revoke sessions** invalidates every active session of that user immediately; the row reports how many sessions were revoked, or that none were found.
-- Your own row is read-only: **Your own role and state are read-only here to avoid accidental lockout.** Change your own role from another administrator's session, and use the normal logout flow for your own session instead of revoking it here.
-
-Two guards protect the platform from losing its administration:
-
-- The last active platform admin cannot be demoted or disabled. The request is refused so that an administrator can always sign in.
-- Disabling an account revokes its sessions in the same transaction, and an already-issued session is rejected on its next request with the message that the dashboard account is disabled.
+Filter or search the table, change the role or state, and select **Save access**. **Revoke sessions** invalidates every active session for that user. Your own role and state are read-only on your own row; use another administrator's session to change them.
 
 ## Usage management
 
 ![Quota stops work twice: at creation and before the run](assets/diagrams/en/quota-gates.svg)
 
-> [!warning] **Quota checks happen twice**: the creation check prevents a Task from being stored, while the pre-run check prevents an over-limit Task from claiming a Worker. When a request is refused, identify whether the task or token window is full.
-
-**Usage Management** (`/usage-management`) shows system defaults and per-user usage, and manages quota overrides. The page intro explains the model: **Usage is tracked at task granularity. Limits can inherit, override, or be set to unlimited.**
+**Usage Management** shows system defaults and per-user overrides. Quotas are checked when a Task is created and again before it starts, so a Task can be stored successfully and still be stopped later if the window is full.
 
 ### Quotas and modes
 
-Four dimensions are tracked for every user:
-
 | Dimension | Window |
-| --- | --- |
-| **Daily tokens** | Current business day |
-| **Weekly tokens** | Current business week, starting Monday |
-| **Daily tasks** | Current business day |
-| **Weekly tasks** | Current business week, starting Monday |
+|---|---|
+| Daily tokens | Business day |
+| Weekly tokens | Business week, starting Monday |
+| Daily tasks | Business day |
+| Weekly tasks | Business week, starting Monday |
 
-Usage is recorded when a task finishes, so a task counts against the window it completed in. The **System defaults** card header shows the next daily and weekly reset times.
-
-Each dimension is configured independently, with a system default and an optional per-user override:
-
-- **Inherit** (per-user only) uses the system default for that dimension.
-- **Custom** uses a positive numeric limit that you provide. Saving a custom mode without a positive value is refused.
-- **Unlimited** removes the limit for that dimension; the UI displays **Unlimited**.
-
-System defaults offer only **Custom** and **Unlimited**. Overrides accept all three modes.
+Usage is recorded when a Task finishes. System defaults use **Custom** or **Unlimited**. A user override can also **Inherit** the system value. Custom limits must be positive.
 
 ### Where limits are enforced
 
-The refusal is the same in both places: the structured reason `usage_limit_exceeded`, naming each exceeded dimension with its used value, limit, and reset time. A task that fails at start keeps that reason on its own record, so a retry or a support ticket can quote it.
-
-The check is a strict comparison against the recorded total, so a window at exactly its limit still allows work; the next task that pushes the total over the limit is blocked.
-
-The header shows the signed-in user's current status: **Usage within limits**, **Usage nearing limits** when any dimension has reached 80 percent of its limit, and **Usage over limits** when a limit is exceeded.
+The structured reason is usage_limit_exceeded. It names the exceeded dimension, current use, limit, and reset time. The comparison is strict, so a total exactly at the limit is still allowed; the next task that exceeds it is blocked.
 
 ### Reading the page
 
-**System defaults** is the first card; **User overrides** lists every tracked user. The summary counters are **Tracked Users**, **Users with Overrides**, and **Users Over Limit**, and the filter switches between all users, users with overrides, and users without overrides. Rows with an explicit override are tagged **Overridden**. Use **Save defaults** for the system card and **Save override** for an individual user.
+**System defaults** is the platform baseline. **User overrides** lists per-user changes and shows users over limit. Save the relevant card after changing it.
 
 ## System statistics
 
-**System Statistics** (`/system-statistics`) reports operational statistics across the full system lifecycle: retained data plus data archived through the standard deletion paths since the coverage start. It is a reference view for operations, not a billing, audit, or capacity basis.
-
-The page has a **Refresh** action and shows the last refresh time and the reporting timezone (Asia/Shanghai).
+System Statistics at /system-statistics is a lifecycle report, not a billing or audit source. It combines retained data with snapshots created by the standard deletion path and shows the reporting timezone.
 
 ### Current running state and lifetime totals
 
-**Current Running State** is a live snapshot computed from the current business tables: **Pending**, **Queued**, **Running**, **Long Running**, **Active Issues**, and **Avg Queue Wait**.
-
-**Lifetime Cumulative** combines retained data with data archived through the standard deletion paths: **Total Tasks**, **Total Issues**, **Completed**, **Failed**, **Cancelled**, **Finished**, **Success Rate**, **Failure Rate**, **Issues with MR**, **Known Tokens**, **Known Code Changes**, **Known Execution Time**, **Avg Execution Time**, **Execution Samples**, **Deleted Tasks**, **Deleted Issues**, and **Deleted Before Terminal**.
+**Current Running State** is a live view of Pending, Queued, Running, Long Running, Active Issues, and average queue wait. **Lifetime Cumulative** includes task and Issue totals, outcomes, MRs, known tokens, code changes, execution time, and deletion counters.
 
 ### Coverage, trends, and breakdowns
 
-**Data Coverage** reports how complete the token and code-change records are among eligible finished tasks. **Token Coverage** breaks out **Eligible**, **Complete**, **Partial**, **Missing**, and **Coverage Rate**; **Code-Change Coverage** shows **Eligible**, **Recorded**, and **Coverage Rate**. Unknown values are excluded from averages and totals and shown separately here, so a lifetime total can be lower than the sum of individual runs.
+**Data Coverage** shows how many eligible finished Tasks have complete or partial token and code-change data. Unknown values stay out of averages and totals.
 
-**Basic Trends** buckets counts in the reporting timezone: tasks created, tasks finished, tasks deleted, and issues created. **Basic Breakdown** groups lifecycle metrics by project, provider, harness, and task mode, with the largest groups shown when a dimension has many values.
+**Basic Trends** groups created, finished, deleted Tasks and created Issues by day. **Basic Breakdown** groups lifecycle data by project, Provider, Harness, and Task Mode.
 
 ### Retained versus deleted data
 
-Two selectors narrow the scope:
-
-- **Trend time range**: **All**, **Last 90 days**, or **Last 1 year**.
-- **Data state**: **All**, **Retained**, or **Deleted**.
-
-Deleted data is only included after the deletion coverage guarantee is enabled for your installation. Until that point the page reports **Deletion coverage guarantee is not enabled yet** and states that deleted data is not included; data deleted before the coverage start cannot be recovered.
-
-Deleted records are shown as sanitized snapshots only and provide no detail links, so a deleted task can never be opened from this page.
+Use **Trend time range** and **Data state** to select all, retained, or deleted data. Deleted records appear as sanitized snapshots without detail links. If the deletion coverage guarantee is not enabled, the page excludes deleted data and says so.
 
 ## Data cleanup
 
-**System Data Cleanup** on the **Maintenance** tab deletes old issue-scoped system records together with their task data.
+**System Data Cleanup** deletes old Issue-scoped records and their Task data.
 
-Two inputs control the operation:
+- **Clean data older than N days** uses the Issue age, not the age of individual Tasks. N must be at least 1.
+- Without force, Issues with active Tasks are skipped.
+- **Force cleanup active tasks** also targets pending, queued, and running Tasks and tries to stop their containers. A container that cannot be stopped causes its Issue to be skipped.
+- Deleted workspaces and runtime archives are cleaned up best effort. Missing archive files are reported, not treated as a reason to stop the whole operation.
 
-- **Clean data older than N days**: required, minimum `1` day. The cutoff is applied to the age of the issue, not to the age of its tasks.
-- **Force cleanup active tasks**: when enabled, also deletes pending, queued, and running tasks when their state is stale. A warning is shown while it is on: **Force cleanup deletes active task records and attempts to stop running containers.**
-
-**Clean system data** asks for confirmation first. Without force, the confirmation is **Clean eligible issue data? This cannot be undone.**; with force it is **Force clean eligible issue data, including active tasks? Running containers will be stopped best-effort.**
-
-What the operation does:
-
-- Issues older than the cutoff with no active task are deleted, along with their tasks and the task-scoped records that belong to them.
-- Issues that still have active tasks are skipped, and the count of skipped issues is reported. Their data is left untouched.
-- With force enabled, the running containers of the selected tasks are stopped and removed on a best-effort basis. A container that cannot be stopped causes its issue to be skipped rather than deleted.
-- Issue workspaces and run archives for the deleted records are cleaned up; an archive file that is already missing is counted rather than treated as an error.
-
-The result is reported as `Cleanup finished: {issues} issue(s), {tasks} task(s) deleted, {skipped} active issue(s) skipped.` Configuration and file cleanup problems are collected and returned with the response instead of aborting the whole run, so a partial cleanup should be re-run after the reported cause is fixed.
+The action is irreversible and asks for confirmation. The result reports deleted Issues and Tasks, skipped active Issues, and cleanup errors. Fix reported causes before running it again.
 
 ## Maintenance
 
-The **Maintenance** tab holds two page-wide actions under **Actions**. Its subtitle says they reload the current values or reset every section back to env or defaults.
+The **Maintenance** tab provides:
 
-- **Reload** re-reads the effective configuration and discards nothing else.
-- **Reset to env/defaults** deletes every persisted override across all sections, returning every value to its environment value or built-in default. It first asks **Reset all configuration sections to their environment variable / default values? Unsaved changes will be lost.** The summary tags on the configuration page then show **env fallback** or **default fallback** instead of **DB override**.
+- **Reload**, which reads the effective configuration again.
+- **Reset to env/defaults**, which removes every persisted override, including stored secret overrides, after confirmation. Environment values or built-in defaults apply again; Tasks and user records are not deleted.
 
-Some values are set when Codify is installed and are deliberately not editable here. The worker workspace path is fixed at installation time, and the key material used to encrypt stored secrets must not change. Clearing the stored overrides also drops persisted secrets, so the values configured in the environment apply again; if the encryption key itself changed, every stored secret must be entered again.
+The Worker workspace host path, encryption root key, Worker Kit installation, and database structure are deployment concerns. Keep the encryption key stable and revalidate Worker Profiles after changing a Kit or image.

@@ -6,118 +6,104 @@ tier: deep
 
 ## What a Harness is
 
-A Harness is the coding agent that runs a Task. Codify identifies each one by key:
+A Harness is the coding-agent CLI that runs a Task inside a Worker container.
 
 | Key | Display name |
 |---|---|
-| `claude` | Claude |
-| `codex` | Codex |
-| `pi` | Pi |
-| `opencode` | OpenCode |
+| claude | Claude |
+| codex | Codex |
+| pi | Pi |
+| opencode | OpenCode |
 
-The worker loads one adapter per key from `${CODIFY_ORCHESTRATION_DIR}/worker-entrypoint/harness/adapters/${CODIFY_HARNESS_KEY}.sh` and calls the same operations on every one of them: `metadata`, `verify_runtime`, `detect_capabilities`, `prepare_config`, `build_command`, `materialize_skills`, `stream_events`, `normalize_result`, `terminate`, and `run`.
+Each key has an adapter and uses the v2 contract family: `codify.worker.harness/v2` for the Harness, plus v2 contracts for events, results, and commands. The current execution mode is v2 only, so a v1 bundle is readable but cannot run.
 
-All four speak one contract version. `codify.worker.harness/v2` covers the Harness itself, and `codify.worker.event/v2`, `codify.worker.result/v2`, and `codify.worker.command/v2` cover events, results, and commands. Execution is `v2_only`, so a v1 bundle can be read but not run.
-
-The CLI never comes from the image `PATH`. The adapter resolves it from `CODIFY_HARNESS_CLI_BIN`, or from `harness_inventory[key].path` in the Kit manifest, and fails with `<X> CLI is not available from the Worker Kit inventory` when neither source supplies it.
-
-A Worker Profile records where each Harness comes from in `harness_runtimes[key].source`, which is `worker_kit` or `host_mount`. A host mount needs an absolute `executable_path` and can pin `version` and `binary_digest`; its `contract_version` must equal `codify.worker.harness/v2`. Codex is the Harness documented to arrive this way: a host binary mounted read-only. The offline bundle writes the format as `harness_key | host_path | container_path | version | sha256`. The Kit is mounted at `/opt/codify-kit` and its store at `/nix/store`, both read-only.
+The adapter resolves the CLI from `CODIFY_HARNESS_CLI_BIN` or the Worker Kit manifest. If neither provides it, runtime verification fails with `<X> CLI is not available from the Worker Kit inventory`. A Profile records whether the binary comes from the Worker Kit or an absolute read-only host mount. Host-mounted binaries must declare the v2 contract and may pin a version and digest.
 
 ## What every Harness shares
 
-Task modes belong to the Task, not to the Harness: `execute`, `plan`, and `freeform`, shown as **Implementation**, **Analysis**, and **Freeform**. Session mode is the same pair for all four, `continue` or `fresh`, and prompt rendering follows the task mode and the trigger.
+Task Mode is independent of the Harness: **Implementation**, **Analysis**, and **Freeform** correspond to execute, plan, and freeform. Session mode is **Continue** or **Fresh**, and a continued Task must keep the Harness that owns the session.
 
-Session resume is a capability of all four, and session records are namespaced per Harness, which is why a Continue task must reuse the Harness of the run it continues.
+All four Harnesses support session resume and Task Skills. Each adapter puts Skills in the location expected by its CLI. All four report final usage through `usage.final`, which supplies input and output token totals; cost is not stored on the Task.
 
-Task skills are supported on all four, and each adapter places the Skill package where its own CLI expects it.
-
-The authoritative usage event is `usage.final`, the same for all four, and it writes `task.input_tokens` and `task.output_tokens`. Cost and currency can travel in the envelope, but the Task does not store them.
-
-Timeout policy is shared as well: the supported range and defaults are collected in [Platform reference](/guide/96-platform-reference), the peak or off-peak tier is fixed when the task enters RUNNING, and every adapter runs the CLI under an outer `timeout ${TASK_TIMEOUT:-1800}`.
-
-Failure kinds are one list for all four: `configuration_error`, `authentication_error`, `rate_limited`, `sandbox_error`, `protocol_error`, `timeout`, `cancelled`, `engine_error`, `crash`, and `settled_race`. Events use one shared vocabulary, which includes `run.started`, `model.resolved`, `message.delta`, `tool.started`, `tool.completed`, `context.compacted`, `usage.updated`, `usage.final`, `harness.completed`, `run.completed`, the `delivery.*` family, and `diagnostic`.
-
-Scheduling, priority, the Issue mutex, slot capacity, and the Git delivery path are identical; commit, push, Merge Request, and the delivery summary are produced the same way. Only the `run_text` helper differs per Harness.
+Timeout, scheduling, the per-Issue mutex, and Git delivery are shared. The failure vocabulary is also shared: `configuration_error`, `authentication_error`, `rate_limited`, `sandbox_error`, `protocol_error`, `timeout`, `cancelled`, `engine_error`, `crash`, and `settled_race`.
 
 ## Where the Harnesses differ {core}
 
-| Harness | Model protocols | Steering and follow-up | Session resume | Task skills | Token usage events | Commit message and MR summary | Max turns |
-|---|---|---|---|---|---|---|---|
-| Claude | `anthropic_messages` | No | Yes | Yes | `usage.final` | Generated by the model | Enforced |
-| Codex | `openai_responses` | No | Yes | Yes | `usage.final` | Fails by design, falls back | Not enforced |
-| Pi | All three | Yes | Yes | Yes | `usage.updated`, `usage.final` | Not exported, falls back | Not enforced |
-| OpenCode | All three | No | Yes | Yes | `usage.updated`, `usage.final` | Not exported, falls back | Not enforced |
+| Harness | Protocols | Steering / follow-up | Session resume | Skills | Max turns |
+|---|---|---|---|---|---|
+| Claude | anthropic_messages | No | Yes | Yes | Enforced |
+| Codex | openai_responses | No | Yes | Yes | Not enforced |
+| Pi | All three | Yes | Yes | Yes | Not enforced |
+| OpenCode | All three | No | Yes | Yes | Not enforced |
 
-All four keys allow subagents. The frozen bundle's `capabilities.subagents` records whether delegation passed real-Task acceptance.
+Steering and follow-up are currently available only for Pi. The frozen bundle's capability flags control whether its command panel appears. A command accepted by the interface may still be waiting for the model to consume it.
 
-- Steering and follow-up are Pi-only. The control gate follows `capabilities.steering` from the frozen bundle, so Claude, Codex, and OpenCode keep their **Steer** and **Follow-up** controls disabled.
-- If a command reaches OpenCode's bridge anyway, the bridge rejects it deterministically with `control_gate_closed`.
-- A model-written commit message or MR summary exists only on Claude. Codex ships a `run_text` helper that returns nonzero by design, Pi and OpenCode export no helper at all, so those runs write a fixed fallback commit message and keep the previous MR summary.
-
-> [!warning] **Max Turns only constrains Claude**: the value reaches the CLI as `CLAUDE_MAX_TURNS`, and no other adapter reads it.
+Claude is the only Harness that exports the helper used for model-written commit messages and MR summaries. Codex, Pi, and OpenCode use the fixed commit-message fallback; they keep the previous MR summary where applicable. **Max Turns** reaches the Claude CLI only.
 
 ### State, sessions, and Skills
 
-Each Harness keeps its session state in its own directory, so a session id only resumes inside the same Harness: a Continue task must reuse it, and switching Harness requires a new session.
+Session state is namespaced by Harness. A session id cannot move from one Harness to another.
 
-| Harness | Session state | Task Skills |
+| Harness | State kept across Tasks | Skill location during a run |
 |---|---|---|
-| Claude | `/home/codify/.claude`, on the Issue's persistent mount | read in place from the per-run snapshot through `--add-dir`, without copying |
-| Codex | `CODEX_HOME` on the Issue's shared mount, `/opt/codify-issue-shared/codex-home` | copied into `CODEX_HOME/.agents/skills` |
-| Pi | `PI_HOME` on the Issue's shared mount, `/opt/codify-issue-shared/pi-home`, under `sessions/` | copied into `/home/codify/.pi/agent/skills`, which the container does not keep |
-| OpenCode | `XDG_DATA_HOME` on the Issue's shared mount, `/opt/codify-issue-shared/opencode-data` | copied into the per-run config directory, then verified with `opencode debug skill --pure` |
+| Claude | /home/codify/.claude on the Issue mount | Read from the Task snapshot through --add-dir |
+| Codex | CODEX_HOME on /opt/codify-issue-shared/codex-home | CODEX_HOME/.agents/skills |
+| Pi | PI_HOME on /opt/codify-issue-shared/pi-home/sessions | /home/codify/.pi/agent/skills |
+| OpenCode | XDG_DATA_HOME on /opt/codify-issue-shared/opencode-data | Per-run config, checked with opencode debug skill --pure |
 
-[Worker Runtime](/guide/92-worker-runtime) lists the full directory map and which parts survive a run.
+See [Worker Runtime](/guide/92-worker-runtime) for the complete directory map.
 
 ## Model protocol pairing
 
-| Harness | Protocols it can use |
+| Harness | Accepted protocols |
 |---|---|
-| Claude | `anthropic_messages` |
-| Codex | `openai_responses` |
-| Pi | `anthropic_messages`, `openai_responses`, `openai_chat_completions` |
-| OpenCode | `anthropic_messages`, `openai_responses`, `openai_chat_completions` |
+| Claude | anthropic_messages |
+| Codex | openai_responses |
+| Pi | anthropic_messages, openai_responses, openai_chat_completions |
+| OpenCode | anthropic_messages, openai_responses, openai_chat_completions |
 
-The Provider side narrows this further. **Provider Kind** `anthropic_compatible` pairs with **Wire Protocol** `anthropic_messages`, and `openai_compatible` pairs with `openai_responses` or `openai_chat_completions`. The pair is checked when you save the Provider, so a mismatch is rejected at save time instead of failing later inside a container.
+Provider Kind and Wire Protocol must match:
 
-Provider selection follows the Harness. Codify computes the compatible Harness list from this matrix on the server, switches to a Provider that speaks the required protocol when one is enabled, and reports that it did. If none is enabled, the task form says that no enabled AI Provider uses the protocol required by the Harness and points to **AI Providers**.
+| Provider Kind | Wire Protocol | Compatible Harnesses |
+|---|---|---|
+| anthropic_compatible | anthropic_messages | Claude, Pi, OpenCode |
+| openai_compatible | openai_responses | Codex, Pi, OpenCode |
+| openai_compatible | openai_chat_completions | Pi, OpenCode |
+
+The API rejects a mismatched pair when the Provider is saved. If no enabled Provider speaks the protocol required by a Harness, task creation reports that condition.
 
 ## Harness-specific options
 
-Options live on the Worker Profile in `harness_options`, and a Task can override part of the profile's selection.
+Options live in `harness_options` on the Worker Profile. A Task can override only the supported subset.
 
-| Harness | Schema | Options |
-|---|---|---|
-| Codex | `codex/v1` | `reasoning_effort`: `minimal`, `low`, `medium`, `high`, `xhigh`, `ultra` |
-| Pi | `pi/v1` | `thinking_level`; `steering_mode` and `follow_up_mode`, each taking `one-at-a-time` |
-| OpenCode | `opencode/v1` | `agent`: `build`, `plan`, `general`, `explore`; `command`: `codify`; `model_variant`: an identifier of up to 64 characters |
+| Harness | Options |
+|---|---|
+| Codex | `reasoning_effort`: minimal, low, medium, high, xhigh, ultra |
+| Pi | `thinking_level`; `steering_mode` and `follow_up_mode`: one-at-a-time |
+| OpenCode | `agent`: build, plan, general, explore; `command`: codify; `model_variant`: up to 64 characters |
 
-The task-level override is a subset of the profile's options. A profile can also constrain four keys per Harness: `max_turns`, `sandbox_mode`, `network_enabled`, and `timeout_seconds`.
-
-OpenCode's choices appear on the task form as **OpenCode options**, pinned to the task snapshot, with **Agent**, **Command**, and **Model variant**. Only the allowlisted Agent, Command, and variant reach the pinned OpenCode Server.
+Profiles may also constrain `max_turns`, `sandbox_mode`, `network_enabled`, and `timeout_seconds`. OpenCode's Agent, Command, and Model variant are pinned in the Task snapshot and checked against the allowlist.
 
 ## Availability and versions
 
-A Harness is usable when its payload exists, the Worker Profile enables it, and runtime verification confirms it.
+A Harness is usable only when its payload exists, the Profile enables it, and runtime verification passes. The Kit manifest reports a key outside the selected CLI set as absent/not_selected and a selected key without a payload as absent/missing_payload. Payloads are checked by size and SHA-256.
 
-The Kit manifest records all four keys even when only some payloads are staged. The build selects a CLI set, `pi,opencode` by default, and reports a key outside that selection as `absent/not_selected` and a selected key with no payload as `absent/missing_payload`. Present payloads are validated by size and SHA-256. Harness selection is offered only in the mounted Kit delivery mode.
+The Profile lists enabled Harnesses and a Default Harness. Runtime verification reports each selected key as available or unavailable and records the reason. Task creation also checks the frozen Profile and Provider compatibility.
 
-**Harnesses** on the profile enumerates the enabled keys, and **Default Harness** names the one pre-selected for new tasks, `claude` unless changed. Profile runtime verification reports each key as **available** or **unavailable**, with **not selected**, **missing payload**, or **reason unknown** as the reason. The task form draws on a longer list: **available**, **unavailable**, **not verified**, **enabled**, **disabled**, and reasons such as **worker profile disabled**, **disabled in worker profile**, **worker profile unavailable**, **Worker Kit unavailable**, **runtime not verified**, **explicit host mount**, **fixed by task snapshot**, and **reason unavailable**.
+The accepted ranges in the current manifest are:
 
-The manifest pins an accepted version range per Harness:
-
-| Harness | Accepted range | When the version falls outside |
+| Harness | Accepted range | Enforcement |
 |---|---|---|
-| Claude | `>=2.1.33 <3.0.0` | Reported, and the adapter enforces the 2.1.33 hard floor |
-| Codex | `>=0.146.0 <0.160.0` | Reported as a warning |
-| Pi | `>=0.84.2 <0.85.0` | Reported as a warning |
-| OpenCode | `>=1.18.19 <1.19.0` | Reported as a warning |
+| Claude | >=2.1.33 <3.0.0 | The adapter enforces the 2.1.33 floor |
+| Codex | >=0.146.0 <0.160.0 | Warning |
+| Pi | >=0.84.2 <0.85.0 | Warning |
+| OpenCode | >=1.18.19 <1.19.0 | Warning |
 
-The Kit build pins `claude` at 2.1.153, `codex` at 0.146.0, `pi` at 0.84.2, and `opencode` at 1.18.19. For Claude, the runner also checks the 2.1.33 floor when a task uses skills.
+Use the Worker validation result and Task snapshot when diagnosing a particular run; the Profile can change after the Task was created.
 
 ## What changes in the interface {core}
 
-- The **Harness** selector on the task form lists all four keys with their availability and reason. **Harness** is part of the task snapshot, so a Continue task must reuse it and switching requires a new session.
-- **Live steering** appears only when the frozen bundle declares `steering` or `follow_up`, and only Pi's bundle does, so the panel shows up on Pi tasks. Its **Steer** and **Follow-up** controls are enabled per capability.
-- The commit record and the MR body depend on the `run_text` result: on Claude they carry what the model wrote, and on Codex, Pi, and OpenCode the commit uses the fallback message while the MR keeps its earlier summary.
-- A failure reports a kind from the shared list, chosen by each adapter from its own signals. Claude maps a lost session to `protocol_error`, Codex maps 401, 429, sandbox, and engine errors, Pi adds `configuration_error` when the model is not found, and OpenCode adds `cancelled` and `crash`. An engine error shows as **Harness error** on the task result.
+- The **Harness** selector shows availability and the reason. A continued Task must reuse its frozen Harness; switching requires a fresh session.
+- The live command panel follows the frozen steering and follow-up capabilities, so it appears only for supported runtimes.
+- Commit records and MR summaries follow the Harness's result helper. Claude can supply model-written text; the other three use the fallback rules above.
+- Failure types use the shared vocabulary, while each adapter maps its own CLI signals into it.
