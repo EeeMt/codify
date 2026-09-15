@@ -106,6 +106,22 @@ pi_adapter_subagent_payload_dir() {
     return 0
 }
 
+pi_adapter_todo_extension() {
+    # The Todo package shares the sealed extension payload root with
+    # pi-subagents. Keep the lookup anchored to that root so the runner never
+    # resolves a package from the workspace or the CLI user's home.
+    local payload_dir extension_dir
+    payload_dir="$(pi_adapter_subagent_payload_dir)"
+    if [ -z "${payload_dir}" ]; then
+        return 0
+    fi
+    extension_dir="${payload_dir}/node_modules/@juicesharp/rpiv-todo"
+    if [ -f "${extension_dir}/index.ts" ]; then
+        (cd "${extension_dir}" && pwd -P)
+    fi
+    return 0
+}
+
 # Materialize the Codify capability ceiling for the Kit-fixed pi-subagents.
 #
 # The plugin reads its policy from ~/.pi/agent/extensions/subagent/config.json
@@ -156,6 +172,19 @@ pi_adapter_materialize_subagents() {
         "${ceiling_dir}" "${agent_dir}/agents" "${settings_file}" 2>/dev/null || true
     chmod 600 "${settings_file}" 2>/dev/null || true
     printf 'Pi subagents enabled: %s (ceiling applied)\n' "${extension_dir}"
+}
+
+pi_adapter_materialize_todo() {
+    local extension_dir
+    unset CODIFY_PI_TODO_EXTENSION
+    export CODIFY_PI_TODO=0
+    extension_dir="$(pi_adapter_todo_extension)"
+    if [ -z "${extension_dir}" ]; then
+        return 0
+    fi
+    export CODIFY_PI_TODO_EXTENSION="${extension_dir}"
+    export CODIFY_PI_TODO=1
+    printf 'Pi Todo enabled: %s\n' "${extension_dir}"
 }
 
 pi_adapter_prepare_config() {
@@ -282,6 +311,7 @@ pi_adapter_prepare_config() {
         chmod 600 "${models_file}" 2>/dev/null || true
     fi
     pi_adapter_materialize_subagents
+    pi_adapter_materialize_todo
     return 0
 }
 

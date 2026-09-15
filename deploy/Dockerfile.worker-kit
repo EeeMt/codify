@@ -36,8 +36,8 @@ WORKDIR /src
 COPY deploy/worker-kit/default.nix ./default.nix
 COPY deploy/worker-kit/nixpkgs.json ./nixpkgs.json
 COPY deploy/worker-kit/npm/ ./npm/
-# Codify policy for the pinned Pi extension: ceiling config, the four allowed
-# agent definitions, and the pin/license record.
+# Codify policy for the pinned Pi extensions: ceiling config, the four allowed
+# agent definitions, and the pin/license records.
 COPY deploy/worker-cli/pi-subagents/ ./pi-subagents-policy/
 COPY deploy/scripts/validate_mermaid_summary.mjs ./validate_mermaid_summary.mjs
 COPY deploy/worker-kit/verify-cli-payloads.sh ./verify-cli-payloads.sh

@@ -30,12 +30,19 @@ case "${CODIFY_MODEL_PROTOCOL:-anthropic_messages}" in
         ;;
 esac
 PI_COMMAND=("${CODIFY_PI_BIN}" --mode rpc --provider codify --session-dir "${PI_NATIVE_SESSION_DIR}")
-# Delegation only when the Bundle ships the audited extension. `--no-extensions`
-# disables discovery (project/user packages) while the explicit `-e` still loads
-# the Kit-fixed one, so a repository cannot inject its own extension
-# (open-harness-v2-subagent-adaptation.md §6.4).
+# Load only Kit-fixed extensions. `--no-extensions` disables discovery
+# (project/user packages) while each explicit `-e` loads the sealed payload, so
+# a repository cannot inject its own extension (open-harness-v2-subagent-
+# adaptation.md §6.4).
+PI_EXTENSION_ARGS=()
+if [ -n "${CODIFY_PI_TODO_EXTENSION:-}" ]; then
+    PI_EXTENSION_ARGS+=(-e "${CODIFY_PI_TODO_EXTENSION}")
+fi
 if [ "${CODIFY_PI_SUBAGENTS:-0}" = "1" ] && [ -n "${CODIFY_PI_SUBAGENT_EXTENSION:-}" ]; then
-    PI_COMMAND+=(--no-extensions -e "${CODIFY_PI_SUBAGENT_EXTENSION}")
+    PI_EXTENSION_ARGS+=(-e "${CODIFY_PI_SUBAGENT_EXTENSION}")
+fi
+if [ "${#PI_EXTENSION_ARGS[@]}" -gt 0 ]; then
+    PI_COMMAND+=(--no-extensions "${PI_EXTENSION_ARGS[@]}")
 fi
 if [ -n "${PI_MODEL_RPC}" ]; then
     PI_COMMAND+=(--model "${PI_MODEL_RPC}")

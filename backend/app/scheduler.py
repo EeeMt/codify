@@ -349,6 +349,25 @@ class Scheduler:
                     .limit(1)
                 )
             ).scalar_one_or_none()
+            # A freshly claimed V2 task is RUNNING before the worker bootstrap
+            # creates its durable attempt.  The scheduler loop can reach this
+            # remediation pass while that local worker coroutine is between
+            # those two commits.  That is not recovery drift: let the owner
+            # finish bootstrap.  A RUNNING task from a previous process has no
+            # live local worker handle and still fails closed below.
+            worker_task = self._worker_tasks.get(task.id)
+            if (
+                task.status == TaskStatus.RUNNING
+                and attempt is None
+                and worker_task is not None
+                and not worker_task.done()
+            ):
+                logger.debug(
+                    "Deferring V2 attempt remediation for task %s while its "
+                    "local worker is still bootstrapping",
+                    task.id,
+                )
+                continue
             try:
                 require_task_executable_contract(
                     task,

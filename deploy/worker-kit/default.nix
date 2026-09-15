@@ -15,7 +15,8 @@ let
     pname = "codify-worker-kit-node-tools";
     version = "0.1.0";
     src = ./npm;
-    npmDepsHash = "sha256-SyEIa/P9gxRbYjpMGxwNhOvSjIIdmGHEbGqJLGxcyNw=";
+    npmDepsHash = "sha256-xkpVuy10FTJ7IiPgSaB+ngFkYUMst2FTZXND/E/hD8E=";
+    npmInstallFlags = [ "--legacy-peer-deps" ];
     dontNpmBuild = true;
     installPhase = ''
       runHook preInstall
@@ -24,15 +25,16 @@ let
       rm -f $out/lib/codify-node-tools/node_modules/${codegraphPlatformPackage}/node
       cp ${./validate_mermaid_summary.mjs} \
         $out/lib/codify-node-tools/validate_mermaid_summary.mjs
-      # Audited upstream Pi extension (MIT, pinned by package-lock). Its runtime
-      # closure ships beside it so `-e` resolves without any network access at
-      # Task time; Codify's own ceiling/agents are copied from
-      # deploy/worker-cli/pi-subagents (open-harness-v2-subagent-adaptation.md
-      # §6.4).
+      # Audited upstream Pi extensions (MIT, pinned by package-lock). Their
+      # runtime closure ships beside them so `-e` resolves without any network
+      # access at Task time; Codify's subagent ceiling and Todo pin are copied
+      # from deploy/worker-cli/pi-subagents (open-harness-v2-subagent-
+      # adaptation.md §6.4).
       mkdir -p $out/lib/codify-pi-subagents
       cp -R node_modules $out/lib/codify-pi-subagents/
       cp -R ${./pi-subagents-policy}/. $out/lib/codify-pi-subagents/
       chmod -R u+w $out/lib/codify-pi-subagents
+      test -f $out/lib/codify-pi-subagents/node_modules/@juicesharp/rpiv-todo/index.ts
       # Minimal, auditable vendor patch: pin depth-0 delegation launches to the
       # foreground path, because only a foreground launch returns the child
       # inventory (native run ids, usage, tool trace, final output) in its tool

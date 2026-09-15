@@ -4,6 +4,8 @@
   "private": true,
   "dependencies": {
     "@colbymchenry/codegraph": "1.1.1",
+    "@earendil-works/pi-tui": "0.84.2",
+    "@juicesharp/rpiv-todo": "2.10.1",
     "jsdom": "25.0.1",
     "mermaid": "11.15.0",
     "pi-subagents": "0.67.0"

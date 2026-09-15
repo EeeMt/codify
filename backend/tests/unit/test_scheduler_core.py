@@ -1930,6 +1930,37 @@ class SchedulerReconcileRunningStateTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SchedulerV2OnlyRemediationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_running_task_without_attempt_is_deferred_while_local_worker_bootstraps(self):
+        from app.scheduler import Scheduler
+
+        task = MagicMock()
+        task.id = 90
+        task.status = TaskStatus.RUNNING
+        task.issue_id = None
+        task.runtime_bundle = MagicMock()
+        task.worker_profile_snapshot = MagicMock()
+
+        worker_task = MagicMock()
+        worker_task.done.return_value = False
+        scheduler = Scheduler()
+        scheduler._worker_tasks[task.id] = worker_task
+
+        tasks_result = MagicMock()
+        tasks_result.scalars.return_value.all.return_value = [task]
+        attempt_result = MagicMock()
+        attempt_result.scalar_one_or_none.return_value = None
+        db = MagicMock()
+        db.execute = AsyncMock(side_effect=[tasks_result, attempt_result])
+        db.commit = AsyncMock()
+
+        with patch("app.scheduler.require_task_executable_contract") as require_contract:
+            terminalized = await scheduler._remediate_legacy_contracts(db)
+
+        self.assertEqual(terminalized, set())
+        self.assertEqual(task.status, TaskStatus.RUNNING)
+        require_contract.assert_not_called()
+        db.commit.assert_not_awaited()
+
     async def test_running_v2_task_with_snapshot_mismatch_is_failed_before_resume(self):
         from types import SimpleNamespace
 

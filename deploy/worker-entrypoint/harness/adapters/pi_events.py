@@ -376,6 +376,7 @@ _TOOL_NAME_ALIASES = {
     "multi_edit": "MultiEdit",
     "glob": "Glob",
     "grep": "Grep",
+    "todo": "Todo",
 }
 
 

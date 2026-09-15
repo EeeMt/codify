@@ -627,6 +627,42 @@ def test_pi_config_maps_snapshot_endpoint_to_models_json(tmp_path):
     assert provider["models"][0]["contextWindow"] == 128000
 
 
+def test_pi_adapter_resolves_todo_from_the_sealed_extension_payload(tmp_path):
+    kit_home = tmp_path / "kit"
+    payload = kit_home / "nix/store/codify-worker-kit-runtime/lib/codify-pi-subagents"
+    (payload / "node_modules/pi-subagents").mkdir(parents=True)
+    (payload / "node_modules/@juicesharp/rpiv-todo").mkdir(parents=True)
+    (payload / "config.json").write_text("{}", encoding="utf-8")
+    (payload / "node_modules/pi-subagents/index.ts").write_text("", encoding="utf-8")
+    (payload / "node_modules/@juicesharp/rpiv-todo/index.ts").write_text("", encoding="utf-8")
+    (kit_home / "manifest.json").write_text(
+        json.dumps({"runtime_bin": "/nix/store/codify-worker-kit-runtime"}),
+        encoding="utf-8",
+    )
+
+    result = _source_adapter(
+        'pi_adapter_materialize_todo >/dev/null; printf "%s\\n%s" "$CODIFY_PI_TODO" "$CODIFY_PI_TODO_EXTENSION"',
+        {"CODIFY_KIT_HOME": str(kit_home)},
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["1", str(payload / "node_modules/@juicesharp/rpiv-todo")]
+
+
+def test_pi_todo_dependency_is_pinned_in_package_lock_and_policy():
+    package_dir = REPO_ROOT / "deploy/worker-kit/npm"
+    package = json.loads((package_dir / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((package_dir / "package-lock.json").read_text(encoding="utf-8"))
+    pin = json.loads(
+        (REPO_ROOT / "deploy/worker-cli/pi-subagents/todo-pin.json").read_text(encoding="utf-8")
+    )
+    assert package["dependencies"]["@juicesharp/rpiv-todo"] == "2.10.1"
+    todo = lock["packages"]["node_modules/@juicesharp/rpiv-todo"]
+    assert todo["version"] == pin["version"] == "2.10.1"
+    assert todo["resolved"] == pin["tarball"]
+    assert todo["integrity"] == pin["integrity"]
+    assert pin["entry"] == "index.ts"
+
+
 @pytest.mark.parametrize(
     ("endpoint_url", "expected_base_url"),
     [
@@ -918,6 +954,42 @@ def test_pi_runner_pins_codify_provider_and_snapshot_model():
     base = runner[: runner.index('if [ -n "${CODIFY_PI_RUN_AS:-}" ]')]
     assert "--provider codify" in base
     assert "--mode rpc --provider codify" in base
+    assert 'PI_EXTENSION_ARGS+=(-e "${CODIFY_PI_TODO_EXTENSION}")' in runner
+    assert 'PI_COMMAND+=(--no-extensions "${PI_EXTENSION_ARGS[@]}")' in runner
+
+
+def test_pi_todo_tool_is_projected_as_a_generic_tool_lifecycle():
+    import pi_events
+
+    _reset_pi_state()
+    writer = _FakeWriter()
+    pi_events._emit = writer
+    pi_events.translate(
+        {
+            "type": "tool_execution_start",
+            "toolCallId": "todo-call",
+            "toolName": "todo",
+            "args": {"action": "add", "text": "run tests"},
+        },
+        1,
+    )
+    pi_events.translate(
+        {
+            "type": "tool_execution_end",
+            "toolCallId": "todo-call",
+            "toolName": "todo",
+            "result": {"content": [{"type": "text", "text": "Added todo #1: run tests"}]},
+            "isError": False,
+        },
+        2,
+    )
+    assert [event_type for event_type, _, _ in writer.events] == [
+        "tool.started",
+        "tool.completed",
+    ]
+    assert writer.events[0][1]["name"] == "Todo"
+    assert writer.events[0][1]["input"] == {"action": "add", "text": "run tests"}
+    assert writer.events[1][1]["name"] == "Todo"
 
 
 def test_pi_runner_terminates_on_agent_settled_before_ack_continue():

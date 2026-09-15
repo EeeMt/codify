@@ -1,0 +1,13 @@
+{
+  "name": "@juicesharp/rpiv-todo",
+  "version": "2.10.1",
+  "repository": "https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo",
+  "license": "MIT",
+  "tarball": "https://registry.npmjs.org/@juicesharp/rpiv-todo/-/rpiv-todo-2.10.1.tgz",
+  "tarball_sha256": "6b5b551a163081164569bf15e996bbfe86a7ac279ec9626012c2f73f4e989f4e",
+  "integrity": "sha512-3VvPztpStw9bp99Iq2z6IsbHL7fGpOY0ugTTE7fzSRipgQY3LkdazuBK6TnKr4jaqungHNbAoUF7e/6gsTz8eg==",
+  "shasum": "b34d8707013dd580e5d63b1cc0a8b54225fa9289",
+  "entry": "index.ts",
+  "frozen_pi_version": "0.84.2",
+  "notes": "Lockfile-pinned closure; installed at Kit build time only."
+}

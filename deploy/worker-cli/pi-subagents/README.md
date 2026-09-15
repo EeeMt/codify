@@ -1,13 +1,15 @@
-# Codify Runtime Bundle: pinned `pi-subagents`
+# Codify Runtime Bundle: pinned Pi extensions
 
 Upstream: [`pi-subagents`](https://github.com/nicobailon/pi-subagents) `0.67.0`,
-MIT. This directory is the **pin + policy** record; the extension itself is
-installed from the pinned npm tarball at Kit build time
-([`install.sh`](install.sh), lockfile-pinned, `--ignore-scripts`). Nothing here
-is fetched or installed while a Task runs.
+and [`@juicesharp/rpiv-todo`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo)
+`2.10.1`, both MIT. This directory is the **pin + policy** record; the
+extensions themselves are installed from pinned npm tarballs by the Kit Nix
+build (`--ignore-scripts`). Nothing here is fetched or installed while a Task
+runs.
 
 ```
 pin.json          audited artifacts: version, integrity, tarball sha256, entry
+todo-pin.json     audited rpiv-todo artifact: version, integrity, tarball sha256
 package.json      exact dependency pin (pi-subagents 0.67.0)
 package-lock.json resolved closure, the actual install input
 config.json       Codify capability ceiling (plugin config)
@@ -19,9 +21,10 @@ install.sh        build-time install into the Kit payload
 
 ## Status: wired, with one bounded vendor patch
 
-`pi-run.sh` loads this extension with `--no-extensions -e <payload>` whenever the
-Kit ships it, the adapter applies the ceiling into the Pi CLI home, and
-`pi_events.py` projects the `subagent` tool as per-child delegation rows.
+`pi-run.sh` loads the Kit-fixed `rpiv-todo` and `pi-subagents` extensions with
+`--no-extensions -e <payload>` whenever the Kit ships them. The adapter applies
+the subagent ceiling into the Pi CLI home, and `pi_events.py` projects both the
+`todo` and `subagent` tools into canonical tool rows.
 
 `vendor/force-foreground.patch` is the only deviation from upstream, and it has
 three parts:
