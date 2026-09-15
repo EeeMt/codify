@@ -109,7 +109,11 @@ vi.mock('naive-ui', () => ({
   NAvatar: {
     name: 'NAvatar',
     props: ['round', 'src'],
-    setup(_p: any, { slots }: any) { return () => h('div', { class: 'n-avatar' }, slots.default?.()) }
+    setup(props: any, { slots }: any) {
+      return () => h('div', { class: 'n-avatar' }, props.src
+        ? h('img', { src: props.src })
+        : slots.default?.())
+    }
   },
   NInput: {
     name: 'NInput',
@@ -241,6 +245,19 @@ describe('AccessManagement', () => {
     expect(wrapper.vm.hasLoadedOnce).toBe(true)
     const cards = wrapper.findAll('[data-testid="access-management-user-card"]')
     expect(cards.length).toBe(3)
+  })
+
+  it('renders a user avatar image when one is available', async () => {
+    const avatarUrl = 'https://img.test/alice.png'
+    ;(mockApi.getAdminUsers as Mock).mockResolvedValue([
+      makeUser({ avatar_url: avatarUrl })
+    ])
+
+    wrapper = mountComponent()
+    await flushPromises()
+
+    expect(wrapper.find('.n-avatar img').attributes('src')).toBe(avatarUrl)
+    expect(wrapper.find('.n-avatar').text()).toBe('')
   })
 
   // -------------------------------------------------------------------------

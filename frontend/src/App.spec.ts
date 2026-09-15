@@ -172,7 +172,15 @@ vi.mock('@vicons/ionicons5', () => ({
 }))
 
 vi.mock('naive-ui', () => ({
-  NAvatar: { name: 'NAvatar', setup(_p: any, { slots }: any) { return () => h('div', { class: 'n-avatar' }, slots.default?.()) } },
+  NAvatar: {
+    name: 'NAvatar',
+    props: ['src'],
+    setup(props: any, { slots }: any) {
+      return () => h('div', { class: 'n-avatar' }, props.src
+        ? h('img', { src: props.src })
+        : slots.default?.())
+    }
+  },
   NButton: { name: 'NButton', emits: ['click'], setup(_props: any, { slots, emit, attrs }: any) { return () => h('button', { ...attrs, class: 'n-button', onClick: () => emit('click') }, slots.default?.()) } },
   NConfigProvider: { name: 'NConfigProvider', setup(_p: any, { slots }: any) { return () => h('div', { class: 'n-config-provider' }, slots.default?.()) } },
   NDialogProvider: { name: 'NDialogProvider', setup(_p: any, { slots }: any) { return () => h('div', { class: 'n-dialog-provider' }, slots.default?.()) } },
@@ -260,6 +268,23 @@ describe('App onboarding integration', () => {
     expect(wrapper.find('[data-testid="usage-indicator-desktop"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('shell.usageNearLimit')
     expect(wrapper.text()).toContain('shell.dailyTokens')
+  })
+
+  it('renders the current user avatar image when one is available', async () => {
+    mockDismissedState.value = true
+    mockAuthState.user = {
+      id: 1,
+      username: 'tester',
+      display_name: 'Test User',
+      avatar_url: 'https://img.test/tester.png',
+      platform_role: 'platform_admin',
+    }
+
+    const { wrapper } = await mountAppAt('/dashboard')
+    await flushPromises()
+
+    expect(wrapper.find('.n-avatar img').attributes('src')).toBe('https://img.test/tester.png')
+    expect(wrapper.find('.n-avatar').text()).toBe('')
   })
 
   it('formats reset timestamps before showing them in the tooltip', async () => {

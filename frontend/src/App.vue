@@ -101,7 +101,15 @@
             </div>
             <div class="app-shell__topbar">
               <div class="app-shell__topbar-user">
-              <n-avatar round size="small" :src="authState.user?.avatar_url || undefined">
+              <n-avatar
+                v-if="authState.user?.avatar_url"
+                round
+                size="small"
+                :src="authState.user.avatar_url"
+              >
+                <template #fallback>{{ userInitial }}</template>
+              </n-avatar>
+              <n-avatar v-else round size="small">
                 {{ userInitial }}
               </n-avatar>
               <div class="nav-user-panel__copy">
@@ -231,7 +239,15 @@
             </div>
             <div class="mobile-header__actions">
               <div v-if="showUserToolbar" class="mobile-header__user-chip">
-                <n-avatar round size="small" :src="authState.user?.avatar_url || undefined">
+                <n-avatar
+                  v-if="authState.user?.avatar_url"
+                  round
+                  size="small"
+                  :src="authState.user.avatar_url"
+                >
+                  <template #fallback>{{ userInitial }}</template>
+                </n-avatar>
+                <n-avatar v-else round size="small">
                   {{ userInitial }}
                 </n-avatar>
                 <span class="mobile-header__user-name">{{ userDisplayName }}</span>

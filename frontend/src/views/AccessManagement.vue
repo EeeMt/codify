@@ -84,7 +84,10 @@
             >
               <div class="user-management__card-top">
                 <div class="user-management__identity">
-                  <n-avatar round :src="user.avatar_url || undefined">
+                  <n-avatar v-if="user.avatar_url" round :src="user.avatar_url">
+                    <template #fallback>{{ userAvatarFallback(user) }}</template>
+                  </n-avatar>
+                  <n-avatar v-else round>
                     {{ userAvatarFallback(user) }}
                   </n-avatar>
                   <div>
