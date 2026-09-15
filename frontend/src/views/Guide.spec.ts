@@ -50,11 +50,11 @@ function createGuideRouter(): Router {
   })
 }
 
-async function mountGuide(path = '/guide') {
+async function mountGuide(path = '/guide', attachTo?: HTMLElement) {
   const router = createGuideRouter()
   await router.push(path)
   await router.isReady()
-  const wrapper = mount(Guide, { global: { plugins: [router, i18n] } })
+  const wrapper = mount(Guide, { attachTo, global: { plugins: [router, i18n] } })
   await flushPromises()
   return { wrapper, router }
 }
@@ -159,6 +159,34 @@ describe('Guide view', () => {
 
     expect(router.currentRoute.value.params.chapter).toBe(target.slug)
     expect(router.currentRoute.value.name).toBe('Guide')
+  })
+
+  it('scrolls the selected chapter card to the viewport top without resetting the outer page', async () => {
+    const scrollHost = document.createElement('div')
+    scrollHost.style.overflowY = 'auto'
+    Object.defineProperties(scrollHost, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 1000 },
+    })
+    document.body.append(scrollHost)
+
+    const { wrapper, router } = await mountGuide('/guide', scrollHost)
+    scrollHost.scrollTop = 320
+    const chapterCard = wrapper.find('.guide-content').element
+    const chapterBody = wrapper.find('.guide-content__body').element
+    const cardScrollIntoView = vi.spyOn(chapterCard, 'scrollIntoView')
+    const bodyScrollIntoView = vi.spyOn(chapterBody, 'scrollIntoView')
+
+    await router.push('/guide/12-complete-example')
+    await flushPromises()
+
+    expect(cardScrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'smooth' })
+    expect(bodyScrollIntoView).not.toHaveBeenCalled()
+    expect(scrollHost.scrollTop).toBe(320)
+    cardScrollIntoView.mockRestore()
+    bodyScrollIntoView.mockRestore()
+    wrapper.unmount()
+    scrollHost.remove()
   })
 
   it('renders the chapter in the newly selected locale', async () => {

@@ -106,7 +106,7 @@
         </div>
       </aside>
 
-      <article class="guide-content">
+      <article ref="contentRef" class="guide-content">
         <div class="guide-content__chapter-heading">
           <span class="guide-content__chapter-index" aria-hidden="true">
             <n-icon :component="activeChapterIcon" size="15" />
@@ -130,7 +130,6 @@
           <ProductSlides :key="`${activeChapter?.slug}:${currentLocale}`" :variant="activeSlidesVariant" compact />
         </div>
         <div
-          ref="contentRef"
           class="guide-content__body markdown-content"
           @click="handleContentClick"
           v-html="html"
@@ -213,7 +212,6 @@ const headings = ref<GuideHeading[]>([])
 
 // Guards against a slower render of a previous chapter overwriting a newer one.
 let renderToken = 0
-let hasRendered = false
 
 interface GuideSearchHit {
   slug: string
@@ -400,8 +398,9 @@ function revealChapterStart(): void {
     target.scrollIntoView({ block: 'start' })
     return
   }
-  // Skip the jump on first paint so opening the page does not scroll past its header.
-  if (hasRendered) contentRef.value?.scrollIntoView({ block: 'start' })
+  // Keep the outer page position (the top bar may already be out of view), but
+  // bring the newly selected right-hand chapter card back to the viewport top.
+  contentRef.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
 }
 
 async function writeClipboard(value: string, button: HTMLElement): Promise<void> {
@@ -494,7 +493,6 @@ watch(
     await nextTick()
     if (token !== renderToken) return
     revealChapterStart()
-    hasRendered = true
   },
   { immediate: true },
 )
