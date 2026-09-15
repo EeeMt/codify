@@ -80,7 +80,7 @@ When a run finishes and you want more work on the same Issue, append a Task inst
 - On the latest Task of an Issue, **Append a Follow-up Task** says this is the latest task on the issue and that appending here continues from this run. Use **Append Task** to open the form.
 - A completed Task also links **Continue on This Issue**, which explains that you can append a follow-up task on the issue page to continue where this task left off.
 
-Follow-up Tasks are appended to the tail of the Issue queue, so they run after everything already queued. If the conversation should not carry over, enable **Run in a new session** while creating the follow-up: the workspace, Git branch, and previous session records are preserved, but a new conversation generation starts. The next turn continues from the working branch, including commits you pushed yourself; the Delivery chapter covers the branch rules.
+Follow-up Tasks are appended to the tail of the Issue queue, so they run after everything already queued. If the conversation should not carry over, enable **Run in a new session** while creating the follow-up: the workspace, Git branch, and previous session records are preserved, but a new conversation generation starts. The next turn continues from the working branch, including commits you pushed yourself; [Delivery](/guide/50-delivery) covers the branch rules.
 
 A follow-up created by CI auto-repair shows its trigger source as **CI auto-repair**, alongside **Retry** and **Follow-up**.
 

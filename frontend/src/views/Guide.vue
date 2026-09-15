@@ -122,6 +122,13 @@
             >{{ t(TIER_LABEL[activeChapter.tier]) }}</span>
           </div>
         </div>
+        <div v-if="activeSlidesVariant" class="guide-content__slides">
+          <div class="guide-content__slides-heading">
+            <span class="guide-content__slides-label">{{ t('guide.slides.label') }}</span>
+            <span class="guide-content__slides-hint">{{ t('guide.slides.hint') }}</span>
+          </div>
+          <ProductSlides :key="`${activeChapter?.slug}:${currentLocale}`" :variant="activeSlidesVariant" compact />
+        </div>
         <div
           ref="contentRef"
           class="guide-content__body markdown-content"
@@ -173,6 +180,7 @@ import {
 } from '@vicons/ionicons5'
 
 import { currentLocale, type AppLocale } from '../i18n'
+import ProductSlides, { type ProductSlidesVariant } from '../components/ProductSlides.vue'
 import {
   guideChapters,
   guideTierGroups,
@@ -358,6 +366,20 @@ const nextChapter = computed(() =>
     ? chapters.value[activeIndex.value + 1]
     : null,
 )
+const activeSlidesVariant = computed<ProductSlidesVariant | null>(() => {
+  switch (activeChapter.value?.slug) {
+    case '10-quick-start':
+      return 'quick-start'
+    case '58-how-it-works':
+      return 'how-it-works'
+    case '30-create-task':
+      return 'create-task'
+    case '50-delivery':
+      return 'delivery'
+    default:
+      return null
+  }
+})
 
 function findHeading(id: string): HTMLElement | null {
   const target = document.getElementById(id)
@@ -1188,6 +1210,37 @@ watch(
   box-shadow: 0 14px 34px rgba(19, 35, 63, 0.05);
 }
 
+.guide-content__slides {
+  max-width: 860px;
+  margin: 0 0 34px;
+  padding: 14px;
+  border: 1px solid rgba(49, 100, 232, 0.12);
+  border-radius: 20px;
+  background: linear-gradient(145deg, #f8fbff 0%, #f2f6ff 100%);
+}
+
+.guide-content__slides-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 2px 4px 12px;
+}
+
+.guide-content__slides-label {
+  color: var(--guide-ink);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.guide-content__slides-hint {
+  color: rgba(19, 35, 63, 0.48);
+  font-size: 11px;
+  text-align: right;
+}
+
 .guide-content__chapter-heading {
   display: flex;
   align-items: flex-start;
@@ -1280,6 +1333,11 @@ watch(
 }
 
 @media (max-width: 1023px) {
+  .guide-page__body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
   .guide-page__header-content {
     grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
     gap: 28px;
@@ -1298,6 +1356,16 @@ watch(
 
   .guide-content {
     padding: 34px 36px 30px;
+  }
+
+  .guide-content__slides-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .guide-content__slides-hint {
+    text-align: left;
   }
 }
 

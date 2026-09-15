@@ -14,27 +14,44 @@ direction: right
 
 classes: {
   node: {
-    style.fill: "#FFFFFF"
-    style.stroke: "#334155"
+    style.fill: "#F7F9FC"
+    style.stroke: "#294A6E"
     style.stroke-width: 1
-    style.font-color: "#0F172A"
+    style.font-color: "#102A43"
     style.font-size: 14
-    style.border-radius: 8
+    style.border-radius: 14
   }
   accent: {
-    style.fill: "#EFF6FF"
-    style.stroke: "#1D4ED8"
-    style.font-color: "#0F172A"
+    style.fill: "#E8F0FF"
+    style.stroke: "#2454A6"
+    style.stroke-width: 2
+    style.font-color: "#102A43"
     style.font-size: 14
-    style.border-radius: 8
+    style.border-radius: 14
+  }
+  choice: {
+    style.fill: "#FFF3D6"
+    style.stroke: "#B7791F"
+    style.stroke-width: 2
+    style.font-color: "#5F370E"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  evidence: {
+    style.fill: "#E6F7F2"
+    style.stroke: "#187A6F"
+    style.stroke-width: 2
+    style.font-color: "#123B36"
+    style.font-size: 14
+    style.border-radius: 14
   }
   external: {
-    style.fill: "#F8FAFC"
-    style.stroke: "#94A3B8"
+    style.fill: "#F7F9FC"
+    style.stroke: "#8EA0B5"
     style.stroke-dash: 4
-    style.font-color: "#0F172A"
+    style.font-color: "#334E68"
     style.font-size: 14
-    style.border-radius: 8
+    style.border-radius: 14
   }
 }
 
@@ -48,14 +65,14 @@ delivery: {
   style.fill: transparent
   style.stroke-width: 0
 
-  base: "起始分支\n工作从这里开始" { class: node }
+  base: "起始分支\n工作从这里开始" { class: external }
   branch: "codify/issue-{id}\n提交都落在这里" { class: accent }
-  mr: "Merge Request\n先草稿，后转正" { class: node }
-  merged: "合并\n进入合并目标" { class: node }
-  nomr: "不创建 MR\n需求上的开关" { class: node }
+  mr: "Merge Request\n先草稿，后转正" { class: choice }
+  merged: "合并\n进入合并目标" { class: evidence }
+  nomr: "不创建 MR\n需求上的开关" { class: choice }
   direct: "直接推送\n不经过 MR 路径" { class: node }
-  closed: "需求关闭\n手动或 Webhook" { class: node }
-  cleanup: "分支清理\n删除或保留" { class: node }
+  closed: "需求关闭\n手动或 Webhook" { class: evidence }
+  cleanup: "分支清理\n删除或保留" { class: external }
 
   base -> branch
   branch -> mr

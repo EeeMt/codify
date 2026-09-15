@@ -1,0 +1,88 @@
+# Chapter: guide/en/30-create-task.md — how the prompt reaches the Harness.
+# Reader takeaway: the Issue description is default context; the Task prompt is
+# rendered through the Run Instruction Template, frozen as a Final Run Prompt,
+# and then passed to the Harness.
+# Render: python3 scripts/guide/render-diagrams.py
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  context: {
+    style.fill: "#F7F9FC"
+    style.stroke: "#8EA0B5"
+    style.stroke-width: 1
+    style.font-color: "#334E68"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  prompt: {
+    style.fill: "#E6F7F2"
+    style.stroke: "#187A6F"
+    style.stroke-width: 2
+    style.font-color: "#123B36"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  template: {
+    style.fill: "#FFF3D6"
+    style.stroke: "#B7791F"
+    style.stroke-width: 2
+    style.font-color: "#5F370E"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  final: {
+    style.fill: "#E8F0FF"
+    style.stroke: "#2454A6"
+    style.stroke-width: 2
+    style.font-color: "#102A43"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  harness: {
+    style.fill: "#102A43"
+    style.stroke: "#102A43"
+    style.stroke-width: 2
+    style.font-color: "#FFFFFF"
+    style.font-size: 14
+    style.border-radius: 18
+  }
+  warning: {
+    style.fill: "#FDEBEC"
+    style.stroke: "#B42318"
+    style.stroke-width: 1
+    style.font-color: "#6B1D1A"
+    style.font-size: 13
+    style.border-radius: 12
+  }
+}
+
+pipeline: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 26
+  style.fill: transparent
+  style.stroke-width: 0
+
+  issue_description: "Issue description\noptional durable context" { class: context }
+  task_prompt: "Task prompt\nthis turn's goal and scope" { class: prompt }
+  run_template: "Run Instruction Template\n{{user_prompt}} + context" { class: template }
+  final_prompt: "Final Run Prompt\nrendered and frozen" { class: final }
+  gap_1: " " { style.fill: transparent; style.stroke-width: 0 }
+  gap_2: " " { style.fill: transparent; style.stroke-width: 0 }
+  missing: "Without {{user_prompt}}\nthe prompt is left out" { class: warning }
+  harness: "Harness\nexecutes the run" { class: harness }
+
+  issue_description -> task_prompt
+  task_prompt -> run_template
+  run_template -> final_prompt
+  final_prompt -> harness
+  run_template -> missing
+}

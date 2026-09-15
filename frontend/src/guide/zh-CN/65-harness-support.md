@@ -33,7 +33,7 @@ Worker Profile 用 `harness_runtimes[key].source` 记录每个 Harness 的来源
 
 权威的用量事件是 `usage.final`，四个 Harness 一致，写入 `task.input_tokens` 与 `task.output_tokens`。信封里可以携带费用与币种，但 Task 不保存它们。
 
-超时策略同样共有：可配置 60 到 28800 秒，任务进入 RUNNING 时确定高峰或低峰档位，每个适配器还会在 `timeout ${TASK_TIMEOUT:-1800}` 之下运行 CLI。
+超时策略同样共有：取值范围和默认边界见[《平台参考》](/guide/96-platform-reference)，任务进入 RUNNING 时确定高峰或低峰档位，每个适配器还会在 `timeout ${TASK_TIMEOUT:-1800}` 之下运行 CLI。
 
 失败类型是同一份清单：`configuration_error`、`authentication_error`、`rate_limited`、`sandbox_error`、`protocol_error`、`timeout`、`cancelled`、`engine_error`、`crash` 和 `settled_race`。事件词表也共用，包括 `run.started`、`model.resolved`、`message.delta`、`tool.started`、`tool.completed`、`context.compacted`、`usage.updated`、`usage.final`、`harness.completed`、`run.completed`、`delivery.*` 系列与 `diagnostic`。
 
@@ -67,7 +67,7 @@ Worker Profile 用 `harness_runtimes[key].source` 记录每个 Harness 的来源
 | Pi | `PI_HOME` 落在需求的共享挂载上，即 `/opt/codify-issue-shared/pi-home` 下的 `sessions/` | 复制到 `/home/codify/.pi/agent/skills`，容器不会保留该目录 |
 | OpenCode | `XDG_DATA_HOME` 落在需求的共享挂载上，即 `/opt/codify-issue-shared/opencode-data` | 复制到本次运行的配置目录，并用 `opencode debug skill --pure` 验证可被发现 |
 
-完整的目录布局，以及哪些内容会跨任务保留，见《Worker 运行时》。
+完整的目录布局，以及哪些内容会跨任务保留，见[《Worker 运行时》](/guide/92-worker-runtime)。
 
 ## 模型协议配对
 

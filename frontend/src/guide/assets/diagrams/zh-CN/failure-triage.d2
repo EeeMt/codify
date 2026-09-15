@@ -13,27 +13,52 @@ direction: right
 
 classes: {
   node: {
-    style.fill: "#FFFFFF"
-    style.stroke: "#334155"
+    style.fill: "#F7F9FC"
+    style.stroke: "#294A6E"
     style.stroke-width: 1
-    style.font-color: "#0F172A"
+    style.font-color: "#102A43"
     style.font-size: 14
-    style.border-radius: 8
+    style.border-radius: 14
   }
   accent: {
-    style.fill: "#EFF6FF"
-    style.stroke: "#1D4ED8"
-    style.font-color: "#0F172A"
+    style.fill: "#E8F0FF"
+    style.stroke: "#2454A6"
+    style.stroke-width: 2
+    style.font-color: "#102A43"
     style.font-size: 14
-    style.border-radius: 8
+    style.border-radius: 14
+  }
+  choice: {
+    style.fill: "#FFF3D6"
+    style.stroke: "#B7791F"
+    style.stroke-width: 2
+    style.font-color: "#5F370E"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  evidence: {
+    style.fill: "#E6F7F2"
+    style.stroke: "#187A6F"
+    style.stroke-width: 2
+    style.font-color: "#123B36"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  danger: {
+    style.fill: "#FDEBEC"
+    style.stroke: "#B42318"
+    style.stroke-width: 2
+    style.font-color: "#6B1D1A"
+    style.font-size: 14
+    style.border-radius: 14
   }
   external: {
-    style.fill: "#F8FAFC"
-    style.stroke: "#94A3B8"
+    style.fill: "#F7F9FC"
+    style.stroke: "#8EA0B5"
     style.stroke-dash: 4
-    style.font-color: "#0F172A"
+    style.font-color: "#334E68"
     style.font-size: 14
-    style.border-radius: 8
+    style.border-radius: 14
   }
 }
 
@@ -45,14 +70,14 @@ triage: {
   style.fill: transparent
   style.stroke-width: 0
 
-  timeout: "超时\n本次超时上限偏小" { class: node }
+  timeout: "超时\n本次超时上限偏小" { class: danger }
   error: "1. 失败原因\n错误卡片" { class: accent }
-  events: "2. 事件流\n按发生顺序记录" { class: node }
+  events: "2. 事件流\n按发生顺序记录" { class: evidence }
   logs: "3. 原始日志\n容器原始输出" { class: node }
-  quota: "配额超限\n执行前被拦截" { class: node }
-  runtime: "Worker 运行时\n不可用" { class: node }
-  push: "推送未确认\n交付不算完成" { class: node }
-  archive: "4. 运行归档\n完整证据" { class: node }
+  quota: "配额超限\n执行前被拦截" { class: choice }
+  runtime: "Worker 运行时\n不可用" { class: danger }
+  push: "推送未确认\n交付不算完成" { class: choice }
+  archive: "4. 运行归档\n完整证据" { class: evidence }
 
   error -> events
   events -> logs

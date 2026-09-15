@@ -14,7 +14,7 @@ A Task always belongs to an Issue, so every entry point goes through one:
 
 The task form opens as a drawer titled **Create Task** and is organised into **Task Content** ("Describe the goal and choose how to handle it") and **Execution Settings** ("Set the task priority and execution time"). In edit mode the same drawer is titled **Edit Task** and narrows to priority and content.
 
-The **Prompt** field carries **Use Requirement Template**, which opens the **Select Template** drawer; templates are filtered by tag. Picking one replaces the text you have written, after the **Current description will be replaced by the template. Continue?** banner is confirmed.
+The **Prompt** field is the input for this Task. If the Issue has a description, the field starts with that text, and you can rewrite it for the current turn. It also carries **Use Requirement Template**, which opens the **Select Template** drawer; templates are filtered by tag. Picking one replaces the text you have written, after the **Current description will be replaced by the template. Continue?** banner is confirmed.
 
 Project and branch settings belong to the Issue, not to an individual Task:
 
@@ -24,7 +24,7 @@ Project and branch settings belong to the Issue, not to an individual Task:
 | Source | **Starting Branch** | AI checks out this branch and creates a new working branch on top of it |
 | Target | **Merge Target** | The MR target; use **Use starting branch** to copy the source |
 
-The branch flow is previewed in place as **AI Working Branch (auto-generated)**, which states where the AI checks out from and which branch the MR merges into. Source and target must differ, or no Merge Request can be opened.
+The branch flow is previewed in place as **AI Working Branch (auto-generated)**, which states where the AI checks out from and which branch the MR merges into. Source and target can be the same, which is the ordinary case when work starts from and merges back into the project's default branch. Choose different branches only when the work should start from one branch and land in another.
 
 Every Task on the Issue works on the same branch, generated as `codify/issue-{id}`.
 
@@ -39,7 +39,7 @@ The **Task Mode** selector determines how the Harness treats your prompt. Open *
 | Mode | Description shown in the UI |
 |---|---|
 | **Implementation** | Codify analyses the project, implements code changes, and commits them |
-| **Analysis** | Codify answers questions, analyses requirements, or outputs a proposal based on the actual project — no files are modified |
+| **Analysis** | Codify answers questions, analyses requirements, or outputs a proposal based on the actual project; no files are modified |
 | **Freeform** | Send only the task prompt to the Harness. It decides whether to answer, analyze, or modify code; the task may complete without code changes |
 
 Each mode keeps its own run instruction template, so the template you edit under **Implementation** is still there when you come back to it, and a mode you have never opened starts from its default. `require_changes` is fixed to false for **Analysis** and **Freeform**, because those modes are not expected to produce commits.
@@ -47,6 +47,57 @@ Each mode keeps its own run instruction template, so the template you edit under
 **Require Changes** is the Implementation-mode guard: when enabled, the task is considered failed if no code commits are produced. It starts off for a new Task; leave it off for work that may legitimately produce none, such as a spike or a question that still touches files.
 
 The mode is frozen on the Task and shown in the **Task Mode** row of the task page. A retry keeps the source Task's mode, and a task created by CI auto-repair always runs as **Implementation** with **Require Changes** on.
+
+## Writing the task prompt
+
+The Task prompt describes this turn's work. When the Issue has a description, Create Task starts with that text in the Prompt field; when it is empty, the prompt starts empty. You can rewrite it for this Task, and the edit does not change the Issue description. [Complete example](/guide/12-complete-example) shows the same fields filled in.
+
+Keep context that applies across Tasks in the Issue description. Use the Task prompt for this turn's goal, scope, constraints, acceptance criteria, and verification. A short request such as "handle this" or a repeated title gives the Harness little to work with. State what it should do now, how far it may go, and how to check the result.
+
+A useful order is action and result first, followed by scope, constraints, and verification. Name known files, interfaces, or error messages directly, and leave unknown details for the Harness to inspect. Keep one Task focused on one verifiable result; use a follow-up Task for the next piece of work.
+
+| Part | What to write |
+|---|---|
+| Goal | The result this turn should produce |
+| Scope | The files, modules, or interfaces it may inspect or change |
+| Constraints | Behavior that must stay stable and areas to leave alone |
+| Acceptance criteria | Observable conditions that mean the Task is done |
+| Verification | Tests, commands, or checks to run |
+
+You can copy this outline:
+
+```text
+Goal for this turn:
+
+Allowed changes:
+-
+
+Keep unchanged:
+-
+
+Acceptance criteria:
+-
+
+Verification:
+-
+```
+
+For **Analysis**, include the question, investigation scope, and desired output. For **Implementation**, include the code result and verification. For **Freeform**, describe the desired outcome and any acceptable approach; the Harness chooses whether to answer, analyze, or modify code.
+
+### How the prompt reaches the Harness
+
+![From Issue context to the Final Run Prompt the Harness receives](assets/diagrams/en/prompt-pipeline.svg)
+
+The Task prompt enters the Run Instruction Template through `{{user_prompt}}`. The template can add context variables such as `{{issue_title}}` and `{{branch_name}}`. When the Task is saved, Codify renders the template for the current context and stores the result as **Final Run Prompt**; this is the text the Harness runs with.
+
+| Layer | Role |
+|---|---|
+| Issue description | Optional durable context; default content for a new Task prompt |
+| Task prompt | Current-turn input you can edit |
+| Run Instruction Template | Places `{{user_prompt}}` and context variables into the instruction |
+| Final Run Prompt | Rendered and frozen text used by the Harness |
+
+When the current Task needs the prompt to reach the Harness, a custom template that omits `{{user_prompt}}` leaves it out of the Final Run Prompt, and the page warns you. The next section explains how to edit the template.
 
 ## Priority
 
@@ -81,7 +132,7 @@ Scheduling does not bypass the Issue queue: a scheduled Task that is not the hea
 
 ## Run instruction and variables
 
-The **Run Instruction Template** is what the Harness receives, with your prompt rendered into it. It lives under **Advanced**, described as: Customize the run instruction and preview the final prompt.
+The **Run Instruction Template** lives under **Advanced** and assembles the Task prompt and context variables into the first instruction the Harness receives. The editor is described as: Customize the run instruction and preview the final prompt.
 
 Controls on the template editor:
 
@@ -94,7 +145,7 @@ Variables use `{{name}}` syntax. The full catalogue offered by the editor:
 
 | Variable | Meaning |
 |---|---|
-| `user_prompt` | The task requirement entered by the user |
+| `user_prompt` | The task prompt entered by the user |
 | `issue_title` | The title of the current issue |
 | `project_path` | The full GitLab repository path |
 | `branch_name` | The working branch used by this task |
@@ -111,7 +162,7 @@ The rendered prompt is stored on the Task, so you can still inspect what the Har
 
 ### Carrying previous task summaries {tips}
 
-`{{previous_task_summaries_path}}` points at a file listing the earlier Tasks on the same Issue with their status, goal, commit message, and execution summary. The built-in Implementation and Analysis templates never reference it, so the summaries reach the Harness only if you put the placeholder into the template yourself. Freeform has no room for it, because its template is fixed to `{{user_prompt}}`. The Techniques chapter works through the recipe.
+`{{previous_task_summaries_path}}` points at a file listing the earlier Tasks on the same Issue with their status, goal, commit message, and execution summary. The built-in Implementation and Analysis templates never reference it, so the summaries reach the Harness only if you put the placeholder into the template yourself. Freeform has no room for it, because its template is fixed to `{{user_prompt}}`. [Techniques](/guide/78-techniques) works through the recipe.
 
 ## Provider and worker profile
 
@@ -121,7 +172,7 @@ The rendered prompt is stored on the Task, so you can still inspect what the Har
 - **Default AI Provider** defaults to **Follow issue default**, meaning the Task uses the Issue's provider unless you pick an override. A Task-level choice is shown as **Task override**, and **Restore defaults** returns to **Following issue default**.
 - **Harness** is pinned to the Task snapshot. Continue-session Tasks must reuse the current Harness; to switch, create the Task with **Run in a new session**.
 
-The Harness selector shows every option with its availability. Each choice is annotated as **available**, **unavailable**, **not verified**, **enabled**, or **disabled**, with a reason such as **worker profile disabled**, **Worker Kit unavailable**, **runtime not verified**, **explicit host mount**, or **fixed by task snapshot**. Only a Harness the Runtime Bundle provides can be selected; the Harness Support chapter explains the availability reasons. If no enabled AI Provider speaks the protocol a Harness needs, the form says so and points you to AI Providers in Configuration. When a Harness requires a specific protocol and the current provider cannot serve it, Codify switches the provider automatically and adds a hint.
+The Harness selector shows every option with its availability. Each choice is annotated as **available**, **unavailable**, **not verified**, **enabled**, or **disabled**, with a reason such as **worker profile disabled**, **Worker Kit unavailable**, **runtime not verified**, **explicit host mount**, or **fixed by task snapshot**. Only a Harness the Runtime Bundle provides can be selected; [Harness Support](/guide/65-harness-support) explains the availability reasons. If no enabled AI Provider speaks the protocol a Harness needs, the form says so and points you to AI Providers in Configuration. When a Harness requires a specific protocol and the current provider cannot serve it, Codify switches the provider automatically and adds a hint.
 
 Whether an MR is created at all is an Issue-level choice, made in the Issue form with **Create Merge Request**; the form confirms the current setting as **MR will be created** or **No MR**. Tasks inherit it. When the Issue is configured without an MR, Codify pushes the branch only.
 
@@ -133,7 +184,7 @@ If your account is over its quota, submission is refused with **Usage limit exce
 
 - **Follow Worker defaults** uses the enabled default skills from the Worker Profile.
 - An explicit selection fully replaces the profile defaults; clearing it runs the task without managed skills.
-- Skills require the **Mounted worker kit** delivery mode (0.3.5 or newer); the **Baked image (deprecated)** mode does not support them.
+- Skills require the **Mounted worker kit** delivery mode at the minimum version listed in [Platform reference](/guide/96-platform-reference); **Baked image (deprecated)** does not support them.
 
 Skill versions are frozen into the Task snapshot. If the global catalogue later changes, the task page says the Skill snapshot or the profile Skill selection changed, and offers **Apply current available versions** to refresh. A snapshot that cannot be resolved is shown as **unavailable**, with an older frozen version marked as **older version**.
 

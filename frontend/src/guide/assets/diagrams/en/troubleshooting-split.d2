@@ -1,0 +1,67 @@
+# Chapter: guide/en/55-troubleshooting.md — user or platform path.
+# Reader takeaway: route by symptom first. Stay on the Task page for user actions;
+# send runtime and platform state to an administrator with the evidence they need.
+# Render: python3 scripts/guide/render-diagrams.py
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  start: {
+    style.fill: "#102A43"
+    style.stroke: "#102A43"
+    style.stroke-width: 2
+    style.font-color: "#FFFFFF"
+    style.font-size: 15
+    style.border-radius: 18
+  }
+  self: {
+    style.fill: "#E6F7F2"
+    style.stroke: "#187A6F"
+    style.stroke-width: 2
+    style.font-color: "#123B36"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  admin: {
+    style.fill: "#FFF3D6"
+    style.stroke: "#B7791F"
+    style.stroke-width: 2
+    style.font-color: "#5F370E"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  hint: {
+    style.fill: "#F7F9FC"
+    style.stroke: "#8EA0B5"
+    style.stroke-dash: 4
+    style.font-color: "#334E68"
+    style.font-size: 13
+    style.border-radius: 12
+  }
+}
+
+route: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 3
+  grid-gap: 34
+  style.fill: transparent
+  style.stroke-width: 0
+
+  symptom: "A symptom appears\nread status and page text" { class: start }
+  gap: " " { style.fill: transparent; style.stroke-width: 0 }
+  split: "Where is the evidence?\nTask page or platform" { class: hint }
+  self_service: "User path\nTask page, prompt, retry, follow-up" { class: self }
+  platform: "Admin path\nWorker, Docker, OIDC, configuration" { class: admin }
+  gap_2: " " { style.fill: transparent; style.stroke-width: 0 }
+
+  symptom -> split
+  split -> self_service
+  split -> platform
+}

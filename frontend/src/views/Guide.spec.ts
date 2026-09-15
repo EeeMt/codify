@@ -94,6 +94,26 @@ describe('Guide view', () => {
     expect(wrapper.find('.guide-nav__scroll').classes()).toContain('n-scrollbar')
   })
 
+  it('embeds the matching visual walkthrough in core workflow chapters', async () => {
+    const { wrapper, router } = await mountGuide()
+
+    expect(wrapper.find('.guide-content__slides').exists()).toBe(true)
+    expect(wrapper.find('.product-slides__viewport--quick-start').exists()).toBe(true)
+
+    await router.push('/guide/58-how-it-works')
+    await flushPromises()
+    expect(wrapper.find('.product-slides__viewport--how-it-works').exists()).toBe(true)
+    expect(wrapper.findAll('.product-slides__viewport--how-it-works .product-slide')).toHaveLength(7)
+
+    await router.push('/guide/30-create-task')
+    await flushPromises()
+    expect(wrapper.find('.product-slides__viewport--create-task').exists()).toBe(true)
+
+    await router.push('/guide/50-delivery')
+    await flushPromises()
+    expect(wrapper.find('.product-slides__viewport--delivery').exists()).toBe(true)
+  })
+
   it('canonicalises an unknown chapter to the first chapter', async () => {
     const { router } = await mountGuide('/guide/does-not-exist')
 

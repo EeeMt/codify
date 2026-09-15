@@ -38,7 +38,18 @@ The page banner **Secrets are stored server-side and never returned to the brows
 
 Encryption uses a key that is fixed for the instance. A missing key, or the placeholder value `change-me-in-production`, makes secret writes fail. Keep that key stable across restarts and upgrades: if the key that produced the stored ciphertext changes, existing secrets can no longer be decrypted and must be entered again. The key belongs to deployment-time configuration, and this page cannot change it.
 
-## Runtime and capacity
+## Run the first task
+
+Configure the execution path before tuning capacity, notifications, or sign-in policy:
+
+1. Enter the service URL and bot token under **GitLab**, then run the connection test. Add the bot to the test project with permission to push branches and open Merge Requests.
+2. Create and enable one provider under **AI Providers**. Its connection test should succeed and report the round-trip latency.
+3. Save the shared Worker settings and one enabled Worker Profile, then verify its runtime. The result lists the Harnesses available on that Worker.
+4. Create a small Issue in the test project. Run an Implementation Task and confirm that Codify pushes the branch and opens the Merge Request.
+
+After that run succeeds, configure OIDC, concurrency and timeouts, Skills, notifications, and cleanup as needed. Existing Tasks keep their frozen snapshots, so use a new Task to check a configuration change.
+
+## Runtime and capacity {deep}
 
 ### Scheduler
 
@@ -118,7 +129,7 @@ The overview loads nothing until **GitLab URL** and a stored **GitLab Admin Toke
 
 Results recorded by the handler include **Issue closed**, **Already closed**, **No match**, **Unsupported event**, **Ignored action**, **Auth failed**, **CI failure collecting**, and **Duplicate**. An **Auth failed** row means the hook secret did not match; re-run the project webhook setup to restore it.
 
-## Login and OIDC
+## Login and OIDC {deep}
 
 ### Provider basics
 
@@ -183,7 +194,7 @@ Break-glass login is environment-controlled and cannot be edited from this page.
 | **OpenAI Compatible** | **OpenAI Responses** | Codex, Pi, OpenCode |
 | **OpenAI Compatible** | **OpenAI Chat Completions** | Pi, OpenCode |
 
-Claude accepts **Anthropic Messages** only and Codex accepts **OpenAI Responses** only; Pi and OpenCode accept any of the three. The API rejects a mismatched kind and protocol at save time, so a provider whose endpoint cannot serve its harness never reaches a container. For the capabilities built on top of the protocol, see the Harness Support chapter.
+Claude accepts **Anthropic Messages** only and Codex accepts **OpenAI Responses** only; Pi and OpenCode accept any of the three. The API rejects a mismatched kind and protocol at save time, so a provider whose endpoint cannot serve its harness never reaches a container. [Harness Support](/guide/65-harness-support) covers the capabilities built on top of the protocol.
 
 ### Default, enable, and delete rules
 
@@ -231,7 +242,7 @@ A profile defines:
 - **Custom Scripts**: **Pre Script** runs in `/workspace` after checkout and before AI execution; **Post Script** runs in `/workspace` after AI execution succeeds and before commit.
 - **CodeGraph**, which enables the local CodeGraph MCP server and project index for tasks on the profile.
 - **Harnesses** enabled for the profile, with **Default Harness** pre-selected for new tasks.
-- **Default Skills**, inherited by new tasks unless the task overrides the selection. Skills require mounted-kit 0.3.5 or newer.
+- **Default Skills**, inherited by new tasks unless the task overrides the selection. Skills require the minimum mounted-kit version listed in [Platform reference](/guide/96-platform-reference).
 
 A profile that is still assigned to open issues cannot be disabled directly: **Disable** is refused while any non-closed issue points at the profile, and **Force disable** first asks for confirmation, naming the profile and warning that all its open issues will be closed. The default profile can neither be disabled nor deleted. Deletion is limited to disabled profiles that are not assigned to any issue.
 
@@ -261,9 +272,9 @@ Saving a profile does not change tasks that already exist. When a task is create
 
 The Task Snapshot records the resolved values (**Worker image**, runtime mode, Worker Kit version and path, **Profile volume mounts**, **Profile environment variables**, scripts, run instructions, harness key, and the model endpoint), together with the shared configuration revision it was resolved against and a digest of the effective configuration. The Runtime Bundle is stored by digest and holds the frozen runtime source and Harness identity. Because the binding is immutable, editing a profile, a shared script, a Skill, or a provider only affects tasks created afterwards; the hint on the shared configuration card states the same rule for the baseline: **Changes become the baseline for future tasks created from profiles that follow the system value. Existing task snapshots do not change.** A task keeps running when you disable or edit a Skill or a provider, because the snapshot already carries what it needs.
 
-The worker filesystem layout and the per-Harness state directories are documented in the Worker Runtime chapter.
+The worker filesystem layout and the per-Harness state directories are documented in [Worker Runtime](/guide/92-worker-runtime).
 
-## Prompt templates and skills
+## Prompt templates and skills {deep}
 
 ### Requirement templates
 
@@ -300,9 +311,9 @@ Paths must be safe relative paths separated by `/`, without empty, `.`, or `..` 
 
 **Available for new tasks** is the enable switch; disabling a skill does not affect existing task snapshots. **Download ZIP** exports the package, and the editor refuses to download while unsaved changes exist. **Delete** removes the skill after confirming that existing task snapshots are not affected.
 
-Skills are executed by the worker kit, so a profile must use mounted-kit delivery with worker kit 0.3.5 or newer to run them; **Default Skills** on a profile makes the selection the default for new tasks.
+Skills are executed by the worker kit, so a profile must use mounted-kit delivery at the minimum version listed in [Platform reference](/guide/96-platform-reference) to run them; **Default Skills** on a profile makes the selection the default for new tasks.
 
-## Notifications and announcements
+## Notifications and announcements {deep}
 
 ### Mattermost integration
 

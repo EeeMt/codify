@@ -1,0 +1,87 @@
+# 章节：30-create-task（创建任务）· 提示词进入 Harness 的路径
+# 读者要理解：需求描述只是默认背景，任务提示词经过运行指令模板后，才成为
+# 创建时冻结的最终运行提示词，最后交给 Harness。
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  context: {
+    style.fill: "#F7F9FC"
+    style.stroke: "#8EA0B5"
+    style.stroke-width: 1
+    style.font-color: "#334E68"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  prompt: {
+    style.fill: "#E6F7F2"
+    style.stroke: "#187A6F"
+    style.stroke-width: 2
+    style.font-color: "#123B36"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  template: {
+    style.fill: "#FFF3D6"
+    style.stroke: "#B7791F"
+    style.stroke-width: 2
+    style.font-color: "#5F370E"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  final: {
+    style.fill: "#E8F0FF"
+    style.stroke: "#2454A6"
+    style.stroke-width: 2
+    style.font-color: "#102A43"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  harness: {
+    style.fill: "#102A43"
+    style.stroke: "#102A43"
+    style.stroke-width: 2
+    style.font-color: "#FFFFFF"
+    style.font-size: 14
+    style.border-radius: 18
+  }
+  warning: {
+    style.fill: "#FDEBEC"
+    style.stroke: "#B42318"
+    style.stroke-width: 1
+    style.font-color: "#6B1D1A"
+    style.font-size: 13
+    style.border-radius: 12
+  }
+}
+
+pipeline: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 4
+  grid-gap: 26
+  style.fill: transparent
+  style.stroke-width: 0
+
+  issue_description: "需求描述\n可选的长期背景" { class: context }
+  task_prompt: "任务提示词\n本回合的目标与范围" { class: prompt }
+  run_template: "运行指令模板\n{{user_prompt}} + 上下文" { class: template }
+  final_prompt: "最终运行提示词\n渲染后冻结" { class: final }
+  gap_1: " " { style.fill: transparent; style.stroke-width: 0 }
+  gap_2: " " { style.fill: transparent; style.stroke-width: 0 }
+  missing: "缺少 {{user_prompt}}\n提示词不会自动进入" { class: warning }
+  harness: "Harness\n实际执行" { class: harness }
+
+  issue_description -> task_prompt
+  task_prompt -> run_template
+  run_template -> final_prompt
+  final_prompt -> harness
+  run_template -> missing
+}

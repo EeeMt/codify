@@ -1,0 +1,66 @@
+# 章节：55-troubleshooting（故障排查）· 用户问题与平台问题分流
+# 读者要理解：先按症状分流，任务页能处理的留在用户路径，运行时和平台状态交给管理员。
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+classes: {
+  start: {
+    style.fill: "#102A43"
+    style.stroke: "#102A43"
+    style.stroke-width: 2
+    style.font-color: "#FFFFFF"
+    style.font-size: 15
+    style.border-radius: 18
+  }
+  self: {
+    style.fill: "#E6F7F2"
+    style.stroke: "#187A6F"
+    style.stroke-width: 2
+    style.font-color: "#123B36"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  admin: {
+    style.fill: "#FFF3D6"
+    style.stroke: "#B7791F"
+    style.stroke-width: 2
+    style.font-color: "#5F370E"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  hint: {
+    style.fill: "#F7F9FC"
+    style.stroke: "#8EA0B5"
+    style.stroke-dash: 4
+    style.font-color: "#334E68"
+    style.font-size: 13
+    style.border-radius: 12
+  }
+}
+
+route: {
+  label: ""
+  grid-rows: 2
+  grid-columns: 3
+  grid-gap: 34
+  style.fill: transparent
+  style.stroke-width: 0
+
+  symptom: "看到一个症状\n先看状态与页面提示" { class: start }
+  gap: " " { style.fill: transparent; style.stroke-width: 0 }
+  split: "证据在哪一层？\n任务页还是平台" { class: hint }
+  self_service: "用户路径\n任务页、提示词、重试与追加" { class: self }
+  platform: "管理员路径\nWorker、Docker、OIDC 与配置" { class: admin }
+  gap_2: " " { style.fill: transparent; style.stroke-width: 0 }
+
+  symptom -> split
+  split -> self_service
+  split -> platform
+}

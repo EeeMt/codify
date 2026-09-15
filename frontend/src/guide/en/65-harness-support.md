@@ -33,7 +33,7 @@ Task skills are supported on all four, and each adapter places the Skill package
 
 The authoritative usage event is `usage.final`, the same for all four, and it writes `task.input_tokens` and `task.output_tokens`. Cost and currency can travel in the envelope, but the Task does not store them.
 
-Timeout policy is shared as well: configure 60 to 28800 seconds, the peak or off-peak tier is fixed when the task enters RUNNING, and every adapter runs the CLI under an outer `timeout ${TASK_TIMEOUT:-1800}`.
+Timeout policy is shared as well: the supported range and defaults are collected in [Platform reference](/guide/96-platform-reference), the peak or off-peak tier is fixed when the task enters RUNNING, and every adapter runs the CLI under an outer `timeout ${TASK_TIMEOUT:-1800}`.
 
 Failure kinds are one list for all four: `configuration_error`, `authentication_error`, `rate_limited`, `sandbox_error`, `protocol_error`, `timeout`, `cancelled`, `engine_error`, `crash`, and `settled_race`. Events use one shared vocabulary, which includes `run.started`, `model.resolved`, `message.delta`, `tool.started`, `tool.completed`, `context.compacted`, `usage.updated`, `usage.final`, `harness.completed`, `run.completed`, the `delivery.*` family, and `diagnostic`.
 
@@ -67,7 +67,7 @@ Each Harness keeps its session state in its own directory, so a session id only 
 | Pi | `PI_HOME` on the Issue's shared mount, `/opt/codify-issue-shared/pi-home`, under `sessions/` | copied into `/home/codify/.pi/agent/skills`, which the container does not keep |
 | OpenCode | `XDG_DATA_HOME` on the Issue's shared mount, `/opt/codify-issue-shared/opencode-data` | copied into the per-run config directory, then verified with `opencode debug skill --pure` |
 
-The Worker Runtime chapter lists the full directory map and which parts survive a run.
+[Worker Runtime](/guide/92-worker-runtime) lists the full directory map and which parts survive a run.
 
 ## Model protocol pairing
 

@@ -43,6 +43,12 @@ function assetLinks(body: string): string[] {
   return targets
 }
 
+function guideLinks(body: string): string[] {
+  const targets: string[] = []
+  for (const match of body.matchAll(/\]\(\/guide\/([^)\s#]+)(?:#[^)\s]*)?\)/g)) targets.push(match[1])
+  return targets
+}
+
 describe('guide content', () => {
   it('exposes the same chapters in both locales', () => {
     const [reference, ...rest] = LOCALES.map((locale) =>
@@ -171,6 +177,26 @@ describe('guide content', () => {
       expect(targets(translated.body), `${chapter.slug} assets drifted between locales`).toEqual(
         targets(chapter.body),
       )
+    }
+  })
+
+  it('points internal guide links at chapters available in the same locale', () => {
+    for (const locale of LOCALES) {
+      const chapters = guideChapters(locale)
+      const slugs = new Set(chapters.map((chapter) => chapter.slug))
+      let linkCount = 0
+
+      for (const chapter of chapters) {
+        for (const target of guideLinks(chapter.body)) {
+          linkCount += 1
+          expect(
+            slugs.has(target),
+            `${locale}/${chapter.slug} links to missing chapter ${target}`,
+          ).toBe(true)
+        }
+      }
+
+      expect(linkCount, `${locale} has no internal guide links`).toBeGreaterThan(0)
     }
   })
 

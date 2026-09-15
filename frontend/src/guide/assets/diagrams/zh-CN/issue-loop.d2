@@ -14,27 +14,44 @@ direction: right
 
 classes: {
   node: {
-    style.fill: "#FFFFFF"
-    style.stroke: "#334155"
+    style.fill: "#F7F9FC"
+    style.stroke: "#294A6E"
     style.stroke-width: 1
-    style.font-color: "#0F172A"
+    style.font-color: "#102A43"
     style.font-size: 14
-    style.border-radius: 8
+    style.border-radius: 14
   }
   accent: {
-    style.fill: "#EFF6FF"
-    style.stroke: "#1D4ED8"
-    style.font-color: "#0F172A"
+    style.fill: "#E8F0FF"
+    style.stroke: "#2454A6"
+    style.stroke-width: 2
+    style.font-color: "#102A43"
     style.font-size: 14
-    style.border-radius: 8
+    style.border-radius: 14
+  }
+  choice: {
+    style.fill: "#FFF3D6"
+    style.stroke: "#B7791F"
+    style.stroke-width: 2
+    style.font-color: "#5F370E"
+    style.font-size: 14
+    style.border-radius: 14
+  }
+  evidence: {
+    style.fill: "#E6F7F2"
+    style.stroke: "#187A6F"
+    style.stroke-width: 2
+    style.font-color: "#123B36"
+    style.font-size: 14
+    style.border-radius: 14
   }
   external: {
-    style.fill: "#F8FAFC"
-    style.stroke: "#94A3B8"
+    style.fill: "#F7F9FC"
+    style.stroke: "#8EA0B5"
     style.stroke-dash: 4
-    style.font-color: "#0F172A"
+    style.font-color: "#334E68"
     style.font-size: 14
-    style.border-radius: 8
+    style.border-radius: 14
   }
 }
 
@@ -55,10 +72,10 @@ loop: {
   run_turn: "回合执行\n隔离容器中运行" { class: node }
   gap_a: " " { style.fill: transparent; style.stroke-width: 0 }
   continue_turn: "继续下一回合\n追加 Task" { class: accent }
-  review: "评审结果\n继续下一回合或合入" { class: node }
+  review: "评审结果\n继续下一回合或合入" { class: choice }
   gap_b: " " { style.fill: transparent; style.stroke-width: 0 }
-  merge_mr: "结果满意后合入\n唯一 Merge Request" { class: node }
-  close_issue: "需求关闭\nMR 已合并" { class: node }
+  merge_mr: "结果满意后合入\n唯一 Merge Request" { class: evidence }
+  close_issue: "需求关闭\nMR 已合并" { class: evidence }
 
   create_issue -> append_task
   append_task -> run_turn

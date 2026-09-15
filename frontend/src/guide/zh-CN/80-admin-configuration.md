@@ -34,7 +34,18 @@ tier: core
 
 已存储的密钥由平台加密保管，加密密钥只能在部署实例时设定，页面上不提供修改入口；实例缺少可用根密钥时保存密钥会直接失败。根密钥更换后，旧密文无法解密，这些密钥会被当作未配置处理，需要重新填写并用当前密钥加密保存。
 
-## 运行时与容量
+## 跑通第一条任务
+
+新实例先配通执行链路，再处理容量、通知和登录策略：
+
+1. 在「GitLab」里填写服务地址和机器人令牌，运行连接测试。机器人账号还要加入测试项目，并具备推送分支和创建 Merge Request 的权限。
+2. 在「AI 模型服务」里创建并启用一个 Provider，确认连接测试成功并显示往返延迟。
+3. 在「Worker」里保存共享配置和一个启用中的 Worker Profile，然后执行运行时验证。验证结果会列出可用的 Harness。
+4. 用测试项目创建一个小需求，运行实施任务并确认分支推送和 Merge Request 创建成功。
+
+这条链路跑通后，再按实际需要配置 OIDC、并发与超时、Skills、通知和数据清理。已创建的任务使用冻结快照，配置改动要用新任务验证。
+
+## 运行时与容量 {deep}
 
 ### 调度器
 
@@ -113,7 +124,7 @@ tier: core
 
 **Webhook 事件日志** 记录已接收的 GitLab Webhook 事件及处理结果，支持 **按结果筛选** 和 **按项目 ID 筛选**。**结果** 列可能的值包括 **Issue 已关闭**、**已是关闭状态**、**未匹配**、**不支持的事件**、**已忽略的操作**、**认证失败**、**CI 失败采集中** 和 **重复事件**。**认证失败** 说明请求未通过 secret 校验，通常是 Webhook 被外部修改或 secret 被重置。
 
-## 登录与 OIDC
+## 登录与 OIDC {deep}
 
 ### 提供方基础信息
 
@@ -146,7 +157,7 @@ OIDC 诊断面板嵌在 **认证与会话** 选项卡底部，面板内的 **刷
 | **高级请求参数** | 合并进各兼容 Harness 请求体的 JSON 对象 |
 | **状态** | **启用** 或 **禁用** |
 
-Provider 类型与 Wire 协议必须搭配：`anthropic_compatible` 搭配 `anthropic_messages`，`openai_compatible` 搭配 `openai_responses` 或 `openai_chat_completions`。Harness 一侧的对应关系是：Claude 只接受 `anthropic_messages`，Codex 只接受 `openai_responses`，Pi 与 OpenCode 三种协议都能接受；各 Harness 的完整能力见 《Harness 支持》。**系统提示词** 与 **高级请求参数** 会进入非敏感 Task Snapshot，因此不要在其中填写密钥；保留字段由 Harness 所有，提交时会报错。
+Provider 类型与 Wire 协议必须搭配：`anthropic_compatible` 搭配 `anthropic_messages`，`openai_compatible` 搭配 `openai_responses` 或 `openai_chat_completions`。Harness 一侧的对应关系是：Claude 只接受 `anthropic_messages`，Codex 只接受 `openai_responses`，Pi 与 OpenCode 三种协议都能接受；各 Harness 的完整能力见[《Harness 支持》](/guide/65-harness-support)。**系统提示词** 与 **高级请求参数** 会进入非敏感 Task Snapshot，因此不要在其中填写密钥；保留字段由 Harness 所有，提交时会报错。
 
 **测试连通性** 不创建任务，只发起一次最小请求，成功时显示往返延迟。**设为默认** 把某个服务标记为 **默认**（当前默认项还带 **系统默认** 标签），新建任务默认选中它。**禁用** 后的服务不能在新建任务时选择，但已冻结的 Task Snapshot 不受影响。删除受两条规则约束：仍有活跃任务使用时提示 **无法删除 — 仍有活跃任务使用此服务**；只剩下唯一一个服务时提示 **无法删除唯一的服务**。
 
@@ -179,7 +190,7 @@ Profile 中的每个字段都可以 **跟随系统**，或改为 **Profile 覆�
 | **运行指令** | **实施模式**、**分析模式**、**CI 自动修复** 三个模板 |
 | **运行时交付方式** 之外的执行选择 | **Docker 目标**、**CodeGraph**、**Harness** 与 **默认 Harness**、**默认 Skills** |
 
-**Worker Kit 路径** 是 Docker 主机上的绝对路径，Codify 会挂载到 `/opt/codify-kit`，并把其中的 `nix/store` 挂载到 `/nix/store`。**镜像内置（已过时）** 交付方式不支持 Skills；**默认 Skills** 要求 Worker Kit 0.3.5 或更高版本的挂载模式。**CodeGraph** 为使用该配置的任务启用本地 CodeGraph MCP 服务和项目索引。**Harness** 决定该配置下任务可用的 Harness，**默认 Harness** 会预选给新任务；启用多个时可逐任务切换。
+**Worker Kit 路径** 是 Docker 主机上的绝对路径，Codify 会挂载到 `/opt/codify-kit`，并把其中的 `nix/store` 挂载到 `/nix/store`。**镜像内置（已过时）** 交付方式不支持 Skills；**默认 Skills** 的最低版本见[《平台参考》](/guide/96-platform-reference)。**CodeGraph** 为使用该配置的任务启用本地 CodeGraph MCP 服务和项目索引。**Harness** 决定该配置下任务可用的 Harness，**默认 Harness** 会预选给新任务；启用多个时可逐任务切换。
 
 **Docker 目标** 默认使用 **使用系统默认 Docker**，也可以指定 **Docker Host** 与 **TLS CA 路径**、**TLS 客户端证书路径**、**TLS 客户端密钥路径**。**测试连接** 在保存前验证目标 daemon；远程 TCP 端点未配置 TLS 时会给出明确警告。
 
@@ -189,9 +200,9 @@ Profile 中的每个字段都可以 **跟随系统**，或改为 **Profile 覆�
 
 任务创建时会冻结一份 Task Snapshot，绑定的 Harness、模型协议、Worker 镜像、Worker Kit 与 Runtime Bundle 身份都不可变。Runtime Bundle 提供 Task 冻结的 Adapter、Bridge 和编排字节。
 
-Worker 的文件系统布局与各 Harness 的状态目录见《Worker 运行时》。
+Worker 的文件系统布局与各 Harness 的状态目录见[《Worker 运行时》](/guide/92-worker-runtime)。
 
-## 提示词模板与 Skills
+## 提示词模板与 Skills {deep}
 
 ### 提示词模板
 
@@ -216,9 +227,9 @@ Worker 的文件系统布局与各 Harness 的状态目录见《Worker 运行时
 
 路径重复、与另一文件的目录层级冲突，或位于 `SKILL.md` 路径之下，都会被拒绝。
 
-**允许新任务选择** 控制该 Skill 能否用于新任务；关闭后不会影响已有任务快照。**下载 ZIP** 导出完整包（需先保存修改），**删除** 需要确认，已创建的任务快照不受影响。Skill 只在 Worker Kit 0.3.5 或更高版本的挂载模式下可用。
+**允许新任务选择** 控制该 Skill 能否用于新任务；关闭后不会影响已有任务快照。**下载 ZIP** 导出完整包（需先保存修改），**删除** 需要确认，已创建的任务快照不受影响。Skill 只在达到[《平台参考》](/guide/96-platform-reference)最低版本的 Worker Kit 挂载模式下可用。
 
-## 通知与公告
+## 通知与公告 {deep}
 
 ### Mattermost 连接
 

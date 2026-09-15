@@ -6,16 +6,16 @@ tier: core
 
 ## Issue
 
-An Issue is one requirement plus the state that outlives the Tasks on it: the workspace, the AI conversation session, and one branch with a single Merge Request lifecycle. Tasks run under the Issue; you cannot run work on an Issue directly.
+An Issue is one requirement plus the state that outlives the Tasks on it: the workspace, the AI conversation session, and one branch. When **Create Merge Request** is on, that branch has one Merge Request lifecycle. Tasks run under the Issue; you cannot run work on an Issue directly.
 
-An Issue is created from **Create Issue** with a project, a starting branch, and a merge target. Its description is stored separately from any task prompt and becomes the default prompt for the first Task.
+An Issue is created from **Create Issue** with a project, a starting branch, and a merge target. Its description is stored separately from each Task prompt and becomes the default starting text for new Tasks.
 
 > [!info] **Where each piece lives**: the workspace, the session, and the branch belong to the Issue; the Task snapshot and the run archive belong to the Task.
 
 | Field | Label in the UI | Meaning |
 |---|---|---|
 | Title | **Title** | Shown as the Merge Request title later |
-| Description | **Description** | Default task prompt and requirement context |
+| Description | **Description** | Optional context and the default prompt for new Tasks |
 | Project | **Project** | The GitLab project the work targets |
 | Source branch | **Starting Branch** | The branch the working branch is cut from |
 | Target branch | **Merge Target** | The branch the Merge Request merges into |
@@ -48,7 +48,7 @@ Trigger sources record where a Task came from: manual creation, a **Retry**, a *
 
 The Harness is the coding agent CLI that performs the work inside the container. Codify does not run the model itself: it prepares a workspace, renders a prompt, and hands both to a Harness.
 
-Each Harness has an adapter, a wire protocol, and a capability policy. The capability policy decides what a live run accepts: **steering** and **follow-up** commands are gated per Harness, so the steering controls on a task page are enabled only when the frozen runtime supports them. The Harness Support chapter sets out the per-Harness differences.
+Each Harness has an adapter, a wire protocol, and a capability policy. The capability policy decides what a live run accepts: **steering** and **follow-up** commands are gated per Harness, so the steering controls on a task page are enabled only when the frozen runtime supports them. [Harness Support](/guide/65-harness-support) sets out the per-Harness differences.
 
 Harness names appear directly on the task pages: **Claude**, **Codex**, **Pi**, and **OpenCode** are options in the task form and in the task metadata panel. Which ones your platform can run depends on the Worker Profile and the configured AI Providers.
 
@@ -62,7 +62,7 @@ Three things persist across the Tasks of one Issue:
 - **Session**: the Harness conversation. Each Task records an input session and an output session, so a follow-up continues the same conversation instead of starting cold. `Continue session` inherits the current lineage; `Run in a new session` starts a new generation while keeping the workspace, branch, and history.
 - **Branch**: one working branch per Issue, generated as `codify/issue-{id}` from the Issue's **Starting Branch**. Every Task commits to that branch, and the Merge Request targets the Issue's **Merge Target**.
 
-Because all three are shared, an appended Task continues from where the previous one left off; the appended-task hint in the UI states the same.
+Because all three are shared, an appended Task continues from where the previous one left off; the appended-task hint in the UI states the same. Workspace and runtime-archive cleanup follows the retention settings in [Platform reference](/guide/96-platform-reference), and cleanup does not delete the Task record.
 
 ## Task snapshot and runtime bundle {deep}
 
@@ -91,7 +91,7 @@ A finished Task produces these artifacts:
 | Delivery summary | AI-written Markdown summary, rendered with Mermaid diagrams where used |
 | Run archive | A downloadable gzip archive of the container's runtime files |
 
-Artifacts are per Issue as well as per Task: all Tasks deliver to one branch and one Merge Request, and the Issue page aggregates them into a **Delivery Overview**.
+Artifacts are per Issue as well as per Task: all Tasks deliver to one branch and, when enabled, one Merge Request. The Issue page aggregates them into a **Delivery Overview**.
 
 ## Object model
 
@@ -99,9 +99,9 @@ Six objects carry one piece of work through Codify, and all of them belong to th
 
 ![One Issue owns the workspace, the branch and all its tasks](assets/diagrams/en/object-model.svg)
 
-- **Issue**: the requirement and its persistent state. It owns the workspace, the AI conversation session, and one branch with a single Merge Request lifecycle.
+- **Issue**: the requirement and its persistent state. It owns the workspace, the AI conversation session, and one branch; when **Create Merge Request** is on, that branch has one Merge Request lifecycle.
 - **Task**: one ordered turn of an Issue. An Issue can have as many Tasks as you append, and they run strictly in turn order.
 - **Branch**: one working branch per Issue, generated as `codify/issue-{id}`. Every Task commits to that branch, which is what lets a follow-up Task continue where its predecessor stopped.
-- **Merge Request**: one per Issue, created from that branch and targeting the Issue's **Merge Target**. Merging it is what closes the Issue.
+- **Merge Request**: when enabled, one per Issue, created from that branch and targeting the Issue's **Merge Target**. Merging it is what closes the Issue.
 - **Task snapshot**: the configuration frozen when the Task is created, so later edits never change a Task that already exists.
 - **Run archive**: one per Task, kept so you can inspect afterwards what a run produced.

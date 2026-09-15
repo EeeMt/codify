@@ -67,10 +67,12 @@ The runtime archive is built from this directory as the container exits, and the
 
 ### Lifetimes and reclamation
 
-| Item | Setting | Default | Reclaimed |
+Retention is a platform setting, so the directory map here is not a promise about the current value on an instance. The defaults and scan boundaries are collected in [Platform reference](/guide/96-platform-reference); this table only explains which setting controls each object.
+
+| Item | Setting | Current value | Reclaimed |
 | --- | --- | --- | --- |
-| Issue workspace | `worker_workspace_retention_days` | 14 days, `0` disables cleanup | Once no active Task owns the Issue and the directory has not been used within the window |
-| Runtime archives | `worker_runtime_archive_retention_days` | 30 days | By archive record age |
-| CI failure bundles | `worker_workspace_retention_days` | 14 days | By bundle age under `{worker_workspace_host_path}/ci-failures` |
+| Issue workspace | `worker_workspace_retention_days` | See Configuration | Once no active Task owns the Issue and the directory has not been used within the window |
+| Runtime archives | `worker_runtime_archive_retention_days` | See Configuration | By archive record age |
+| CI failure bundles | `worker_workspace_retention_days` | See Configuration | By bundle age under `{worker_workspace_host_path}/ci-failures` |
 
 The workspace timestamp is refreshed when a Task is created and again when it finishes or is cancelled, so an Issue in use is not reclaimed. Workspace reclamation goes through a short-lived maintenance container that mounts the workspace root and checks `meta/owner`; the delete is refused when that marker names a different Issue or Worker Profile. The scheduler runs the workspace scan every 6 hours and the archive scan hourly. Scheduler crash recovery cleans up orphan containers from an interrupted run and leaves workspaces alone.

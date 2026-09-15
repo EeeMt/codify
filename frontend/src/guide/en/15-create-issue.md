@@ -6,18 +6,18 @@ section: User Guide
 
 ## When you create an issue
 
-An Issue is the container for a piece of work in Codify. Its description becomes the default prompt for the Tasks you run, its branch strategy decides where the change lands, and its execution environment decides where it runs.
+An Issue is the container for a piece of work in Codify. Its optional description supplies the starting text for new Task prompts, its branch strategy decides where the change lands, and its execution environment decides where it runs.
 
 - **Fixed when you submit:** the project, the starting branch, the merge target, **Create Merge Request**, **Branch cleanup**, the **Worker** (hint: "Fixed after creation; tasks run on this Worker."), and the repository clone settings. None of them can be changed afterwards.
 - **Still editable later** from the Issue page: the title, the description, the **MR pipeline failure auto-repair** switch, and the **Default AI Provider**.
 - **The form itself, in five parts:** **Project**, **Issue content**, **Branch Strategy**, **Execution environment**, and the collapsed **Advanced settings**. **Reset** returns every field to its default, **Create Issue** submits, and **Cancel** in the header leaves without saving.
 - **Scope:** every value here belongs to the Issue, not to one Task. Task Mode, priority, schedule, and run instruction live in the Task form.
 
-> [!warning] **Decide these before submitting:** the project, starting branch, merge target, **Create Merge Request**, **Branch cleanup**, Worker, and repository clone settings are frozen on the Issue. If those choices need to differ, create a separate Issue.
+> [!warning] **Before you submit:** confirm the project, starting branch, merge target, **Create Merge Request**, **Branch cleanup**, Worker, and repository clone settings. They are fixed once the Issue is created. Create a new Issue when you need different settings.
 
 Open **Issues** and select **Create Issue**, or go straight to `/issues/create`. A Task takes its execution environment from the Issue and freezes what it inherited into its own snapshot, so changing the Issue later reaches only the Tasks created after the change.
 
-## Form fields
+## Form fields {deep}
 
 ![Five parts, one Issue: some values fixed, some editable](assets/diagrams/en/create-issue-form.svg)
 
@@ -34,7 +34,7 @@ Each table lists the fields of one form group. **Default** is what a freshly ope
 | Label | What it controls | Default | Applies to |
 |---|---|---|---|
 | **Title** | The Issue name, shown in lists and available to Task prompts as the issue title. Typing suggests titles you used recently. | Empty. Required. | Issue |
-| **Description** | The requirement text. It is stored on the Issue and becomes the default prompt of every Task created on it. | Empty; optional. | Issue. Every Task inherits it as its default requirement. |
+| **Description** | Optional Issue context. When you open Create Task, its Prompt field starts with this text; you can edit it for that Task. | Empty; optional. | Issue; the default for its Tasks. |
 
 ### Branch Strategy
 
@@ -66,7 +66,7 @@ The whole section is a disclosure, closed by default. Its summary always shows t
 | **History depth** | How many recent commits a shallow clone fetches. Only shown while **Shallow clone** is selected. | 50, set when you switch to **Shallow clone**. Accepts an integer from 1 to 10000. | Same as the clone mode. |
 | **Defer historical file contents** | When on, the clone uses `blob:none` and downloads missing file contents on demand instead of fetching them up front. | Off | Same as the clone mode. |
 
-**Shallow clone** and **Defer historical file contents** need a Worker that uses the mounted worker kit, with worker-kit 0.3.0 or newer. A Worker that does not qualify shows the reason instead of the option ("Shallow clone and deferred file contents require a mounted worker kit; baked-image workers are not supported." or "This worker kit does not support shallow clone or deferred file contents. Upgrade to worker-kit 0.3.0 or newer."), and submitting such a combination is rejected.
+**Shallow clone** and **Defer historical file contents** need a mounted Worker Kit that meets the minimum version in [Platform reference](/guide/96-platform-reference). A Worker that does not qualify shows the reason instead of the option, and submitting such a combination is rejected.
 
 Two automation cards follow:
 
@@ -77,7 +77,11 @@ Two automation cards follow:
 
 ## Writing the description
 
-The description is the default requirement of every Task on the Issue. The Task form's requirement box opens prefilled from it and tells you so: "Enter task requirement (defaults to issue description)". Write it as the brief you would hand to a colleague: the outcome, the scope, the constraints, and what must not change. You can rewrite the requirement on any individual Task, but the description you write here becomes the starting point for all of them.
+The Issue description is optional context that can stay useful across Tasks. When you open Create Task, any text here is copied into the Task prompt; you can edit that prompt for the current turn. If the description is empty, the Task prompt starts empty.
+
+Editing the Issue description affects Tasks created afterwards. Existing Tasks keep the prompt they were created with.
+
+Put durable context here: why the work exists, constraints that apply to every turn, and behavior that must stay unchanged. Put this turn's concrete goal, scope, and verification in [Creating a Task](/guide/30-create-task).
 
 Plain text is enough, and `{{variable}}` placeholders are supported. **Use Requirement Template** opens a **Select Template** drawer listing the shared requirement templates. Each entry shows its name, tags, and a preview; **Filter by tags** narrows the list, and the empty states read **No requirement templates available** and **No templates match the selected tags**. Picking a template replaces the whole description, so if you had already written something the drawer asks "Current description will be replaced by the template. Continue?" first, and you confirm or cancel.
 
@@ -95,16 +99,16 @@ The branch panel previews the whole flow before you submit:
 
 **Create Merge Request** decides whether a Merge Request exists at all:
 
-- **On:** Codify opens one draft Merge Request for the Issue against the **Merge Target**, labelled `Codify`, and reuses it for every later Task. The Issue page then links the Merge Request, and the Delivery chapter covers what happens to it during a run.
+- **On:** Codify opens one draft Merge Request for the Issue against the **Merge Target**, labelled `Codify`, and reuses it for every later Task. The Issue page then links the Merge Request; [Delivery](/guide/50-delivery) covers what happens to it during a run.
 - **Off:** the **Merge Target** field is disabled and reads **No MR**, the CI auto-repair switch is turned off and disabled, and the Task pushes the working branch without opening a Merge Request.
 
 The switch is disabled until a project is chosen, because the branch list and the default branch used to prefill both fields come from the project.
 
-Choose **Shallow clone** with **History depth** when a large repository makes startup slow and the work does not need deep history. **Defer historical file contents** helps when the repository is large mostly because of old file contents and the tasks touch only a small part of it; file contents are then downloaded only when a task needs them.
+Choose **Shallow clone** with **History depth** when a large repository makes startup slow and the work does not need deep history. **Defer historical file contents** helps when the repository is large mostly because of old file contents and the tasks touch only a small part of it; file contents are then downloaded only when a task needs them. Both options require a mounted Worker Kit that meets the minimum version in [Platform reference](/guide/96-platform-reference).
 
 ### Starting from another Issue's branch {tips}
 
-The picker lists every branch in the project, so another Issue's `codify/issue-{id}` can go into **Starting Branch**, and the new Issue's branch is created from that tip. Only commits come across; the workspace and the session do not follow, and the source branch has to still exist when the new Issue's first Task runs. The Techniques chapter covers the failure modes and what to set **Merge Target** to.
+The picker lists every branch in the project, so another Issue's `codify/issue-{id}` can go into **Starting Branch**, and the new Issue's branch is created from that tip. Only commits come across; the workspace and the session do not follow, and the source branch has to still exist when the new Issue's first Task runs. [Techniques](/guide/78-techniques) covers the failure modes and what to set **Merge Target** to.
 
 ## After creation
 
@@ -120,10 +124,10 @@ Closing the Issue asks what should happen to the working branch: **Close and Kee
 
 - Leaving the Worker unset. It is required, and it cannot be changed later; you would have to close the Issue and create a new one.
 - Disabling a Worker that an open Issue uses. A profile assigned to open Issues refuses a plain disable, and force-disabling it closes those Issues.
-- Choosing a Worker that cannot do what you asked for. **Shallow clone** and **Defer historical file contents** require the mounted worker kit at 0.3.0 or newer. Pick a different Worker or leave the clone mode on **Full clone**.
+- Choosing a Worker that cannot do what you asked for. **Shallow clone** and **Defer historical file contents** require a mounted Worker Kit that meets the minimum version in [Platform reference](/guide/96-platform-reference). Pick a different Worker or leave the clone mode on **Full clone**.
 - Expecting an MR after switching it off. With **Create Merge Request** off there is no Merge Target, no Merge Request, and no pipeline auto-repair; the branch is pushed and nothing else happens.
 - Reading the collapsed Advanced settings as "nothing to see". Full clone of a very large repository is the default and is the usual reason a Task takes a long time to start. The summary line always shows the clone mode, the branch cleanup behaviour, and the repair switch.
 - Forgetting the Merge Target. With the switch on it prefills from the project's default branch, so on a repository whose default branch is not where you want the change to land, set it explicitly before submitting.
 - Leaving template placeholders in the description. They are not filled in for you and are passed to the model verbatim.
-- Treating the Issue description as disposable. It is the default prompt of every Task on the Issue; a vague description produces a vague starting point for all of them.
-- Looking for the project in the picker when it is not there. What the picker lists follows the session you signed in with. An administrator, and any account on a platform with GitLab sign-in turned off, sees the projects the bot account can list. A user signed in through GitLab sees the projects their own GitLab token can reach, which is a different set. A project that is listed is not necessarily writable by the bot. See the Troubleshooting chapter.
+- Leaving the description empty when later Tasks need shared context. Put stable background in it, then write each turn's concrete work in the Task prompt.
+- Looking for the project in the picker when it is not there. What the picker lists follows the session you signed in with. An administrator, and any account on a platform with GitLab sign-in turned off, sees the projects the bot account can list. A user signed in through GitLab sees the projects their own GitLab token can reach, which is a different set. A project that is listed is not necessarily writable by the bot. See [Troubleshooting](/guide/55-troubleshooting).

@@ -67,10 +67,12 @@ tier: deep
 
 ### 生命周期与回收
 
-| 对象 | 配置项 | 默认值 | 回收条件 |
+保留期是平台配置，不要把本页的目录说明当成当前实例的取值。默认值和扫描范围集中记录在[《平台参考》](/guide/96-platform-reference)；这里仅说明对象之间的关系。
+
+| 对象 | 配置项 | 当前取值 | 回收条件 |
 |---|---|---|---|
-| Issue workspace | `worker_workspace_retention_days` | 14 天，`0` 表示关闭清理 | 没有活跃任务占用，且目录在保留期内未被使用 |
-| 运行归档 | `worker_runtime_archive_retention_days` | 30 天 | 按归档记录的生成时间 |
-| CI 失败证据包 | 跟随 `worker_workspace_retention_days` | 14 天 | 按 `{worker_workspace_host_path}/ci-failures` 下证据包的时间 |
+| Issue workspace | `worker_workspace_retention_days` | 以系统配置为准 | 没有活跃任务占用，且目录在保留期内未被使用 |
+| 运行归档 | `worker_runtime_archive_retention_days` | 以系统配置为准 | 按归档记录的生成时间 |
+| CI 失败证据包 | 跟随 `worker_workspace_retention_days` | 以系统配置为准 | 按 `{worker_workspace_host_path}/ci-failures` 下证据包的时间 |
 
 workspace 的使用时间会在创建任务、任务结束和取消时刷新，因此正在使用的需求不会被回收。回收时会启动一个临时维护容器：挂载 workspace 根目录并检查 `meta/owner`，该标记指向其他需求或 Worker Profile 时拒绝删除。调度器每 6 小时扫描一次 workspace，每小时扫描一次运行归档。调度器崩溃恢复会清理中断运行留下的孤儿容器，但不会删除 workspace。

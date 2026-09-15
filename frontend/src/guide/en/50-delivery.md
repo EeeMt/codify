@@ -42,7 +42,7 @@ The push result is recorded as one of:
 | **Push not attempted** | Delivery was not reached |
 | **Delivery failed — not confirmed** | The push failed and delivery is not confirmed |
 
-The remote state the push is compared against, and the codes a refused or unconfirmed push carries, are described in the Delivery Internals chapter.
+The remote state the push is compared against, and the codes a refused or unconfirmed push carries, are described in [Delivery Internals](/guide/75-delivery-internals).
 
 Whether the result becomes a Merge Request depends on how the Issue was configured:
 
@@ -97,4 +97,4 @@ Statistics cover finished work only: tasks still running are excluded from the f
 
 ## Run archive
 
-The **Actions** area of a **completed** or **failed** task offers **Download runtime archive**; the entries the archive holds, its size limits, and its retention are described in the Delivery Internals chapter.
+The **Actions** area of a **completed** or **failed** task offers **Download runtime archive**; the entries the archive holds, its size limits, and its retention are described in [Delivery Internals](/guide/75-delivery-internals).
