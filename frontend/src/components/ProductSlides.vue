@@ -455,7 +455,7 @@ function handlePointerCancel(): void {
 function updateStageScale(): void {
   const viewport = viewportRef.value
   if (!viewport) return
-  const { width, height } = viewport.getBoundingClientRect()
+  const { clientWidth: width, clientHeight: height } = viewport
   if (!width || !height) return
   const scale = Math.min(width / 1920, height / 1080)
   const offsetX = (width - 1920 * scale) / 2
