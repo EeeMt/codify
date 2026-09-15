@@ -212,6 +212,7 @@ const headings = ref<GuideHeading[]>([])
 
 // Guards against a slower render of a previous chapter overwriting a newer one.
 let renderToken = 0
+let hasRendered = false
 
 interface GuideSearchHit {
   slug: string
@@ -400,7 +401,7 @@ function revealChapterStart(): void {
   }
   // Keep the outer page position (the top bar may already be out of view), but
   // bring the newly selected right-hand chapter card back to the viewport top.
-  contentRef.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  if (hasRendered) contentRef.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
 }
 
 async function writeClipboard(value: string, button: HTMLElement): Promise<void> {
@@ -493,6 +494,7 @@ watch(
     await nextTick()
     if (token !== renderToken) return
     revealChapterStart()
+    hasRendered = true
   },
   { immediate: true },
 )
