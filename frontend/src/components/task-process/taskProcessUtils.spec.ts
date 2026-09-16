@@ -468,7 +468,7 @@ describe('TaskProcessToolRow', () => {
     })
 
     const duration = wrapper.find('.event-duration')
-    expect(duration.text()).toBe('taskView.observedDurationShort 25.5s')
+    expect(duration.text()).toBe('25.5s')
     expect(duration.attributes('title')).toBe('taskView.observedToolDuration')
   })
 

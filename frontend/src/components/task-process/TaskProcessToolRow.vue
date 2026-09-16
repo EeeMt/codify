@@ -134,11 +134,7 @@ const hasObservedDuration = computed(() => (
   props.row.toolCall.duration_source === 'observed'
   || (props.row.toolCall.duration_ms !== undefined && !props.row.toolCall.ended_at)
 ))
-const toolDurationText = computed(() => (
-  hasObservedDuration.value
-    ? `${t('taskView.observedDurationShort')} ${formattedToolDuration.value}`
-    : formattedToolDuration.value
-))
+const toolDurationText = computed(() => formattedToolDuration.value)
 const toolDurationTitle = computed(() => (
   hasObservedDuration.value
     ? t('taskView.observedToolDuration', { duration: formattedToolDuration.value })
