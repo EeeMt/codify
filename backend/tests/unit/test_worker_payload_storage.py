@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import os
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -378,61 +378,68 @@ class EventProjectionTests(unittest.IsolatedAsyncioTestCase):
         assert cursor.last_sequence_no == 1
         assert cursor.last_offset == len(complete)
 
-    async def test_live_tail_commits_tool_start_before_paired_completion(self):
+    async def test_live_tail_commits_each_tool_start_before_same_poll_completion(self):
         async with self.session_factory() as db:
             await self._setup_attempt(db)
-            started = self._event(
-                2,
-                "tool.started",
-                {"tool_id": "t1", "name": "Read", "input": {"file_path": "a.txt"}},
-            )
-            completed = self._event(
-                3,
-                "tool.completed",
-                {"tool_id": "t1", "name": "Read", "output": "body", "error": False},
-            )
-            prefix = "\n".join(
-                json.dumps(event, separators=(",", ":"))
-                for event in (self._event(1, "run.started"), started)
+            events = [
+                self._event(1, "run.started"),
+                self._event(
+                    2,
+                    "tool.started",
+                    {"tool_id": "t1", "name": "Read", "input": {"file_path": "a.txt"}},
+                ),
+                self._event(
+                    3,
+                    "tool.completed",
+                    {"tool_id": "t1", "name": "Read", "output": "body", "error": False},
+                ),
+                self._event(
+                    4,
+                    "tool.started",
+                    {"tool_id": "t2", "name": "Todo", "input": {"action": "read"}},
+                ),
+                self._event(
+                    5,
+                    "tool.completed",
+                    {"tool_id": "t2", "name": "Todo", "output": "ok", "error": False},
+                ),
+            ]
+            chunk = "\n".join(
+                json.dumps(event, separators=(",", ":")) for event in events
             ) + "\n"
-            suffix = json.dumps(completed, separators=(",", ":")) + "\n"
             container = MagicMock()
-            container.exec_run.return_value = MagicMock(
-                exit_code=0,
-                output=(prefix + suffix).encode(),
-            )
+            container.exec_run.return_value = MagicMock(exit_code=0, output=chunk.encode())
             executor = WorkerExecutor(docker_client=MagicMock(), gitlab_client=MagicMock())
 
-            await executor._tail_event_jsonl(
-                task_id=1,
-                container=container,
-                db=db,
-                split_at_tool_start=True,
-            )
-            live_log = (await db.execute(select(TaskLog))).scalar_one()
-            live_metadata = json.loads(live_log.log_metadata)
-            cursor = (await db.execute(select(TaskIngestCursor))).scalar_one()
+            commit_snapshots = []
 
-            assert "output_payload_id" not in live_metadata
-            assert live_metadata["started_at"]
-            assert cursor.last_sequence_no == 2
-            assert cursor.last_offset == len(prefix.encode())
+            async def capture_commit():
+                await db.flush()
+                cursor = (await db.execute(select(TaskIngestCursor))).scalar_one()
+                logs = list((await db.execute(select(TaskLog))).scalars())
+                commit_snapshots.append(
+                    (
+                        cursor.last_sequence_no,
+                        [json.loads(log.log_metadata or "{}") for log in logs],
+                    )
+                )
 
-            container.exec_run.return_value = MagicMock(
-                exit_code=0,
-                output=suffix.encode(),
-            )
-            await executor._tail_event_jsonl(
-                task_id=1,
-                container=container,
-                db=db,
-                split_at_tool_start=True,
-            )
+            with patch.object(db, "commit", new=AsyncMock(side_effect=capture_commit)):
+                await executor._tail_event_jsonl(
+                    task_id=1,
+                    container=container,
+                    db=db,
+                    split_at_tool_start=True,
+                )
+
             logs = list((await db.execute(select(TaskLog))).scalars())
 
-        assert len(logs) == 1
-        final_metadata = json.loads(logs[0].log_metadata)
-        assert final_metadata["output_payload_id"] is not None
+        assert [sequence for sequence, _ in commit_snapshots] == [2, 4, 5]
+        assert "ended_at" not in commit_snapshots[0][1][0]
+        assert commit_snapshots[1][1][0]["output_payload_id"] is not None
+        assert "ended_at" not in commit_snapshots[1][1][1]
+        assert len(logs) == 2
+        assert all(json.loads(log.log_metadata)["ended_at"] for log in logs)
 
     # ── Thinking placeholder lifecycle (2026-09-04 plan, section B) ──────────
 

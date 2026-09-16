@@ -192,12 +192,14 @@ class WorkerEventProjector:
         return tool_id or None
 
     @classmethod
-    def _split_live_tool_start(cls, chunk: str) -> str:
-        """Leave a paired tool completion for the next live poll.
+    def _split_live_tool_start_parts(cls, chunk: str) -> tuple[str, str]:
+        """Return one commit boundary before the rest of a live tool batch.
 
         A short tool can start and finish between artifact polls. Splitting
-        only those already-paired calls preserves the visible start state
-        without slowing long tools or archive replay.
+        only those already-paired calls preserves the visible start state;
+        the caller commits each prefix and immediately processes the remainder
+        in the same poll, so paired completions are not deferred to a later
+        poll interval.
         """
         lines = chunk.splitlines(keepends=True)
         complete_lines = (
@@ -206,7 +208,7 @@ class WorkerEventProjector:
             else lines[:-1]
         )
         if not complete_lines:
-            return chunk
+            return chunk, ""
 
         records: list[dict | None] = []
         for line in complete_lines:
@@ -229,8 +231,9 @@ class WorkerEventProjector:
                 completed_after.add(tool_id)
 
         if split_index is None:
-            return chunk
-        return "".join(complete_lines[: split_index + 1])
+            return chunk, ""
+        prefix = "".join(complete_lines[: split_index + 1])
+        return prefix, chunk[len(prefix) :]
 
     async def _payload_log(
         self,
@@ -1279,12 +1282,21 @@ class WorkerEventProjector:
             # partial line becomes the unconsumed remainder and is re-read from
             # the cursor offset after the writer finishes it.
             chunk = result.output.decode("utf-8", errors="replace")
+            chunks = [chunk]
             if split_at_tool_start:
-                chunk = self._split_live_tool_start(chunk)
-            if chunk:
+                chunks = []
+                remainder = chunk
+                while remainder:
+                    prefix, remainder = self._split_live_tool_start_parts(remainder)
+                    chunks.append(prefix)
+                    if not remainder:
+                        break
+            for ingest_chunk in chunks:
+                if not ingest_chunk:
+                    continue
                 await self.ingest_event_records_from_chunk(
                     task_id=task_id,
-                    chunk=chunk,
+                    chunk=ingest_chunk,
                     cursor=cursor,
                     db=db,
                 )
