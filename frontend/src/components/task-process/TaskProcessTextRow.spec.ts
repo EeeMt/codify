@@ -92,6 +92,34 @@ describe('TaskProcessTextRow', () => {
     expect(wrapper.html()).toContain('<p>**full assistant body**</p>')
   })
 
+  it('shows a spinner for a streaming assistant preview without thinking lifecycle status', () => {
+    const wrapper = mount(TaskProcessTextRow, {
+      props: {
+        row: {
+          kind: 'assistant_text',
+          event: createTaskLog(),
+          textEntry: {
+            text: '',
+            preview: 'partial assistant response',
+            payloadId: null,
+            charCount: 26,
+            truncated: false,
+            streaming: true,
+          },
+        },
+        expandedText: '',
+        loading: false,
+        showContent: true,
+        taskActive: true,
+      },
+    })
+
+    expect(wrapper.find('.thinking-spinner').exists()).toBe(true)
+    expect(wrapper.get('.event-name').text()).toBe('taskView.assistantLabel')
+    expect(wrapper.get('.event-preview').text()).toContain('partial assistant response')
+    expect(wrapper.find('button.tool-badge').exists()).toBe(false)
+  })
+
   it('shows a ticking in-progress thinking label with a spinner and no full-text controls', async () => {
     const wrapper = mount(TaskProcessTextRow, {
       props: {

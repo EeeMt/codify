@@ -122,7 +122,7 @@ class EventProjectionTests(unittest.IsolatedAsyncioTestCase):
                 [
                     self._event(1, "run.started"),
                     self._event(2, "message.delta", {"text": "hello "}),
-                    self._event(3, "message.delta", {"text": "world"}),
+                    self._event(3, "message.delta", {"content": "world"}),
                     self._event(4, "message.completed", {}),
                 ],
             )
@@ -132,6 +132,58 @@ class EventProjectionTests(unittest.IsolatedAsyncioTestCase):
         assert logs[0].log_type == "assistant_text"
         assert len(payloads) == 1
         assert payloads[0].content == b"hello world"
+
+    async def test_message_delta_creates_live_preview_and_completion_reuses_it(self):
+        async with self.session_factory() as db:
+            await self._setup_attempt(db)
+            executor = WorkerExecutor(docker_client=MagicMock(), gitlab_client=MagicMock())
+            await executor._ingest_event_record(
+                task_id=1,
+                record=self._event(1, "run.started"),
+                db=db,
+            )
+            await executor._ingest_event_record(
+                task_id=1,
+                record=self._event(
+                    2,
+                    "message.delta",
+                    {"text": "partial response"},
+                    occurred_at="2026-08-01T00:00:01Z",
+                ),
+                db=db,
+            )
+            await db.commit()
+
+            live_log = (await db.execute(select(TaskLog))).scalar_one()
+            live_metadata = json.loads(live_log.log_metadata)
+            assert live_log.log_type == "assistant_text"
+            assert live_metadata["streaming"] is True
+            assert live_metadata["preview"] == "partial response"
+            assert live_metadata.get("payload_id") is None
+
+            # A new projector instance must pair the later completion with the
+            # committed live row instead of creating a duplicate assistant row.
+            resumed = WorkerExecutor(docker_client=MagicMock(), gitlab_client=MagicMock())
+            await resumed._ingest_event_record(
+                task_id=1,
+                record=self._event(
+                    3,
+                    "message.completed",
+                    {"text": "partial response completed"},
+                    occurred_at="2026-08-01T00:00:02Z",
+                ),
+                db=db,
+            )
+            await db.commit()
+            logs = list((await db.execute(select(TaskLog))).scalars())
+            payloads = list((await db.execute(select(TaskPayload))).scalars())
+
+        assert len(logs) == 1
+        assert len(payloads) == 1
+        final_metadata = json.loads(logs[0].log_metadata)
+        assert "streaming" not in final_metadata
+        assert final_metadata["payload_id"] == payloads[0].id
+        assert payloads[0].content == b"partial response completed"
 
     async def test_reasoning_summary_is_projected_but_hidden_reasoning_is_rejected(self):
         async with self.session_factory() as db:

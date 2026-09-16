@@ -149,6 +149,24 @@ describe('useTaskLogStreams structured stream lifecycle', () => {
     expect(mockStreamTaskLogs.mock.calls[0][1]).toBe(5)
   })
 
+  it('requests a rewound since_id when a streaming assistant row is held', () => {
+    const state = createStreamState()
+    state.taskLogs.value = [
+      { id: 4, log_type: 'tool_call', metadata: null },
+      {
+        id: 6,
+        log_type: 'assistant_text',
+        metadata: JSON.stringify({ streaming: true, preview: 'partial' }),
+      },
+      { id: 9, log_type: 'tool_call', message: 'call' },
+    ] as any
+    const streams = useTaskLogStreams(state)
+
+    streams.connectStructuredLogStream()
+
+    expect(mockStreamTaskLogs.mock.calls[0][1]).toBe(5)
+  })
+
   it('appends new ids once and updates the same id in place across batch flushes', async () => {
     const state = createStreamState()
     state.taskLogs.value = [{ id: 7, message: 'current' }] as any
@@ -198,6 +216,23 @@ describe('useTaskLogStreams structured stream lifecycle', () => {
     source.emitUpdate(thinkingRow(10, 'completed'))
     expect(state.taskLogs.value.map(log => log.id)).toEqual([9, 10])
     expect(JSON.parse((state.taskLogs.value[1] as any).metadata).status).toBe('completed')
+  })
+
+  it('does not let a stale streaming assistant update replace its final row', () => {
+    const final = {
+      id: 11,
+      log_type: 'assistant_text',
+      metadata: JSON.stringify({ preview: 'complete' }),
+    }
+    const stale = {
+      id: 11,
+      log_type: 'assistant_text',
+      metadata: JSON.stringify({ streaming: true, preview: 'partial' }),
+    }
+
+    const result = mergeTaskLogState([final] as any, [stale] as any)
+
+    expect(result).toEqual([final])
   })
 })
 

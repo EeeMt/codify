@@ -396,6 +396,19 @@ describe('taskProcessUtils', () => {
     expect(entry.payloadId).toBeNull()
   })
 
+  it('maps streaming assistant metadata without treating it as thinking lifecycle', () => {
+    const entry = parseTextEntry(JSON.stringify({
+      streaming: true,
+      preview: 'partial assistant response',
+      char_count: 26,
+      truncated: false,
+    }))
+
+    expect(entry.streaming).toBe(true)
+    expect(entry.thinkingStatus).toBeNull()
+    expect(entry.preview).toBe('partial assistant response')
+  })
+
   it('maps interrupted status and never coerces invalid duration values', () => {
     const entry = parseTextEntry(JSON.stringify({
       status: 'interrupted',

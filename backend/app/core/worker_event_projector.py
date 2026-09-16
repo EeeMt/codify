@@ -125,6 +125,7 @@ class WorkerEventProjector:
         # (open-harness-v2-subagent-adaptation.md §5.4). ROOT_AGENT_ID is the
         # bucket for an event that carries no ``payload.agent``.
         self._message_parts: dict[str, list[str]] = {}
+        self._message_log_by_agent: dict[str, int] = {}
         self._reasoning_parts: dict[str, list[str]] = {}
         self._pending_tool_log_by_id: dict[tuple[str, str, str], int] = {}
 
@@ -216,6 +217,180 @@ class WorkerEventProjector:
                 log_metadata=_dumps(metadata),
             )
         )
+
+    @staticmethod
+    def _message_metadata(log: TaskLog) -> dict:
+        try:
+            metadata = json.loads(log.log_metadata or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        return metadata if isinstance(metadata, dict) else {}
+
+    async def _find_streaming_message_log(
+        self,
+        *,
+        db: AsyncSession,
+        task_id: int,
+        attempt_id: str,
+        agent_id: str,
+    ) -> TaskLog | None:
+        """Recover a live assistant row after a projector/session restart."""
+        pending_id = self._message_log_by_agent.get(agent_id)
+        if pending_id is not None:
+            pending = await db.get(TaskLog, pending_id)
+            if pending is not None:
+                metadata = self._message_metadata(pending)
+                if (
+                    pending.task_id == task_id
+                    and pending.log_type == "assistant_text"
+                    and metadata.get("attempt_id") == attempt_id
+                    and metadata.get("streaming") is True
+                    and _row_agent_id(metadata) == agent_id
+                ):
+                    return pending
+            self._message_log_by_agent.pop(agent_id, None)
+
+        result = await db.execute(
+            select(TaskLog)
+            .where(TaskLog.task_id == task_id, TaskLog.log_type == "assistant_text")
+            .order_by(TaskLog.id.desc())
+        )
+        for candidate in result.scalars():
+            metadata = self._message_metadata(candidate)
+            if (
+                metadata.get("attempt_id") == attempt_id
+                and metadata.get("streaming") is True
+                and _row_agent_id(metadata) == agent_id
+            ):
+                self._message_log_by_agent[agent_id] = candidate.id
+                return candidate
+        return None
+
+    async def _project_message_delta(
+        self,
+        *,
+        task_id: int,
+        attempt_id: str,
+        payload: dict,
+        occurred_at: str,
+        db: AsyncSession,
+    ) -> None:
+        """Expose a bounded live preview without persisting every token."""
+        agent_id = self._agent_key(payload)
+        delta = payload.get("text") or payload.get("content")
+        self._message_parts.setdefault(agent_id, []).append(_text(delta))
+        text = self._sanitize_sensitive_data("".join(self._message_parts[agent_id]))
+        if not text:
+            return
+
+        preview, truncated = _preview(text)
+        log = await self._find_streaming_message_log(
+            db=db,
+            task_id=task_id,
+            attempt_id=attempt_id,
+            agent_id=agent_id,
+        )
+        if log is None:
+            metadata: dict[str, Any] = {
+                "attempt_id": attempt_id,
+                "streaming": True,
+                "started_at": occurred_at,
+                "preview": preview,
+                "char_count": len(text),
+                "truncated": truncated,
+            }
+            agent = self._agent_metadata(payload)
+            if agent is not None:
+                metadata["agent"] = agent
+            log = TaskLog(
+                task_id=task_id,
+                log_level="INFO",
+                message="",
+                log_type="assistant_text",
+                log_metadata=_dumps(metadata),
+            )
+            db.add(log)
+            await db.flush()
+            self._message_log_by_agent[agent_id] = log.id
+            return
+
+        metadata = self._message_metadata(log)
+        metadata.update(
+            {
+                "streaming": True,
+                "preview": preview,
+                "char_count": len(text),
+                "truncated": truncated,
+            }
+        )
+        log.log_metadata = _dumps(metadata)
+
+    async def _finalize_message_log(
+        self,
+        *,
+        db: AsyncSession,
+        task_id: int,
+        log: TaskLog,
+        text: str,
+        agent: dict | None,
+    ) -> None:
+        """Complete a live assistant row in place and create one full payload."""
+        sanitized = self._sanitize_sensitive_data(text)
+        metadata = self._message_metadata(log)
+        if sanitized:
+            payload = await create_payload(
+                db,
+                task_id=task_id,
+                payload_kind="assistant_text",
+                text=sanitized,
+            )
+            preview, truncated = _preview(sanitized)
+            metadata.update(
+                {
+                    "payload_id": payload.id,
+                    "char_count": len(sanitized),
+                    "preview": preview,
+                    "truncated": truncated,
+                }
+            )
+        else:
+            metadata.update(
+                {
+                    "payload_id": None,
+                    "char_count": 0,
+                    "preview": "",
+                    "truncated": False,
+                }
+            )
+        metadata.pop("streaming", None)
+        if agent is not None:
+            metadata["agent"] = agent
+        log.log_metadata = _dumps(metadata)
+
+    async def _interrupt_streaming_messages(
+        self,
+        *,
+        db: AsyncSession,
+        task_id: int,
+        attempt_id: str,
+    ) -> None:
+        """Stop a live preview when the harness ends without a completion."""
+        result = await db.execute(
+            select(TaskLog)
+            .where(TaskLog.task_id == task_id, TaskLog.log_type == "assistant_text")
+            .order_by(TaskLog.id.asc())
+        )
+        for log in result.scalars():
+            metadata = self._message_metadata(log)
+            if (
+                metadata.get("attempt_id") != attempt_id
+                or metadata.get("streaming") is not True
+            ):
+                continue
+            metadata.update({"streaming": False, "interrupted": True})
+            log.log_metadata = _dumps(metadata)
+            if self._message_log_by_agent.get(_row_agent_id(metadata)) == log.id:
+                self._message_log_by_agent.pop(_row_agent_id(metadata), None)
 
     async def _thinking_logs(self, *, db: AsyncSession, task_id: int) -> list[TaskLog]:
         """All thinking rows of a task, oldest first (DB is the recovery truth)."""
@@ -649,6 +824,11 @@ class WorkerEventProjector:
             # delegation row to end in place rather than keep a spinner.
             if event_type == "run.failed":
                 await self._settle_open_delegations(db, task_id=task_id)
+                await self._interrupt_streaming_messages(
+                    db=db,
+                    task_id=task_id,
+                    attempt_id=ingest.attempt.attempt_id,
+                )
 
         if event_type == "model.resolved":
             db.add(
@@ -663,8 +843,12 @@ class WorkerEventProjector:
                 )
             )
         elif event_type == "message.delta":
-            self._message_parts.setdefault(self._agent_key(payload), []).append(
-                _text(payload.get("text"))
+            await self._project_message_delta(
+                task_id=task_id,
+                attempt_id=ingest.attempt.attempt_id,
+                payload=payload,
+                occurred_at=normalized["occurred_at"],
+                db=db,
             )
         elif event_type == "message.completed":
             agent_key = self._agent_key(payload)
@@ -674,14 +858,30 @@ class WorkerEventProjector:
             # message's text as an extra row (plan §5.4).
             buffered = self._message_parts.pop(agent_key, [])
             text = _text(payload.get("text")) or "".join(buffered)
-            await self._payload_log(
+            live_log = await self._find_streaming_message_log(
                 db=db,
                 task_id=task_id,
-                payload_kind="assistant_text",
-                log_type="assistant_text",
-                text=text,
-                agent=self._agent_metadata(payload),
+                attempt_id=ingest.attempt.attempt_id,
+                agent_id=agent_key,
             )
+            if live_log is not None:
+                await self._finalize_message_log(
+                    db=db,
+                    task_id=task_id,
+                    log=live_log,
+                    text=text,
+                    agent=self._agent_metadata(payload),
+                )
+                self._message_log_by_agent.pop(agent_key, None)
+            else:
+                await self._payload_log(
+                    db=db,
+                    task_id=task_id,
+                    payload_kind="assistant_text",
+                    log_type="assistant_text",
+                    text=text,
+                    agent=self._agent_metadata(payload),
+                )
         elif event_type == "reasoning_summary.delta":
             self._reasoning_parts.setdefault(self._agent_key(payload), []).append(
                 _text(payload.get("text"))
@@ -861,6 +1061,11 @@ class WorkerEventProjector:
                 task_id=task_id,
                 attempt_id=ingest.attempt.attempt_id,
                 observed_at=normalized["occurred_at"],
+            )
+            await self._interrupt_streaming_messages(
+                db=db,
+                task_id=task_id,
+                attempt_id=ingest.attempt.attempt_id,
             )
             db.add(
                 TaskLog(

@@ -198,6 +198,55 @@ class TaskLogStreamTests(unittest.IsolatedAsyncioTestCase):
         assert update_metadata["status"] == "completed"
         assert update_metadata["payload_id"] is None
 
+    async def test_streaming_assistant_preview_updates_before_done(self):
+        await self._seed()
+        await self._add_log(
+            task_id=1,
+            log_type="assistant_text",
+            metadata=json.dumps(
+                {
+                    "attempt_id": "task-1-attempt-1",
+                    "streaming": True,
+                    "preview": "first preview",
+                    "char_count": 13,
+                    "truncated": False,
+                }
+            ),
+        )
+
+        collected: dict[str, list] = {"frames": []}
+
+        async def drive():
+            frames_seen = 0
+            async for frame in generate_task_log_events(
+                1,
+                0,
+                session_factory=self.session_factory,
+                sleep=_no_sleep,
+                logger=MagicMock(),
+            ):
+                frames_seen += 1
+                if frames_seen == 1:
+                    async with self.session_factory() as db:
+                        log = (await db.execute(select(TaskLog))).scalar_one()
+                        metadata = json.loads(log.log_metadata)
+                        metadata["preview"] = "final preview"
+                        metadata["char_count"] = 13
+                        metadata.pop("streaming")
+                        log.log_metadata = json.dumps(metadata)
+                        task = (await db.execute(select(Task).where(Task.id == 1))).scalar_one()
+                        task.status = TaskStatus.COMPLETED
+                        await db.commit()
+                collected["frames"].append(frame)
+
+        await drive()
+        events = _parse_frames(collected["frames"])
+        names = [name for name, _ in events]
+        assert names == ["batch", "update", "done"], names
+        assert events[0][1][0]["metadata"]["streaming"] is True
+        assert events[1][1]["metadata"]["preview"] == "final preview"
+        assert "streaming" not in events[1][1]["metadata"]
+
     async def test_fast_completion_within_one_window_batches_final_row_once(self):
         """A row that starts and completes inside one poll window is batched
         once in its final state — no update event, no placeholder flicker."""

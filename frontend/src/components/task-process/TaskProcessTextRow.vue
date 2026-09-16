@@ -6,7 +6,7 @@
       </div>
       <div class="event-info">
         <span class="event-name">
-          <span v-if="showThinkingSpinner" class="thinking-spinner" aria-hidden="true"></span>{{ nameLabel }}<TaskProcessAgentBadge v-if="row.agent" :agent="row.agent" class="event-name__agent" />
+          <span v-if="showLiveSpinner" class="thinking-spinner" aria-hidden="true"></span>{{ nameLabel }}<TaskProcessAgentBadge v-if="row.agent" :agent="row.agent" class="event-name__agent" />
         </span>
         <span v-if="showPreview" class="event-preview">{{ preview }}</span>
       </div>
@@ -97,6 +97,12 @@ type ThinkingStatus = 'in_progress' | 'completed' | 'interrupted'
 const lifecycleStatus = computed<ThinkingStatus | null>(() => props.row.textEntry.thinkingStatus ?? null)
 const isLifecycleRow = computed(() => lifecycleStatus.value !== null)
 const showThinkingSpinner = computed(() => lifecycleStatus.value === 'in_progress' && props.taskActive)
+const isStreamingAssistant = computed(() => (
+  props.row.kind === 'assistant_text'
+  && props.row.textEntry.streaming === true
+))
+const showAssistantSpinner = computed(() => isStreamingAssistant.value && props.taskActive)
+const showLiveSpinner = computed(() => showThinkingSpinner.value || showAssistantSpinner.value)
 
 const startedAtMs = computed<number | null>(() => {
   const iso = props.row.textEntry.startedAt
@@ -148,7 +154,7 @@ const hasContent = computed(() => {
 // Empty placeholders remain status-only, while any explicit body keeps the
 // same preview/full-text affordance regardless of lifecycle status.
 const showFullTextControls = computed(
-  () => !isLifecycleRow.value || hasContent.value,
+  () => (!isLifecycleRow.value && !isStreamingAssistant.value) || hasContent.value,
 )
 
 const showPreview = computed(() => {

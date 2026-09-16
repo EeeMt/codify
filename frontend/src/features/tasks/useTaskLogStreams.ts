@@ -40,12 +40,18 @@ export function getThinkingStatus(
   return null
 }
 
+function isAssistantStreaming(log: TaskLog): boolean {
+  return log.log_type === 'assistant_text' && parseLogMetadata(log.metadata).streaming === true
+}
+
 export function computeStructuredStreamSinceId(logs: TaskLog[]): number {
   let maxId = 0
   const pendingIds: number[] = []
   for (const log of logs) {
     if (log.id > maxId) maxId = log.id
-    if (getThinkingStatus(log) === 'in_progress') pendingIds.push(log.id)
+    if (getThinkingStatus(log) === 'in_progress' || isAssistantStreaming(log)) {
+      pendingIds.push(log.id)
+    }
   }
   if (pendingIds.length === 0) return maxId
   return Math.max(0, Math.min(...pendingIds) - 1)
@@ -63,6 +69,11 @@ function thinkingStatusRank(log: TaskLog): number {
   return THINKING_STATUS_RANK[status]
 }
 
+function assistantStreamingRank(log: TaskLog): number {
+  if (log.log_type !== 'assistant_text') return -1
+  return isAssistantStreaming(log) ? 0 : 1
+}
+
 export function mergeTaskLogState(current: TaskLog[], incoming: TaskLog[]): TaskLog[] {
   const merged: TaskLog[] = []
   const indexById = new Map<number, number>()
@@ -77,9 +88,20 @@ export function mergeTaskLogState(current: TaskLog[], incoming: TaskLog[]): Task
       merged.push(log)
       continue
     }
-    if (thinkingStatusRank(log) >= thinkingStatusRank(merged[existingIndex])) {
-      merged[existingIndex] = log
+    const current = merged[existingIndex]
+    const incomingThinkingRank = thinkingStatusRank(log)
+    const currentThinkingRank = thinkingStatusRank(current)
+    if (incomingThinkingRank >= 0 || currentThinkingRank >= 0) {
+      if (incomingThinkingRank >= currentThinkingRank) merged[existingIndex] = log
+      continue
     }
+    const incomingAssistantRank = assistantStreamingRank(log)
+    const currentAssistantRank = assistantStreamingRank(current)
+    if (incomingAssistantRank >= 0 || currentAssistantRank >= 0) {
+      if (incomingAssistantRank >= currentAssistantRank) merged[existingIndex] = log
+      continue
+    }
+    merged[existingIndex] = log
   }
   return merged
 }

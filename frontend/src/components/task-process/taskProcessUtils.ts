@@ -23,6 +23,7 @@ export interface ParsedTextEntry {
   // Lifecycle fields for thinking blocks projected from canonical start/completed
   // events. Rows without these keys keep null and render as static entries.
   thinkingStatus?: 'in_progress' | 'completed' | 'interrupted' | null
+  streaming?: boolean
   startedAt?: string | null
   endedAt?: string | null
   durationMs?: number | null
@@ -401,11 +402,12 @@ export function parseTextEntry(metadata: unknown): ParsedTextEntry {
   const thinkingStatus = status === 'in_progress' || status === 'completed' || status === 'interrupted'
     ? status
     : null
+  const streaming = obj.streaming === true
   const startedAt = typeof obj.started_at === 'string' ? obj.started_at : null
   const endedAt = typeof obj.ended_at === 'string' ? obj.ended_at : null
   const durationValue = obj.duration_ms
   const durationMs = typeof durationValue === 'number' && Number.isFinite(durationValue) ? durationValue : null
-  return { text, preview, payloadId, charCount, truncated, thinkingStatus, startedAt, endedAt, durationMs }
+  return { text, preview, payloadId, charCount, truncated, thinkingStatus, streaming, startedAt, endedAt, durationMs }
 }
 
 export function parseControlEntry(metadata: unknown): ParsedControlEntry {

@@ -20,6 +20,10 @@ BATCH_SIZE = 500
 SLOW_QUERY_THRESHOLD_S = 0.5
 
 
+def _metadata_fingerprint(metadata: Any) -> str:
+    return json.dumps(metadata, sort_keys=True, ensure_ascii=False)
+
+
 def task_log_event_data(log: TaskLog) -> dict[str, Any]:
     return {
         "id": log.id,
@@ -43,6 +47,7 @@ async def generate_task_log_events(
     cursor = since_id
     pending_tool_calls: set[int] = set()
     pending_thinking_rows: set[int] = set()
+    pending_assistant_rows: dict[int, str] = {}
     stream_start = monotonic()
     total_events_sent = 0
     poll_cycle = 0
@@ -102,6 +107,10 @@ async def generate_task_log_events(
                         metadata = event_data["metadata"] or {}
                         if metadata.get("status") == "in_progress":
                             pending_thinking_rows.add(log.id)
+                    elif log.log_type == "assistant_text":
+                        metadata = event_data["metadata"] or {}
+                        if metadata.get("streaming") is True:
+                            pending_assistant_rows[log.id] = _metadata_fingerprint(metadata)
                     cycle_log_data.append(event_data)
 
                 if new_log_count == BATCH_SIZE:
@@ -155,6 +164,36 @@ async def generate_task_log_events(
                                 )
                                 pending_thinking_rows.discard(log.id)
                                 total_events_sent += 1
+
+                    if pending_assistant_rows:
+                        update_start = monotonic()
+                        assistant_result = await poll_db.execute(
+                            select(TaskLog).where(
+                                TaskLog.task_id == task_id,
+                                TaskLog.id.in_(pending_assistant_rows),
+                            )
+                        )
+                        update_ms = (monotonic() - update_start) * 1000
+                        if update_ms > SLOW_QUERY_THRESHOLD_S * 1000:
+                            logger.warning(
+                                f"[Task {task_id}] log-stream slow assistant update query "
+                                f"cycle={poll_cycle} pending={len(pending_assistant_rows)} "
+                                f"query_ms={update_ms:.1f}"
+                            )
+                        for log in assistant_result.scalars().all():
+                            metadata = json.loads(log.log_metadata) if log.log_metadata else {}
+                            fingerprint = _metadata_fingerprint(metadata)
+                            previous = pending_assistant_rows.get(log.id)
+                            if fingerprint != previous:
+                                cycle_update_events.append(
+                                    f"event: update\ndata: "
+                                    f"{json.dumps(task_log_event_data(log))}\n\n"
+                                )
+                                total_events_sent += 1
+                            if metadata.get("streaming") is True:
+                                pending_assistant_rows[log.id] = fingerprint
+                            else:
+                                pending_assistant_rows.pop(log.id, None)
 
                     status_start = monotonic()
                     task_result = await poll_db.execute(
