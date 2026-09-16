@@ -648,6 +648,67 @@ def test_pi_adapter_resolves_todo_from_the_sealed_extension_payload(tmp_path):
     assert result.stdout.splitlines() == ["1", str(payload / "node_modules/@juicesharp/rpiv-todo")]
 
 
+def test_pi_adapter_loads_compiled_subagents_only_when_frozen_option_is_enabled(tmp_path):
+    kit_home = tmp_path / "kit"
+    payload = kit_home / "nix/store/codify-worker-kit-runtime/lib/codify-pi-subagents"
+    (payload / "node_modules/pi-subagents/compiled").mkdir(parents=True)
+    (payload / "config.json").write_text("{}", encoding="utf-8")
+    (payload / "node_modules/pi-subagents/index.ts").write_text("", encoding="utf-8")
+    (payload / "node_modules/pi-subagents/compiled/index.js").write_text("", encoding="utf-8")
+    (payload / "node_modules/pi-subagents/compiled/package.json").write_text("{}", encoding="utf-8")
+    (kit_home / "manifest.json").write_text(
+        json.dumps({"runtime_bin": "/nix/store/codify-worker-kit-runtime"}),
+        encoding="utf-8",
+    )
+
+    result = _source_adapter(
+        'pi_adapter_materialize_subagents >/dev/null; printf "%s\\n%s" "$CODIFY_PI_SUBAGENTS" "${CODIFY_PI_SUBAGENT_EXTENSION:-}"',
+        {
+            "CODIFY_KIT_HOME": str(kit_home),
+            "CODIFY_HARNESS_OPTIONS_JSON": '{"subagents":true}',
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["1", str(payload / "node_modules/pi-subagents/compiled")]
+
+    disabled = _source_adapter(
+        'pi_adapter_materialize_subagents >/dev/null; printf "%s\\n%s" "$CODIFY_PI_SUBAGENTS" "${CODIFY_PI_SUBAGENT_EXTENSION:-}"',
+        {
+            "CODIFY_KIT_HOME": str(kit_home),
+            "CODIFY_HARNESS_OPTIONS_JSON": '{}',
+        },
+    )
+    assert disabled.returncode == 0, disabled.stderr
+    assert disabled.stdout.splitlines() == ["0"]
+
+
+def test_pi_adapter_prepare_config_propagates_invalid_subagent_options(tmp_path):
+    kit_home = tmp_path / "kit"
+    payload = kit_home / "nix/store/codify-worker-kit-runtime/lib/codify-pi-subagents"
+    (payload / "node_modules/pi-subagents").mkdir(parents=True)
+    (payload / "config.json").write_text("{}", encoding="utf-8")
+    (payload / "node_modules/pi-subagents/index.ts").write_text("", encoding="utf-8")
+    (kit_home / "manifest.json").write_text(
+        json.dumps({"runtime_bin": "/nix/store/codify-worker-kit-runtime"}),
+        encoding="utf-8",
+    )
+
+    result = _source_adapter(
+        "if pi_adapter_prepare_config; then exit 99; fi; exit 0",
+        {
+            "CODIFY_KIT_HOME": str(kit_home),
+            "CODIFY_RUNTIME_DIR": str(tmp_path / "runtime"),
+            "CODIFY_ORCHESTRATION_DIR": str(REPO_ROOT / "deploy"),
+            "CODIFY_PI_CLI_HOME": str(tmp_path / "cli-home"),
+            "CODIFY_HARNESS_OPTIONS_JSON": '{"subagents":"true"}',
+            "ANTHROPIC_MODEL": "",
+            "ANTHROPIC_BASE_URL": "",
+            "ANTHROPIC_API_KEY": "",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_pi_todo_dependency_is_pinned_in_package_lock_and_policy():
     package_dir = REPO_ROOT / "deploy/worker-kit/npm"
     package = json.loads((package_dir / "package.json").read_text(encoding="utf-8"))
@@ -661,6 +722,20 @@ def test_pi_todo_dependency_is_pinned_in_package_lock_and_policy():
     assert todo["resolved"] == pin["tarball"]
     assert todo["integrity"] == pin["integrity"]
     assert pin["entry"] == "index.ts"
+
+
+def test_pi_subagents_compile_tool_is_pinned_in_the_worker_kit_input():
+    package_dir = REPO_ROOT / "deploy/worker-kit/npm"
+    package = json.loads((package_dir / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((package_dir / "package-lock.json").read_text(encoding="utf-8"))
+    assert package["devDependencies"]["esbuild"] == "0.28.1"
+    assert lock["packages"][""]["devDependencies"]["esbuild"] == "0.28.1"
+    default_nix = (REPO_ROOT / "deploy/worker-kit/default.nix").read_text(encoding="utf-8")
+    assert "nativeBuildInputs = [ pkgs.jq ];" in default_nix
+    assert "pi_compiled=$pi_source/compiled" in default_nix
+    assert "--outbase=\"$pi_source\"" in default_nix
+    assert 'PI_COMPILED="$pi_compiled" node --input-type=module' in default_nix
+    assert "sed -i" not in default_nix
 
 
 @pytest.mark.parametrize(

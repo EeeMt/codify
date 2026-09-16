@@ -46,6 +46,10 @@ def test_pi_v1_accepts_valid_values():
     )
     assert options["pi"]["thinking_level"] == "low"
     assert options["pi"]["follow_up_mode"] == "one-at-a-time"  # default applied
+    assert options["pi"]["subagents"] is False  # expensive extension is opt-in
+
+    enabled = validate_namespaced_options({"pi": {"subagents": True}})
+    assert enabled["pi"]["subagents"] is True
 
 
 # ── opencode/v1 typed validator ───────────────────────────────────────────────
@@ -114,6 +118,10 @@ def test_task_override_accepts_only_flagged_fields():
         "thinking_level",
         "steering_mode",
         "follow_up_mode",
+        "subagents",
+    }
+    assert validate_task_overrides({"pi": {"subagents": True}}) == {
+        "pi": {"subagents": True}
     }
 
 
@@ -134,6 +142,7 @@ def test_deep_merge_profile_default_plus_task_override():
         "thinking_level": "high",
         "steering_mode": "one-at-a-time",
         "follow_up_mode": "one-at-a-time",  # default applied by validator
+        "subagents": False,
     }
     assert merged["opencode"] == {
         "agent": "build",

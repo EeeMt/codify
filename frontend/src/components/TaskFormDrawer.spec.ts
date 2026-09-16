@@ -1411,6 +1411,38 @@ describe('TaskFormDrawer', () => {
       expect(wrapper.vm.providerAutoAdjusted).toBe(false)
     })
 
+    it('shows the Pi subagents option and freezes the selected value on create', async () => {
+      mockApi.getProviders.mockResolvedValue([
+        { ...mockProviders[0], compatible_harnesses: ['pi'] },
+      ])
+      mockApi.getWorkerProfiles.mockResolvedValue([
+        {
+          ...mockWorkerProfiles[0],
+          enabled_harnesses: ['pi'],
+          default_harness_key: 'pi',
+          harness_options: { pi: { subagents: false } },
+        },
+      ])
+
+      await mountDrawer({ issueDefaultHarness: 'pi' })
+      await openDrawer()
+      await wrapper.get('[data-testid="task-mode-option-execute"]').trigger('click')
+
+      expect(wrapper.find('[data-testid="pi-harness-options"]').exists()).toBe(true)
+      expect(wrapper.vm.piSubagents).toBe(false)
+
+      await wrapper.get('[data-testid="pi-subagents-switch"]').trigger('click')
+      expect(wrapper.vm.piSubagents).toBe(true)
+      await submitCreate()
+
+      expect(mockApi.createTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          harness_key: 'pi',
+          harness_options: { pi: { subagents: true } },
+        }),
+      )
+    })
+
     it('disables a harness when no enabled provider uses its required protocol', async () => {
       mockApi.getProviders.mockResolvedValue([
         { id: 6, name: 'ds', model: 'deepseek-v4-flash', is_default: true, is_disabled: false, model_protocol: 'anthropic_messages', compatible_harnesses: ['claude'] },
@@ -2163,6 +2195,42 @@ describe('TaskFormDrawer', () => {
       expect(wrapper.vm.opencodeAgent).toBe('plan')
       expect(wrapper.vm.opencodeCommand).toBe('codify')
       expect(wrapper.vm.opencodeModelVariant).toBe('auto')
+    })
+
+    it('prefers bare frozen Pi options from the task response and updates the task snapshot', async () => {
+      mockApi.getWorkerProfiles.mockResolvedValue([
+        {
+          ...mockWorkerProfiles[0],
+          enabled_harnesses: ['pi'],
+          harness_options: { pi: { subagents: true } },
+        },
+      ])
+
+      await mountEditDrawer({
+        harness_key: 'pi',
+        worker_profile_id: 3,
+        harness_snapshot: {
+          harness_options: { subagents: false },
+        },
+      })
+      await wrapper.setProps({ show: true })
+      await flushPromises()
+
+      await wrapper.get('.execution-environment__summary').trigger('click')
+      await nextTick()
+      expect(wrapper.find('[data-testid="pi-harness-options"]').exists()).toBe(true)
+      expect(wrapper.vm.piSubagents).toBe(false)
+
+      await wrapper.get('[data-testid="pi-subagents-switch"]').trigger('click')
+      await wrapper.get('[data-testid="task-form-save-button"]').trigger('click')
+      await flushPromises()
+
+      expect(mockApi.updateTask).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({
+          harness_options: { pi: { subagents: true } },
+        }),
+      )
     })
 
     it('opens an editable task directly in the full form with its mode summary', async () => {

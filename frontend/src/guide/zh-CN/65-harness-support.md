@@ -79,7 +79,7 @@ Provider 类型和 Wire 协议必须匹配：
 | Harness | 选项 |
 |---|---|
 | Codex | `reasoning_effort`：minimal、low、medium、high、xhigh、ultra |
-| Pi | `thinking_level`；`steering_mode` 与 `follow_up_mode`：one-at-a-time |
+| Pi | `thinking_level`；`steering_mode` 与 `follow_up_mode`：one-at-a-time；`subagents`：设为 true 才加载较重的 pi-subagents 扩展 |
 | OpenCode | `agent`：build、plan、general、explore；`command`：codify；`model_variant`：不超过 64 个字符 |
 
 Profile 还可以按 Harness 约束 `max_turns`、`sandbox_mode`、`network_enabled` 和 `timeout_seconds`。OpenCode 的 Agent、Command 和 Model variant 会固化到 Task Snapshot，并按 allowlist 校验。

@@ -82,7 +82,9 @@ pi_adapter_subagent_payload_dir() {
     # closure, so it is resolved from the manifest's own ``runtime_bin`` rather
     # than copied a second time into the image. The root holds Codify's policy
     # (config.json, settings.json, the four agent definitions) plus the pinned
-    # upstream package under node_modules/pi-subagents, which is the load path.
+    # upstream package under node_modules/pi-subagents plus its build-time
+    # compiled mirror. The source tree stays present for audit/resource
+    # provenance; the compiled mirror is the normal load path.
     # Absence is not an error: a Bundle built without it runs Pi without
     # delegation.
     local kit_home="${CODIFY_KIT_HOME:-/opt/codify-kit}"
@@ -136,7 +138,27 @@ pi_adapter_materialize_subagents() {
         export CODIFY_PI_SUBAGENTS=0
         return 0
     fi
-    extension_dir="${payload_dir}/node_modules/pi-subagents"
+    local options_json="${CODIFY_HARNESS_OPTIONS_JSON:-}"
+    if [ -z "${options_json}" ]; then
+        options_json='{}'
+    fi
+    if ! printf '%s' "${options_json}" | jq -e \
+        'type == "object" and ((.subagents // false) | type == "boolean")' \
+        >/dev/null 2>&1; then
+        echo "Pi harness options are not a valid object with a boolean subagents field" >&2
+        return 1
+    fi
+    if ! printf '%s' "${options_json}" | jq -e '.subagents == true' >/dev/null 2>&1; then
+        unset CODIFY_PI_SUBAGENT_EXTENSION CODIFY_PI_SUBAGENT_ISOLATED
+        export CODIFY_PI_SUBAGENTS=0
+        return 0
+    fi
+    extension_dir="${payload_dir}/node_modules/pi-subagents/compiled"
+    if [ ! -f "${extension_dir}/index.js" ] || [ ! -f "${extension_dir}/package.json" ]; then
+        # Older immutable Kits contain the audited TypeScript entry. Keep them
+        # runnable while new Kits use the precompiled mirror.
+        extension_dir="${payload_dir}/node_modules/pi-subagents"
+    fi
     export CODIFY_PI_SUBAGENT_EXTENSION="${extension_dir}"
     export CODIFY_PI_SUBAGENTS=1
     # Workspace isolation is split in two, because upstream expresses only half
@@ -310,7 +332,7 @@ pi_adapter_prepare_config() {
         chown "${CODIFY_RUN_UID:-1000}:${CODIFY_RUN_GID:-1000}" "${models_file}" 2>/dev/null || true
         chmod 600 "${models_file}" 2>/dev/null || true
     fi
-    pi_adapter_materialize_subagents
+    pi_adapter_materialize_subagents || return 1
     pi_adapter_materialize_todo
     return 0
 }

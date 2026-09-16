@@ -10,11 +10,13 @@
   "unpacked_size": 5352488,
   "file_count": 325,
   "entry": "index.ts",
+  "compiled_entry": "compiled/index.js",
+  "compiler": "esbuild@0.28.1 (directory-preserving ESM output)",
   "peer_versions_observed": {
     "@earendil-works/pi-server": "0.85.0",
     "@earendil-works/pi-ai": "0.85.1",
     "@earendil-works/pi-agent-core": "0.85.1"
   },
   "frozen_pi_version": "0.84.2",
-  "notes": "Lockfile-pinned closure; installed at Kit build time only. See README.md for the audit record and the unresolved foreground-execution gap."
+  "notes": "Lockfile-pinned closure; installed at Kit build time only. The audited source entry remains index.ts and the Kit also carries a directory-preserving compiled mirror generated from that exact source. See README.md for the audit record and the unresolved foreground-execution gap."
 }

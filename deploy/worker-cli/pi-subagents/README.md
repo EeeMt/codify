@@ -21,10 +21,12 @@ install.sh        build-time install into the Kit payload
 
 ## Status: wired, with one bounded vendor patch
 
-`pi-run.sh` loads the Kit-fixed `rpiv-todo` and `pi-subagents` extensions with
-`--no-extensions -e <payload>` whenever the Kit ships them. The adapter applies
-the subagent ceiling into the Pi CLI home, and `pi_events.py` projects both the
-`todo` and `subagent` tools into canonical tool rows.
+`pi-run.sh` loads the Kit-fixed `rpiv-todo` extension and, when the frozen Pi
+option `subagents=true` is selected, the compiled `pi-subagents` extension with
+`--no-extensions -e <payload>`. Ordinary Pi tasks keep `subagents` disabled and
+load only the lightweight Todo extension. The adapter applies the subagent
+ceiling into the Pi CLI home, and `pi_events.py` projects both the `todo` and
+`subagent` tools into canonical tool rows.
 
 `vendor/force-foreground.patch` is the only deviation from upstream, and it has
 three parts:

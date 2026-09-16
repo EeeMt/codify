@@ -84,7 +84,7 @@ export function buildCreateTaskRequest(
   if (draft.harnessKey) {
     request.harness_key = draft.harnessKey
   }
-  if (draft.harnessKey === 'opencode' && draft.harnessOptions) {
+  if ((draft.harnessKey === 'opencode' || draft.harnessKey === 'pi') && draft.harnessOptions) {
     request.harness_options = structuredCloneTaskHarnessOptions(draft.harnessOptions)
   }
   if (!draft.inheritProfileSkills) {
@@ -144,7 +144,11 @@ export function buildUpdateTaskRequest(
     }
   }
 
-  if (draft.harnessOptionsDirty && draft.harnessKey === 'opencode' && draft.harnessOptions) {
+  if (
+    draft.harnessOptionsDirty
+    && (draft.harnessKey === 'opencode' || draft.harnessKey === 'pi')
+    && draft.harnessOptions
+  ) {
     request.harness_options = structuredCloneTaskHarnessOptions(draft.harnessOptions)
   }
 

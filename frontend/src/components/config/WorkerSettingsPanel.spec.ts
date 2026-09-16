@@ -31,6 +31,7 @@ function createWorkerProfile(overrides: Record<string, any> = {}) {
     docker_tls_cert: null,
     docker_tls_key: null,
     codegraph_enabled: false,
+    harness_options: {},
     volume_mounts: [
       {
         host_path: '/host/cache',
@@ -1088,6 +1089,66 @@ describe('WorkerSettingsPanel', () => {
         default_harness_key: 'codex',
         harness_constraints: { sandbox_mode: 'container-boundary' }
       })
+    )
+  })
+
+  it('loads and saves the Pi subagents profile option', async () => {
+    mockGetAdminWorkerProfiles.mockResolvedValueOnce([
+      createWorkerProfile({
+        runtime_mode: 'mounted_kit',
+        worker_kit_version: '0.3.6',
+        worker_kit_path: '/opt/codify/worker-kits/0.3.6-linux-amd64',
+        enabled_harnesses: ['pi'],
+        default_harness_key: 'pi',
+        harness_options: { pi: { subagents: true } },
+      })
+    ])
+    const wrapper = mount(WorkerSettingsPanel, {
+      props: { isMobile: false, reloadKey: 0 }
+    })
+
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    expect(vm.piSubagentsEnabled).toBe(true)
+    const switchControl = wrapper.get('[data-testid="worker-pi-subagents-switch"]')
+    expect(switchControl.attributes('disabled')).toBeUndefined()
+
+    await switchControl.setValue(false)
+    await vm.handleSaveWorker()
+
+    expect(vm.piSubagentsEnabled).toBe(false)
+    expect(mockUpdateWorkerProfile).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        harness_options: { pi: { subagents: false } },
+      })
+    )
+  })
+
+  it('preserves primitive and array harness options when saving a profile', async () => {
+    const harnessOptions = {
+      pi: { subagents: false },
+      futureFlag: true,
+      futureValues: [1, 'keep', { nested: true }],
+      futureNull: null,
+    }
+    mockGetAdminWorkerProfiles.mockResolvedValueOnce([
+      createWorkerProfile({ harness_options: harnessOptions }),
+    ])
+    const wrapper = mount(WorkerSettingsPanel, {
+      props: { isMobile: false, reloadKey: 0 },
+    })
+
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.workerFormValue.description = 'edited'
+    await vm.handleSaveWorker()
+
+    expect(mockUpdateWorkerProfile).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ harness_options: harnessOptions }),
     )
   })
 

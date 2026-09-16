@@ -264,7 +264,7 @@ export interface WorkerProfileMount {
 }
 
 export interface WorkerProfileHarnessOptions {
-  [namespace: string]: Record<string, unknown>
+  [namespace: string]: unknown
 }
 
 export interface WorkerProfile {

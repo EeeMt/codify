@@ -79,7 +79,7 @@ Options live in `harness_options` on the Worker Profile. A Task can override onl
 | Harness | Options |
 |---|---|
 | Codex | `reasoning_effort`: minimal, low, medium, high, xhigh, ultra |
-| Pi | `thinking_level`; `steering_mode` and `follow_up_mode`: one-at-a-time |
+| Pi | `thinking_level`; `steering_mode` and `follow_up_mode`: one-at-a-time; `subagents`: true to enable the heavier pi-subagents extension |
 | OpenCode | `agent`: build, plan, general, explore; `command`: codify; `model_variant`: up to 64 characters |
 
 Profiles may also constrain `max_turns`, `sandbox_mode`, `network_enabled`, and `timeout_seconds`. OpenCode's Agent, Command, and Model variant are pinned in the Task snapshot and checked against the allowlist.

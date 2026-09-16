@@ -38,7 +38,12 @@ NS_TO_OPTIONS_SCHEMA = {
 # allowlists: arbitrary OpenCode config is never accepted from a Task request.
 TASK_OVERRIDE_KEYS: dict[str, frozenset[str]] = {
     "codex/v1": frozenset({"reasoning_effort"}),
-    "pi/v1": frozenset({"thinking_level", "steering_mode", "follow_up_mode"}),
+    "pi/v1": frozenset({
+        "thinking_level",
+        "steering_mode",
+        "follow_up_mode",
+        "subagents",
+    }),
     "opencode/v1": frozenset({"agent", "command", "model_variant"}),
 }
 
@@ -74,6 +79,9 @@ class PiV1Options(BaseModel):
     thinking_level: str = Field(default="medium")
     steering_mode: str = Field(default="one-at-a-time")
     follow_up_mode: str = Field(default="one-at-a-time")
+    # pi-subagents is an optional, expensive extension. Keep ordinary Pi tasks
+    # on the lightweight Todo-only path unless a Profile/Task opts in.
+    subagents: bool = Field(default=False)
 
     @field_validator("thinking_level")
     @classmethod

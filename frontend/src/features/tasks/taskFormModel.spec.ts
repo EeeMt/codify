@@ -161,6 +161,19 @@ describe('task form request contracts', () => {
     }))
   })
 
+  it('includes Pi task options in a create request', () => {
+    const harnessOptions = { pi: { subagents: true } }
+
+    expect(buildCreateTaskRequest(7, {
+      ...baseDraft,
+      harnessKey: 'pi',
+      harnessOptions,
+    })).toEqual(expect.objectContaining({
+      harness_key: 'pi',
+      harness_options: harnessOptions,
+    }))
+  })
+
   it('only includes explicitly edited OpenCode options in an update patch', () => {
     const harnessOptions = {
       opencode: {
@@ -177,6 +190,23 @@ describe('task form request contracts', () => {
     }, {
       ...baseDraft,
       harnessKey: 'opencode',
+      harnessOptions,
+      harnessOptionsDirty: true,
+    }, baseDraft.runInstructionTemplate)).toEqual({
+      harness_options: harnessOptions,
+    })
+  })
+
+  it('only includes explicitly edited Pi options in an update patch', () => {
+    const harnessOptions = { pi: { subagents: true } }
+
+    expect(buildUpdateTaskRequest({
+      ...existingTask,
+      provider_id: null,
+      require_changes: false,
+    }, {
+      ...baseDraft,
+      harnessKey: 'pi',
       harnessOptions,
       harnessOptionsDirty: true,
     }, baseDraft.runInstructionTemplate)).toEqual({

@@ -650,6 +650,38 @@
                       </span>
                     </div>
                     <div
+                      v-if="resolvedHarnessKey === 'pi'"
+                      class="execution-environment__harness-options"
+                      data-testid="pi-harness-options"
+                    >
+                      <div class="execution-environment__skills-header">
+                        <span>{{ t('createTask.piOptions') }}</span>
+                        <span class="execution-environment__skills-hint">
+                          {{ t('createTask.piOptionsHint') }}
+                        </span>
+                      </div>
+                      <div class="execution-environment__fields">
+                        <div class="execution-environment__field execution-environment__field--switch">
+                          <div class="execution-environment__switch-row">
+                            <span>{{ t('createTask.piSubagents') }}</span>
+                            <n-switch
+                              :value="piSubagents"
+                              size="small"
+                              :aria-label="t('createTask.piSubagents')"
+                              data-testid="pi-subagents-switch"
+                              @update:value="handlePiSubagentsChange"
+                            />
+                          </div>
+                          <div class="execution-environment__field-hint">
+                            {{ t('createTask.piSubagentsHint') }}
+                          </div>
+                        </div>
+                      </div>
+                      <span class="execution-environment__skills-hint">
+                        {{ t('createTask.piOptionsSnapshotHint') }}
+                      </span>
+                    </div>
+                    <div
                       v-if="harnessCatalogUnavailable"
                       class="execution-environment__warning"
                       data-testid="task-harness-catalog-error"
@@ -1147,7 +1179,10 @@ const harnessKey = ref<string | null>(null)
 const opencodeAgent = ref('build')
 const opencodeCommand = ref<string | null>(null)
 const opencodeModelVariant = ref<string | null>(null)
+const piSubagents = ref(false)
 const harnessOptionsDirty = ref(false)
+const openCodeOptionsDirty = ref(false)
+const piOptionsDirty = ref(false)
 const harnessLocked = computed(
   () => props.mode === 'edit'
     || (!startFreshSession.value && !!props.issueCurrentHarness),
@@ -1237,14 +1272,19 @@ const opencodeCommandOptions = computed(() => [
   { label: 'codify', value: 'codify' },
 ])
 const selectedHarnessOptions = computed<TaskHarnessOptions | undefined>(() => {
-  if (resolvedHarnessKey.value !== 'opencode') return undefined
-  return {
-    opencode: {
-      agent: opencodeAgent.value,
-      command: opencodeCommand.value,
-      model_variant: opencodeModelVariant.value || null,
-    },
+  if (resolvedHarnessKey.value === 'pi') {
+    return { pi: { subagents: piSubagents.value } } as TaskHarnessOptions
   }
+  if (resolvedHarnessKey.value === 'opencode') {
+    return {
+      opencode: {
+        agent: opencodeAgent.value,
+        command: opencodeCommand.value,
+        model_variant: opencodeModelVariant.value || null,
+      },
+    } as TaskHarnessOptions
+  }
+  return undefined
 })
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -1277,6 +1317,22 @@ function syncOpenCodeOptionsFromSnapshot() {
   opencodeAgent.value = typeof agent === 'string' && agent ? agent : 'build'
   opencodeCommand.value = command === 'codify' ? 'codify' : null
   opencodeModelVariant.value = typeof variant === 'string' && variant ? variant : null
+}
+
+function piOptionsSource(): Record<string, unknown> | null {
+  const taskOptions = recordValue(props.task?.harness_snapshot?.harness_options)
+  if (taskOptions) {
+    const taskNamespaced = recordValue(taskOptions.pi)
+    if (taskNamespaced) return taskNamespaced
+    if (Object.keys(taskOptions).length > 0) return taskOptions
+  }
+  const profileOptions = recordValue(effectiveWorkerProfile.value?.harness_options)
+  return profileOptions ? recordValue(profileOptions.pi) : null
+}
+
+function syncPiOptionsFromSnapshot() {
+  if (resolvedHarnessKey.value !== 'pi') return
+  piSubagents.value = piOptionsSource()?.subagents === true
 }
 
 const harnessCatalogIdentity = computed(() => {
@@ -1660,7 +1716,8 @@ watch(resolvedHarnessKey, (harnessKey, previous) => {
 watch(
   [effectiveWorkerProfile, () => props.task, resolvedHarnessKey, () => props.show],
   () => {
-    if (!harnessOptionsDirty.value) syncOpenCodeOptionsFromSnapshot()
+    if (!openCodeOptionsDirty.value) syncOpenCodeOptionsFromSnapshot()
+    if (!piOptionsDirty.value) syncPiOptionsFromSnapshot()
   },
 )
 
@@ -1681,6 +1738,8 @@ watch(() => props.show, (val) => {
     providerAutoAdjustSource = undefined
     providerAutoAdjustedForHarness = null
     harnessOptionsDirty.value = false
+    openCodeOptionsDirty.value = false
+    piOptionsDirty.value = false
     if (props.mode === 'edit' && props.task) {
       drawerView.value = 'full-form'
       prompt.value = props.task.user_prompt ?? ''
@@ -1692,6 +1751,7 @@ watch(() => props.show, (val) => {
         ?? effectiveWorkerProfile.value?.default_harness_key
         ?? 'claude'
       syncOpenCodeOptionsFromSnapshot()
+      syncPiOptionsFromSnapshot()
       inheritProfileSkills.value =
         (props.task.skill_selection_source ?? 'profile') === 'profile'
       selectedSkillIds.value = [...(props.task.skill_ids ?? [])]
@@ -1743,6 +1803,7 @@ watch(() => props.show, (val) => {
         ?? effectiveWorkerProfile.value?.default_harness_key
         ?? 'claude'
       syncOpenCodeOptionsFromSnapshot()
+      syncPiOptionsFromSnapshot()
       scheduleType.value = 'now'
       scheduledAt.value = null
       scheduleWindow.value = null
@@ -1956,7 +2017,10 @@ function restoreExecutionEnvironmentDefaults() {
   providerAutoAdjustedForHarness = null
   handleSkillInheritanceUpdate(true)
   harnessOptionsDirty.value = false
+  openCodeOptionsDirty.value = false
+  piOptionsDirty.value = false
   syncOpenCodeOptionsFromSnapshot()
+  syncPiOptionsFromSnapshot()
   if (!executionEnvironmentMissing.value) {
     executionEnvironmentExpanded.value = false
   }
@@ -1972,16 +2036,25 @@ function handleProviderChange(value: number | null) {
 function handleOpenCodeAgentChange(value: string | null) {
   if (!value) return
   opencodeAgent.value = value
+  openCodeOptionsDirty.value = true
   harnessOptionsDirty.value = true
 }
 
 function handleOpenCodeCommandChange(value: string | null) {
   opencodeCommand.value = value === 'codify' ? 'codify' : null
+  openCodeOptionsDirty.value = true
   harnessOptionsDirty.value = true
 }
 
 function handleOpenCodeModelVariantChange(value: string) {
   opencodeModelVariant.value = value.trim() || null
+  openCodeOptionsDirty.value = true
+  harnessOptionsDirty.value = true
+}
+
+function handlePiSubagentsChange(value: boolean) {
+  piSubagents.value = value
+  piOptionsDirty.value = true
   harnessOptionsDirty.value = true
 }
 
@@ -3108,6 +3181,14 @@ onBeforeUnmount(() => {
   color: var(--n-text-color-3);
   font-size: 10px;
   line-height: 14px;
+}
+
+.execution-environment__switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
 }
 
 .execution-environment__harness-options {

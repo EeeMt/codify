@@ -167,7 +167,7 @@ export function useTaskFormSubmission(options: TaskFormSubmissionOptions) {
       requireChanges: options.requireChanges.value,
       taskMode: options.taskMode.value ?? 'execute',
       sessionMode: 'continue',
-      harnessKey: null,
+      harnessKey: options.harnessKey?.value ?? original.harness_key ?? null,
       selectedProviderId: options.selectedProviderId.value,
       runInstructionTemplate: options.runInstructionTemplate.value,
       runInstructionDirty: options.runInstructionDirty.value,

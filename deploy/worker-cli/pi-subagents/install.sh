@@ -49,6 +49,7 @@ fi
 patch -p2 -d "${target_dir}/pi-subagents" --dry-run < "${patch_file}" >/dev/null
 patch -p2 -d "${target_dir}/pi-subagents" < "${patch_file}"
 
-# The extension entry is index.ts and must not be swapped for a mutable
-# dist/ build; record the upstream tarball digest alongside the extracted tree.
+# The audited source entry remains index.ts. The Worker Kit build additionally
+# creates its immutable directory-preserving compiled mirror from this exact
+# extracted tree; this helper keeps the source fallback for manual staging.
 echo "pi-subagents ${installed_version} staged at ${target_dir}/pi-subagents (tarball sha256 ${PI_SUBAGENTS_EXPECTED_SHA256}, vendor patch applied)"

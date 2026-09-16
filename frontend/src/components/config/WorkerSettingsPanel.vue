@@ -706,6 +706,20 @@
                   </template>
                 </n-form-item>
               </n-gi>
+              <n-gi :span="isMobile ? 1 : 2">
+                <n-form-item :label="t('config.piSubagents')">
+                  <n-switch
+                    v-model:value="piSubagentsEnabled"
+                    :disabled="!piSubagentsConfigurable"
+                    data-testid="worker-pi-subagents-switch"
+                  />
+                  <template #feedback>
+                    {{ piSubagentsConfigurable
+                      ? t('config.piSubagentsHint')
+                      : t('config.piSubagentsDisabledHint') }}
+                  </template>
+                </n-form-item>
+              </n-gi>
             </n-grid>
             <n-form-item :label="t('config.defaultSkills')">
               <n-select
@@ -1230,6 +1244,7 @@ import {
   type WorkerProfile,
   type WorkerProfileEnvironmentVariable,
   type WorkerProfileEnvironmentVariableUpdate,
+  type WorkerProfileHarnessOptions,
   type WorkerProfileMount,
   type WorkerProfilePayload,
   type WorkerProfileRuntimeVerification,
@@ -1258,6 +1273,7 @@ type WorkerFormValue = {
   enabled_harnesses: string[]
   default_harness_key: string
   harness_constraints: Record<string, unknown>
+  harness_options: WorkerProfileHarnessOptions
   image_digest: string | null
   mounts: ProfileMountFormItem[]
   environment_variables: EnvironmentVariableFormItem[]
@@ -1391,6 +1407,7 @@ const workerFormValue = ref<WorkerFormValue>({
   enabled_harnesses: ['claude'],
   default_harness_key: 'claude',
   harness_constraints: {},
+  harness_options: {},
   image_digest: null,
   mounts: [],
   environment_variables: [],
@@ -1466,6 +1483,23 @@ const effectiveWorkerKitPath = computed(() =>
   workerFormValue.value.worker_kit_source === 'system'
     ? sharedFormValue.value.worker_kit_path
     : workerFormValue.value.worker_kit_path
+)
+const piSubagentsEnabled = computed({
+  get: () => harnessOptionRecord(workerFormValue.value.harness_options.pi).subagents === true,
+  set: (value: boolean) => {
+    const piOptions = harnessOptionRecord(workerFormValue.value.harness_options.pi)
+    workerFormValue.value.harness_options = {
+      ...workerFormValue.value.harness_options,
+      pi: {
+        ...piOptions,
+        subagents: value,
+      },
+    }
+  },
+})
+const piSubagentsConfigurable = computed(() =>
+  effectiveRuntimeMode.value === 'mounted_kit'
+  && workerFormValue.value.enabled_harnesses.includes('pi')
 )
 const insecureRemoteDocker = computed(() =>
   !workerFormValue.value.use_system_docker &&
@@ -1654,6 +1688,7 @@ function mapProfileToWorkerFormValue(
       : ['claude'],
     default_harness_key: profile?.default_harness_key ?? 'claude',
     harness_constraints: profile?.harness_constraints ?? {},
+    harness_options: cloneHarnessOptions(profile?.harness_options),
     image_digest: profile?.image_digest ?? null,
     mounts: composeProfileMounts(shared.mounts, profileMounts, mountMasks),
     environment_variables: composeProfileEnvironmentVariables(
@@ -1705,6 +1740,7 @@ function cloneWorkerFormValue(value: WorkerFormValue): WorkerFormValue {
       : ['claude'],
     default_harness_key: value.default_harness_key ?? 'claude',
     harness_constraints: value.harness_constraints ?? {},
+    harness_options: cloneHarnessOptions(value.harness_options),
     image_digest: value.image_digest ?? null,
     mounts: value.mounts.map((mount) => ({
       ...mount,
@@ -1762,6 +1798,36 @@ function workerProfileComparable(value: WorkerFormValue) {
     ...profile
   } = value
   return profile
+}
+
+function harnessOptionRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function cloneHarnessOptionValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(cloneHarnessOptionValue)
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [
+        key,
+        cloneHarnessOptionValue(nestedValue),
+      ]),
+    )
+  }
+  return value
+}
+
+function cloneHarnessOptions(options?: WorkerProfileHarnessOptions): WorkerProfileHarnessOptions {
+  return Object.fromEntries(
+    Object.entries(options ?? {}).map(([namespace, value]) => [
+      namespace,
+      cloneHarnessOptionValue(value),
+    ]),
+  )
 }
 
 async function fetchConfig() {
@@ -1909,6 +1975,7 @@ function createEmptyWorkerFormValue(): WorkerFormValue {
     enabled_harnesses: ['claude'],
     default_harness_key: 'claude',
     harness_constraints: {},
+    harness_options: {},
     image_digest: null,
     mounts: [],
     environment_variables: [],
@@ -2158,6 +2225,7 @@ function buildWorkerProfilePayload(): WorkerProfilePayload {
     enabled_harnesses: [...workerFormValue.value.enabled_harnesses],
     default_harness_key: workerFormValue.value.default_harness_key,
     harness_constraints: { ...workerFormValue.value.harness_constraints },
+    harness_options: cloneHarnessOptions(workerFormValue.value.harness_options),
     default_execute_run_instruction_template:
       workerFormValue.value.default_execute_run_instruction_template,
     default_plan_run_instruction_template: workerFormValue.value.default_plan_run_instruction_template,
