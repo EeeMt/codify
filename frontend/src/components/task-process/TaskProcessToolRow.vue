@@ -190,7 +190,12 @@ const hasToolEventOutput = computed(() => (
   || props.row.toolCall.output_payload_id !== undefined
   || props.row.toolCall.output_preview !== undefined
 ))
-const isExecuting = computed(() => props.taskActive && !hasToolEventOutput.value && !props.row.toolCall.error)
+const isExecuting = computed(() => (
+  props.taskActive
+  && !hasToolEventOutput.value
+  && !props.row.toolCall.error
+  && !props.row.toolCall.ended_at
+))
 
 // Content is ready when: not loading AND (no payload OR payload is done)
 const showInputContent = computed(() => {

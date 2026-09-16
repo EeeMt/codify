@@ -759,8 +759,10 @@ class WorkerEventProjector:
             metadata["subagent"] = subagent
         native_ended_at = _payload_timestamp(payload, "ended_at")
         ended_at = native_ended_at or occurred_at
-        if native_ended_at is not None:
-            metadata["ended_at"] = ended_at
+        # A successful tool may have no output at all. Keep the completion
+        # marker independently of the optional output payload so the live UI
+        # can stop showing it as executing.
+        metadata["ended_at"] = ended_at
         metadata["duration_source"] = (
             "native"
             if metadata.get("duration_source") == "native" and native_ended_at is not None

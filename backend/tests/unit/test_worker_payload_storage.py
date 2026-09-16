@@ -270,6 +270,33 @@ class EventProjectionTests(unittest.IsolatedAsyncioTestCase):
         assert metadata["duration_ms"] == 1500
         assert metadata["duration_source"] == "native"
 
+    async def test_empty_tool_completion_marks_row_finished(self):
+        async with self.session_factory() as db:
+            await self._setup_attempt(db)
+            await self._project(
+                db,
+                [
+                    self._event(1, "run.started"),
+                    self._event(
+                        2,
+                        "tool.started",
+                        {"tool_id": "todo-1", "name": "Todo", "input": {}},
+                        occurred_at="2026-08-01T00:00:02Z",
+                    ),
+                    self._event(
+                        3,
+                        "tool.completed",
+                        {"tool_id": "todo-1", "error": False},
+                        occurred_at="2026-08-01T00:00:03Z",
+                    ),
+                ],
+            )
+            log = (await db.execute(select(TaskLog))).scalar_one()
+        metadata = json.loads(log.log_metadata)
+        assert metadata["ended_at"] == "2026-08-01T00:00:03Z"
+        assert metadata["duration_ms"] == 1000
+        assert "output_payload_id" not in metadata
+
     async def test_context_compaction_and_diagnostic_are_compatible_logs(self):
         async with self.session_factory() as db:
             await self._setup_attempt(db)

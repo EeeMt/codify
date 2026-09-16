@@ -492,6 +492,35 @@ describe('TaskProcessToolRow', () => {
     expect(wrapper.findAll('button').some((button) => button.text().includes('taskView.toolOutput'))).toBe(false)
   })
 
+  it('stops the execution spinner after an empty tool completion', () => {
+    const wrapper = mount(TaskProcessToolRow, {
+      props: {
+        row: {
+          kind: 'tool_call',
+          event: createTaskLog({ metadata: JSON.stringify({
+            name: 'Todo',
+            input: {},
+            error: false,
+            ended_at: '2026-08-01T00:00:03Z',
+          }) }),
+          toolCall: {
+            name: 'Todo',
+            input: {},
+            error: false,
+            ended_at: '2026-08-01T00:00:03Z',
+          },
+        },
+        inputLoaded: false,
+        outputLoaded: false,
+        inputLoading: false,
+        outputLoading: false,
+        taskActive: true,
+      },
+    })
+
+    expect(wrapper.find('.tool-spinner').exists()).toBe(false)
+  })
+
   it('shows the output section when tool output is an empty string', () => {
     const wrapper = mount(TaskProcessToolRow, {
       props: {
