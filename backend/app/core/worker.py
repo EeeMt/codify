@@ -233,11 +233,13 @@ class WorkerExecutor:
         task_id: int,
         container: Any,
         db: AsyncSession,
+        split_at_tool_start: bool = False,
     ) -> None:
         await self._event_projector.tail_event_jsonl(
             task_id=task_id,
             container=container,
             db=db,
+            split_at_tool_start=split_at_tool_start,
         )
 
     async def _tail_console_log(

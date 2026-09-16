@@ -180,6 +180,58 @@ class WorkerEventProjector:
     def _processed_record_bytes(chunk: str, remainder: str) -> int:
         return len(chunk.encode("utf-8")) - len(remainder.encode("utf-8"))
 
+    @staticmethod
+    def _tool_event_id(record: dict) -> str | None:
+        payload = record.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        value = payload.get("tool_id")
+        if value is None:
+            return None
+        tool_id = str(value).strip()
+        return tool_id or None
+
+    @classmethod
+    def _split_live_tool_start(cls, chunk: str) -> str:
+        """Leave a paired tool completion for the next live poll.
+
+        A short tool can start and finish between artifact polls. Splitting
+        only those already-paired calls preserves the visible start state
+        without slowing long tools or archive replay.
+        """
+        lines = chunk.splitlines(keepends=True)
+        complete_lines = (
+            lines
+            if not lines or lines[-1].endswith("\n")
+            else lines[:-1]
+        )
+        if not complete_lines:
+            return chunk
+
+        records: list[dict | None] = []
+        for line in complete_lines:
+            try:
+                record = decode_event_line(line.rstrip("\n"))
+            except (TypeError, json.JSONDecodeError):
+                record = None
+            records.append(record if isinstance(record, dict) else None)
+
+        completed_after: set[str] = set()
+        split_index: int | None = None
+        for index in range(len(records) - 1, -1, -1):
+            record = records[index]
+            if record is None:
+                continue
+            tool_id = cls._tool_event_id(record)
+            if record.get("type") == "tool.started" and tool_id in completed_after:
+                split_index = index
+            elif record.get("type") == "tool.completed" and tool_id is not None:
+                completed_after.add(tool_id)
+
+        if split_index is None:
+            return chunk
+        return "".join(complete_lines[: split_index + 1])
+
     async def _payload_log(
         self,
         *,
@@ -1202,7 +1254,14 @@ class WorkerEventProjector:
         if not remainder and processed != self._processed_record_bytes(chunk, remainder):
             raise HarnessProtocolError("event stream byte accounting mismatch")
 
-    async def tail_event_jsonl(self, *, task_id: int, container: Any, db: AsyncSession) -> None:
+    async def tail_event_jsonl(
+        self,
+        *,
+        task_id: int,
+        container: Any,
+        db: AsyncSession,
+        split_at_tool_start: bool = False,
+    ) -> None:
         cursor = await get_or_create_cursor(db, task_id=task_id, stream_name="event_jsonl")
         offset = cursor.last_offset + 1
         try:
@@ -1218,6 +1277,8 @@ class WorkerEventProjector:
             # partial line becomes the unconsumed remainder and is re-read from
             # the cursor offset after the writer finishes it.
             chunk = result.output.decode("utf-8", errors="replace")
+            if split_at_tool_start:
+                chunk = self._split_live_tool_start(chunk)
             if chunk:
                 await self.ingest_event_records_from_chunk(
                     task_id=task_id,

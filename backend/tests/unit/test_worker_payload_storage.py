@@ -351,6 +351,62 @@ class EventProjectionTests(unittest.IsolatedAsyncioTestCase):
         assert cursor.last_sequence_no == 1
         assert cursor.last_offset == len(complete)
 
+    async def test_live_tail_commits_tool_start_before_paired_completion(self):
+        async with self.session_factory() as db:
+            await self._setup_attempt(db)
+            started = self._event(
+                2,
+                "tool.started",
+                {"tool_id": "t1", "name": "Read", "input": {"file_path": "a.txt"}},
+            )
+            completed = self._event(
+                3,
+                "tool.completed",
+                {"tool_id": "t1", "name": "Read", "output": "body", "error": False},
+            )
+            prefix = "\n".join(
+                json.dumps(event, separators=(",", ":"))
+                for event in (self._event(1, "run.started"), started)
+            ) + "\n"
+            suffix = json.dumps(completed, separators=(",", ":")) + "\n"
+            container = MagicMock()
+            container.exec_run.return_value = MagicMock(
+                exit_code=0,
+                output=(prefix + suffix).encode(),
+            )
+            executor = WorkerExecutor(docker_client=MagicMock(), gitlab_client=MagicMock())
+
+            await executor._tail_event_jsonl(
+                task_id=1,
+                container=container,
+                db=db,
+                split_at_tool_start=True,
+            )
+            live_log = (await db.execute(select(TaskLog))).scalar_one()
+            live_metadata = json.loads(live_log.log_metadata)
+            cursor = (await db.execute(select(TaskIngestCursor))).scalar_one()
+
+            assert "output_payload_id" not in live_metadata
+            assert live_metadata["started_at"]
+            assert cursor.last_sequence_no == 2
+            assert cursor.last_offset == len(prefix.encode())
+
+            container.exec_run.return_value = MagicMock(
+                exit_code=0,
+                output=suffix.encode(),
+            )
+            await executor._tail_event_jsonl(
+                task_id=1,
+                container=container,
+                db=db,
+                split_at_tool_start=True,
+            )
+            logs = list((await db.execute(select(TaskLog))).scalars())
+
+        assert len(logs) == 1
+        final_metadata = json.loads(logs[0].log_metadata)
+        assert final_metadata["output_payload_id"] is not None
+
     # ── Thinking placeholder lifecycle (2026-09-04 plan, section B) ──────────
 
     def _started(

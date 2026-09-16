@@ -256,6 +256,7 @@ async def poll_task_artifacts(
                     task_id=task.id,
                     container=container,
                     db=poll_db,
+                    split_at_tool_start=True,
                 )
                 await worker._tail_console_log(
                     task_id=task.id,
