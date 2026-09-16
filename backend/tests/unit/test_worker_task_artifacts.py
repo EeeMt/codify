@@ -1,11 +1,57 @@
 """Final Worker artifact flush regression tests."""
 
+import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.core.worker_task_artifacts import flush_task_artifacts
+from app.core.worker_task_artifacts import flush_task_artifacts, poll_task_artifacts
+
+
+@pytest.mark.asyncio
+async def test_live_poller_preserves_tool_start_boundary():
+    artifact_db = MagicMock()
+    session_context = MagicMock()
+    session_context.__aenter__ = AsyncMock(return_value=artifact_db)
+    session_context.__aexit__ = AsyncMock(return_value=False)
+    session_factory = MagicMock(return_value=session_context)
+    worker = SimpleNamespace(
+        _tail_event_jsonl=AsyncMock(),
+        _tail_console_log=AsyncMock(),
+    )
+    task = SimpleNamespace(id=17)
+    container = object()
+    stop = asyncio.Event()
+
+    async def stop_after_first_poll(delay: float):
+        assert delay == 2
+        stop.set()
+
+    with patch(
+        "app.core.worker_task_artifacts.asyncio.sleep",
+        new=stop_after_first_poll,
+    ):
+        await poll_task_artifacts(
+            worker,
+            task=task,
+            container=container,
+            session_factory=session_factory,
+            stop=stop,
+            resume_prefix="",
+        )
+
+    worker._tail_event_jsonl.assert_awaited_once_with(
+        task_id=17,
+        container=container,
+        db=artifact_db,
+        split_at_tool_start=True,
+    )
+    worker._tail_console_log.assert_awaited_once_with(
+        task_id=17,
+        container=container,
+        db=artifact_db,
+    )
 
 
 @pytest.mark.asyncio
