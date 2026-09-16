@@ -19,8 +19,8 @@
       <span
         v-if="row.toolCall.duration_ms !== undefined"
         class="event-duration"
-        :title="`Tool duration: ${formatEventDuration(row.toolCall.duration_ms)}`"
-      >{{ formatEventDuration(row.toolCall.duration_ms) }}</span>
+        :title="toolDurationTitle"
+      >{{ toolDurationText }}</span>
       <span class="event-ts">{{ formatTimestamp(row.event.created_at) }}</span>
     </div>
     <div v-if="hasDetailedToolInput || hasToolEventOutput" class="tool-sections">
@@ -129,6 +129,21 @@ function toggleOutput() {
 
 const summary = computed(() => getInputSummary(props.row.toolCall))
 const hasDetailedToolInput = computed(() => hasDetailedInput(props.row.toolCall))
+const formattedToolDuration = computed(() => formatEventDuration(props.row.toolCall.duration_ms ?? 0))
+const hasObservedDuration = computed(() => (
+  props.row.toolCall.duration_source === 'observed'
+  || (props.row.toolCall.duration_ms !== undefined && !props.row.toolCall.ended_at)
+))
+const toolDurationText = computed(() => (
+  hasObservedDuration.value
+    ? `${t('taskView.observedDurationShort')} ${formattedToolDuration.value}`
+    : formattedToolDuration.value
+))
+const toolDurationTitle = computed(() => (
+  hasObservedDuration.value
+    ? t('taskView.observedToolDuration', { duration: formattedToolDuration.value })
+    : t('taskView.toolDuration', { duration: formattedToolDuration.value })
+))
 
 // A delegation row keeps the canonical tool name and appends the display role,
 // e.g. `Subagent · reviewer #1` (plan §7.2.2). Child tool rows keep their own

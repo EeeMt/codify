@@ -176,6 +176,7 @@ class EventProjectionTests(unittest.IsolatedAsyncioTestCase):
         assert metadata["tool_use_id"] == "t1"
         assert metadata["started_at"] == "2026-08-01T00:00:02Z"
         assert metadata["duration_ms"] == 1500
+        assert metadata["duration_source"] == "observed"
         assert metadata["output_payload_id"] == payloads[1].id
         assert payloads[1].content == b"file.txt"
 
@@ -215,6 +216,7 @@ class EventProjectionTests(unittest.IsolatedAsyncioTestCase):
         assert metadata["started_at"] == "2026-08-01T00:00:10Z"
         assert metadata["ended_at"] == "2026-08-01T00:00:11.500Z"
         assert metadata["duration_ms"] == 1500
+        assert metadata["duration_source"] == "native"
 
     async def test_context_compaction_and_diagnostic_are_compatible_logs(self):
         async with self.session_factory() as db:

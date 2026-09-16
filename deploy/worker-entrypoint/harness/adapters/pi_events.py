@@ -152,6 +152,7 @@ _STATE: dict = {
     "thinking_start_line": None,
     "text_parts": [],
     "tool_starts": {},
+    "pending_tool_calls": {},
     "message_completed_emitted": False,
     "usage": {},
     "terminal": None,   # "completed" | "failed"
@@ -751,8 +752,9 @@ def _handle_nested_toolcall(event: dict, raw_line: int) -> None:
     Pi emits ``toolcall_start/delta/end`` inside ``message_update`` and normally
     follows it with top-level ``tool_execution_*`` records. The nested stream
     is still archived and explicitly diagnosed, while the canonical lifecycle
-    is emitted from the execution records; ``toolcall_end`` only provides a
-    fallback start when an extension omits that top-level start.
+    is emitted from the execution records. ``toolcall_end`` only caches the
+    model-side call so a later execution record can fill in missing arguments;
+    it is not an execution start.
     """
     event_type = event.get("type")
     content_index = event.get("contentIndex")
@@ -822,15 +824,13 @@ def _handle_nested_toolcall(event: dict, raw_line: int) -> None:
             raw_line,
         )
         return
-    _handle_tool(
-        {
-            "type": "tool_execution_start",
-            "toolCallId": tool_id,
-            "toolName": tool_call.get("name") or entry.get("name"),
-            "args": _tool_call_arguments(arguments),
-        },
-        raw_line,
-    )
+    entry["tool_id"] = tool_id
+    entry["name"] = tool_call.get("name") or entry.get("name")
+    entry["arguments"] = arguments
+    # Keep the finalized model-side call until the native execution-start
+    # record arrives. A model can emit several sibling calls before Pi starts
+    # executing any of them, so this record must never start the stopwatch.
+    pending[f"id:{tool_id}"] = entry
 
 
 def _handle_message_update(record: dict, raw_line: int) -> None:
@@ -993,6 +993,20 @@ def _tool_output(record: dict) -> str:
     if sanitized is None:
         return ""
     return json.dumps(sanitized, ensure_ascii=False, separators=(",", ":"))[:_TOOL_OUTPUT_MAX_CHARS]
+
+
+def _take_pending_tool_call(tool_call_id: str) -> dict | None:
+    """Consume the model-side call cached before native execution started."""
+    pending = _STATE.setdefault("pending_tool_calls", {})
+    entry = pending.pop(f"id:{tool_call_id}", None)
+    if entry is None:
+        return None
+    # A call may still be reachable through a content-index alias when a
+    # malformed/replayed stream supplied a different terminal identity.
+    for key, candidate in list(pending.items()):
+        if candidate is entry:
+            pending.pop(key, None)
+    return entry
 
 
 def _subagent_details(record: dict) -> dict | None:
@@ -1445,11 +1459,23 @@ def _handle_tool(record: dict, raw_line: int) -> None:
     """
     record_type = record.get("type")
     tool_call_id = str(record.get("toolCallId") or "").strip()
+    if not tool_call_id:
+        _emit(
+            "diagnostic",
+            {"code": "tool_missing_id", "name": _display_tool_name(record.get("toolName"))},
+            raw_line,
+        )
+        return
+    if record_type == "tool_execution_start":
+        pending = _take_pending_tool_call(tool_call_id)
+        if pending:
+            record = dict(record)
+            if not record.get("toolName") and pending.get("name"):
+                record["toolName"] = pending["name"]
+            if record.get("args") is None:
+                record["args"] = _tool_call_arguments(pending.get("arguments"))
     raw_tool_name = str(record.get("toolName") or "").strip().lower()
     tool_name = _display_tool_name(record.get("toolName"))
-    if not tool_call_id:
-        _emit("diagnostic", {"code": "tool_missing_id", "name": tool_name}, raw_line)
-        return
     if raw_tool_name == SUBAGENT_TOOL_NAME:
         # Delegation is projected per child, not as one generic tool row.
         _handle_subagent_tool(record, raw_line)
@@ -1464,6 +1490,7 @@ def _handle_tool(record: dict, raw_line: int) -> None:
                 raw_line,
             )
             lifecycle["started"] = True
+            lifecycle["name"] = tool_name
     elif record_type == "tool_execution_update":
         # Progress is accumulated in Pi's result and has no corresponding
         # canonical type. It remains available in the sanitized raw archive;
@@ -1473,18 +1500,14 @@ def _handle_tool(record: dict, raw_line: int) -> None:
         if lifecycle["completed"]:
             return
         if not lifecycle["started"]:
-            # A damaged/replayed stream can begin at the completion record.
-            # Keep the canonical pair correlated instead of leaving the
-            # projector with an orphaned tool.completed.
             _emit(
-                "tool.started",
-                {"tool_id": tool_call_id, "name": tool_name, "input": redact_hidden_reasoning(_tool_input(record))},
+                "diagnostic",
+                {"code": "tool_start_missing", "tool_id": tool_call_id, "name": tool_name},
                 raw_line,
             )
-            lifecycle["started"] = True
         completion = {
             "tool_id": tool_call_id,
-            "name": tool_name,
+            "name": _display_tool_name(record.get("toolName") or lifecycle.get("name")),
             "output": _tool_output(record),
             "error": bool(record.get("isError")),
         }

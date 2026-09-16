@@ -433,6 +433,32 @@ describe('taskProcessUtils', () => {
 })
 
 describe('TaskProcessToolRow', () => {
+  it('labels observed tool durations instead of presenting them as exact', () => {
+    const wrapper = mount(TaskProcessToolRow, {
+      props: {
+        row: {
+          kind: 'tool_call',
+          event: createTaskLog({ metadata: JSON.stringify({ name: 'Read', input: {}, error: false }) }),
+          toolCall: {
+            name: 'Read',
+            input: {},
+            error: false,
+            duration_ms: 25535,
+            duration_source: 'observed',
+          },
+        },
+        inputLoaded: false,
+        outputLoaded: false,
+        inputLoading: false,
+        outputLoading: false,
+      },
+    })
+
+    const duration = wrapper.find('.event-duration')
+    expect(duration.text()).toBe('taskView.observedDurationShort 25.5s')
+    expect(duration.attributes('title')).toBe('taskView.observedToolDuration')
+  })
+
   it('shows an execution spinner for a pending tool while the task is active', () => {
     const wrapper = mount(TaskProcessToolRow, {
       props: {

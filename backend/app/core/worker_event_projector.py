@@ -362,11 +362,13 @@ class WorkerEventProjector:
             text=input_text,
         )
         preview, truncated = _preview(input_text)
-        started_at = _payload_timestamp(payload, "started_at") or occurred_at
+        native_started_at = _payload_timestamp(payload, "started_at")
+        started_at = native_started_at or occurred_at
         metadata: dict[str, Any] = {
             "tool_use_id": tool_id,
             "name": name,
             "started_at": started_at,
+            "duration_source": "native" if native_started_at is not None else "observed",
             "input": payload.get("input") or {},
             "input_payload_id": body.id,
             "input_preview": preview,
@@ -532,6 +534,11 @@ class WorkerEventProjector:
         ended_at = native_ended_at or occurred_at
         if native_ended_at is not None:
             metadata["ended_at"] = ended_at
+        metadata["duration_source"] = (
+            "native"
+            if metadata.get("duration_source") == "native" and native_ended_at is not None
+            else "observed"
+        )
         started_at = metadata.get("started_at")
         duration = (
             _duration_ms(started_at, ended_at)

@@ -1151,6 +1151,8 @@ def _reset_pi_state():
         "thinking_reasoning_id": None,
         "thinking_start_line": None,
         "message_completed_emitted": False,
+        "tool_starts": {},
+        "pending_tool_calls": {},
     }
     pi_events._REAL_SESSION_ID = ""
 
@@ -1199,7 +1201,7 @@ def test_pi_tool_start_maps_to_tool_started_with_sanitized_input():
 
 
 def test_pi_tool_end_maps_to_tool_completed_with_truncated_output():
-    """tool_execution_end -> tool.completed with sanitized output and error."""
+    """A completion without a start is retained but never gets a fake start."""
     import pi_events
 
     _reset_pi_state()
@@ -1218,6 +1220,10 @@ def test_pi_tool_end_maps_to_tool_completed_with_truncated_output():
         9,
     )
     completed = [p for t, p, _ in writer.events if t == "tool.completed"]
+    started = [p for t, p, _ in writer.events if t == "tool.started"]
+    diagnostics = [p for t, p, _ in writer.events if t == "diagnostic"]
+    assert started == []
+    assert diagnostics[0]["code"] == "tool_start_missing"
     assert len(completed) == 1
     assert "192.168.50.129" not in json.dumps(completed[0])
     assert completed[0]["error"] is False
@@ -1238,7 +1244,7 @@ def test_pi_tool_update_is_explicit_noop():
     assert writer.events == []
 
 
-def test_pi_nested_toolcall_fallback_is_deduplicated_by_execution_events():
+def test_pi_nested_toolcall_is_paired_with_execution_events():
     import pi_events
 
     _reset_pi_state()
@@ -1284,6 +1290,7 @@ def test_pi_nested_toolcall_fallback_is_deduplicated_by_execution_events():
     assert len(completed) == 1
     assert started[0]["name"] == "Bash"
     assert started[0]["input"] == {"command": "pwd"}
+    assert writer.events[0][2] == 11
 
 
 def test_pi_nested_toolcall_deltas_are_buffered_and_explicitly_diagnosed():
@@ -1324,13 +1331,22 @@ def test_pi_nested_toolcall_deltas_are_buffered_and_explicitly_diagnosed():
     )
     pi_events.translate(
         {
+            "type": "tool_execution_start",
+            "toolCallId": "call-buffered",
+            "toolName": "bash",
+            "args": {"command": "pwd"},
+        },
+        13,
+    )
+    pi_events.translate(
+        {
             "type": "tool_execution_end",
             "toolCallId": "call-buffered",
             "toolName": "bash",
             "result": {"content": [{"type": "text", "text": "ok"}]},
             "isError": False,
         },
-        13,
+        14,
     )
 
     started = [p for t, p, _ in writer.events if t == "tool.started"]
@@ -1340,6 +1356,33 @@ def test_pi_nested_toolcall_deltas_are_buffered_and_explicitly_diagnosed():
     codes = [p.get("code") for t, p, _ in writer.events if t == "diagnostic"]
     assert codes[:2] == ["toolcall_started", "toolcall_delta"]
     assert "unknown_raw_event" not in codes
+
+
+def test_pi_nested_toolcall_end_does_not_start_unexecuted_call():
+    _load_bridge()
+    import pi_events
+
+    _reset_pi_state()
+    writer = _FakeWriter()
+    pi_events._emit = writer
+    pi_events.translate(
+        {
+            "type": "message_update",
+            "assistantMessageEvent": {
+                "type": "toolcall_end",
+                "toolCall": {
+                    "id": "call-unexecuted",
+                    "name": "read",
+                    "arguments": {"path": "/workspace/maybe.txt"},
+                },
+            },
+        },
+        30,
+    )
+
+    assert [t for t, _, _ in writer.events if t == "tool.started"] == []
+    assert [t for t, _, _ in writer.events if t == "tool.completed"] == []
+    assert pi_events._STATE["pending_tool_calls"]["id:call-unexecuted"]["name"] == "read"
 
 
 def test_pi_nested_toolcall_start_id_does_not_break_content_index_deltas():
@@ -1381,6 +1424,15 @@ def test_pi_nested_toolcall_start_id_does_not_break_content_index_deltas():
             },
         },
         22,
+    )
+    pi_events.translate(
+        {
+            "type": "tool_execution_start",
+            "toolCallId": "call-indexed",
+            "toolName": "bash",
+            "args": {"command": "pwd"},
+        },
+        23,
     )
 
     started = [p for t, p, _ in writer.events if t == "tool.started"]

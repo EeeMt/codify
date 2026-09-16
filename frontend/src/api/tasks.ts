@@ -313,6 +313,9 @@ export interface ToolCall {
   error: boolean
   timestamp?: string
   duration_ms?: number
+  started_at?: string
+  ended_at?: string
+  duration_source?: 'native' | 'observed'
   input_payload_id?: number
   input_preview?: string
   input_truncated?: boolean
