@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Focused tests for the task-log SSE generator (task_log_stream.py).
 
-Covers the thinking-placeholder lifecycle over the wire: a started row arrives
-in ``batch``, its final status arrives later as an in-place ``update`` (even for
-empty content), final updates precede ``done``, completed rows created inside
-one poll window are batched once in their final state, rows of other tasks
-never enter the tracked set, and a reconnect that rewinds ``since_id``
-re-reads a row that completed while disconnected.
+Covers the thinking-placeholder and tool-call lifecycles over the wire: a
+started row arrives in ``batch``, its final state arrives later as an in-place
+``update`` (even for empty content), final updates precede ``done``, completed
+rows created inside one poll window are batched once in their final state, rows
+of other tasks never enter the tracked set, and a reconnect that rewinds
+``since_id`` re-reads a row that completed while disconnected.
 """
 
 from __future__ import annotations
@@ -74,6 +74,20 @@ class TaskLogStreamTests(unittest.IsolatedAsyncioTestCase):
         base.update(overrides)
         return json.dumps(base, ensure_ascii=False)
 
+    def _tool_metadata(self, **overrides):
+        base = {
+            "tool_use_id": "todo-1",
+            "name": "Todo",
+            "started_at": "2026-08-01T00:00:10Z",
+            "duration_source": "observed",
+            "input": {},
+            "input_payload_id": 1,
+            "input_preview": "{}",
+            "input_truncated": False,
+        }
+        base.update(overrides)
+        return json.dumps(base, ensure_ascii=False)
+
     async def _seed(self, status: TaskStatus | None = None, *, task_id: int = 1):
         async with self.session_factory() as db:
             task = Task(
@@ -110,6 +124,19 @@ class TaskLogStreamTests(unittest.IsolatedAsyncioTestCase):
             log = (await db.execute(select(TaskLog).where(TaskLog.id == row_id))).scalar_one()
             metadata = json.loads(log.log_metadata)
             metadata.update({"status": status, "ended_at": "2026-08-01T00:00:48Z"})
+            log.log_metadata = json.dumps(metadata, ensure_ascii=False)
+            await db.commit()
+
+    async def _finish_tool(self, *, row_id: int):
+        async with self.session_factory() as db:
+            log = (await db.execute(select(TaskLog).where(TaskLog.id == row_id))).scalar_one()
+            metadata = json.loads(log.log_metadata)
+            metadata.update(
+                {
+                    "ended_at": "2026-08-01T00:00:10.097Z",
+                    "duration_ms": 97,
+                }
+            )
             log.log_metadata = json.dumps(metadata, ensure_ascii=False)
             await db.commit()
 
@@ -197,6 +224,42 @@ class TaskLogStreamTests(unittest.IsolatedAsyncioTestCase):
         update_metadata = events[1][1]["metadata"]
         assert update_metadata["status"] == "completed"
         assert update_metadata["payload_id"] is None
+
+    async def test_empty_tool_completion_still_sends_update(self):
+        """A completed tool without an output payload still leaves pending."""
+        await self._seed()
+        await self._add_log(
+            task_id=1,
+            log_type="tool_call",
+            metadata=self._tool_metadata(),
+        )
+
+        collected: dict[str, list] = {"frames": []}
+
+        async def drive():
+            frames_seen = 0
+            async for frame in generate_task_log_events(
+                1,
+                0,
+                session_factory=self.session_factory,
+                sleep=_no_sleep,
+                logger=MagicMock(),
+            ):
+                frames_seen += 1
+                if frames_seen == 1:
+                    await self._finish_tool(row_id=1)
+                    await self._set_task_status(TaskStatus.COMPLETED)
+                collected["frames"].append(frame)
+
+        await drive()
+        events = _parse_frames(collected["frames"])
+        names = [name for name, _ in events]
+        assert names == ["batch", "update", "done"], names
+        assert events[0][1][0]["metadata"].get("ended_at") is None
+        update_metadata = events[1][1]["metadata"]
+        assert update_metadata["ended_at"] == "2026-08-01T00:00:10.097Z"
+        assert update_metadata["duration_ms"] == 97
+        assert "output_payload_id" not in update_metadata
 
     async def test_streaming_assistant_preview_updates_before_done(self):
         await self._seed()

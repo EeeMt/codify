@@ -97,7 +97,10 @@ async def generate_task_log_events(
                     total_events_sent += 1
                     if log.log_type == "tool_call":
                         metadata = event_data["metadata"] or {}
-                        if not metadata.get("output_payload_id"):
+                        # ended_at is the canonical completion marker. A
+                        # successful tool can have no output payload (for
+                        # example Todo), so output_payload_id is not sufficient.
+                        if not metadata.get("ended_at"):
                             pending_tool_calls.add(log.id)
                     elif log.log_type == "thinking":
                         # Track placeholder rows so their final status reaches
@@ -130,7 +133,10 @@ async def generate_task_log_events(
                             )
                         for log in updated_result.scalars().all():
                             metadata = json.loads(log.log_metadata) if log.log_metadata else {}
-                            if metadata.get("output_payload_id"):
+                            # Keep this independent from output storage: empty
+                            # successful tool results still need an in-place
+                            # completion update.
+                            if metadata.get("ended_at"):
                                 cycle_update_events.append(
                                     f"event: update\ndata: "
                                     f"{json.dumps(task_log_event_data(log))}\n\n"
