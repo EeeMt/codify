@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import hashlib
 import http.client
+import importlib.util
 import io
 import json
 import os
 import signal
 import stat
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -144,6 +146,397 @@ def test_opencode_stream_maps_sse_to_v2_canonical_events(tmp_path):
     assert result["status"] == "completed"
     assert result["success"] is True
     assert result["result"] == "Hello world"
+
+
+def test_opencode_batches_small_deltas_without_changing_final_text(tmp_path):
+    runtime_dir = tmp_path / "delta-batch"
+    runtime_dir.mkdir()
+    session_id = "ses-oc-batch"
+    message_id = "m-batch"
+    text = "0123456789" * 500
+    records = [
+        _record(
+            "message.updated",
+            {
+                "sessionID": session_id,
+                "info": {"id": message_id, "role": "assistant"},
+            },
+        )
+    ]
+    records.extend(
+        _record(
+            "message.part.delta",
+            {
+                "sessionID": session_id,
+                "messageID": message_id,
+                "partID": "p-batch",
+                "delta": value,
+            },
+        )
+        for value in text
+    )
+    records.append(_record("session.idle", {"sessionID": session_id}))
+
+    _emit(runtime_dir, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate(runtime_dir, records)
+
+    events = _events(runtime_dir)
+    deltas = [event for event in events if event["type"] == "message.delta"]
+    assert len(deltas) <= len(text) * 0.05
+    assert "".join(event["payload"]["content"] for event in deltas) == text
+    assert deltas[0]["payload"]["content"] == text[0]
+    assert deltas[-1]["raw_ref"]["line"] == len(records) - 1
+    result = json.loads((runtime_dir / "harness-result.json").read_text(encoding="utf-8"))
+    assert result["result"] == text
+
+
+def test_opencode_child_message_completion_flushes_pending_delta_first(tmp_path):
+    runtime_dir = tmp_path / "child-delta-completion"
+    runtime_dir.mkdir()
+    root = "ses-root"
+    child = "ses-child"
+    message_id = "child-message"
+    records = [
+        _record("codify.root_session", {"sessionID": root}),
+        _record(
+            "session.created",
+            {"sessionID": child, "info": {"id": child, "parentID": root, "agent": "general"}},
+        ),
+        _record(
+            "message.updated",
+            {"sessionID": child, "info": {"id": message_id, "role": "assistant"}},
+        ),
+        _record(
+            "message.part.delta",
+            {
+                "sessionID": child,
+                "messageID": message_id,
+                "partID": "child-part",
+                "delta": "child text",
+            },
+        ),
+        _record(
+            "message.updated",
+            {
+                "sessionID": child,
+                "info": {"id": message_id, "role": "assistant", "time": {"completed": 2}},
+            },
+        ),
+    ]
+
+    _emit(runtime_dir, "run.started")
+    _translate(runtime_dir, records)
+
+    child_events = [
+        event
+        for event in _events(runtime_dir)
+        if event["payload"].get("agent", {}).get("id") == child
+        and event["type"] in {"message.delta", "message.completed"}
+    ]
+    assert [event["type"] for event in child_events] == [
+        "message.delta",
+        "message.completed",
+    ]
+    assert child_events[0]["payload"]["content"] == "child text"
+    assert child_events[1]["payload"]["text"] == "child text"
+
+
+def test_opencode_child_idle_flushes_pending_delta_before_completion(tmp_path):
+    runtime_dir = tmp_path / "child-delta-idle"
+    runtime_dir.mkdir()
+    root = "ses-root"
+    child = "ses-child"
+    message_id = "child-message"
+    records = [
+        _record("codify.root_session", {"sessionID": root}),
+        _record(
+            "session.created",
+            {"sessionID": child, "info": {"id": child, "parentID": root, "agent": "general"}},
+        ),
+        _record(
+            "message.updated",
+            {"sessionID": child, "info": {"id": message_id, "role": "assistant"}},
+        ),
+        _record(
+            "message.part.delta",
+            {
+                "sessionID": child,
+                "messageID": message_id,
+                "partID": "child-part",
+                "delta": "child text",
+            },
+        ),
+        _record("session.idle", {"sessionID": child}),
+    ]
+
+    _emit(runtime_dir, "run.started")
+    _translate(runtime_dir, records)
+
+    events = _events(runtime_dir)
+    child_events = [
+        event
+        for event in events
+        if event["payload"].get("agent", {}).get("id") == child
+        and event["type"] in {"message.delta", "message.completed"}
+    ]
+    assert [event["type"] for event in child_events] == [
+        "message.delta",
+        "message.completed",
+    ]
+    assert child_events[0]["payload"]["content"] == "child text"
+    assert child_events[1]["payload"]["text"] == "child text"
+
+
+def test_opencode_delta_batch_flushes_when_monotonic_age_is_reached(monkeypatch):
+    adapters_dir = str(HARNESS_DIR / "adapters")
+    if adapters_dir not in sys.path:
+        sys.path.insert(0, adapters_dir)
+    spec = importlib.util.spec_from_file_location(
+        "opencode_delta_batch_age_test",
+        TRANSLATOR,
+    )
+    assert spec is not None and spec.loader is not None
+    adapter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(adapter)
+    emitted = []
+
+    def fake_emit(event_type, payload, raw_line, *, agent=adapter._USE_CURRENT_AGENT):
+        emitted.append((event_type, payload, raw_line, agent))
+
+    clock = iter((10.0, 10.251))
+    monkeypatch.setattr(adapter, "_emit", fake_emit)
+    monkeypatch.setattr(adapter.time, "monotonic", lambda: next(clock))
+
+    adapter._emit_message_delta("a", "message", 1)
+    adapter._emit_message_delta("b", "message", 2)
+    adapter._emit_message_delta("c", "message", 3)
+
+    assert [(item[1]["content"], item[2]) for item in emitted] == [("a", 1), ("bc", 3)]
+
+
+def test_opencode_delta_batches_flush_at_tool_and_agent_boundaries(tmp_path):
+    runtime_dir = tmp_path / "delta-boundaries"
+    runtime_dir.mkdir()
+    root = "ses-root"
+    child_a = "ses-child-a"
+    child_b = "ses-child-b"
+    shared_message = "shared-message"
+    shared_part = "shared-part"
+    records = [
+        _record("codify.root_session", {"sessionID": root}),
+        _record(
+            "session.created",
+            {
+                "sessionID": child_a,
+                "info": {"id": child_a, "parentID": root, "agent": "general"},
+            },
+        ),
+        _record(
+            "session.created",
+            {
+                "sessionID": child_b,
+                "info": {"id": child_b, "parentID": root, "agent": "general"},
+            },
+        ),
+        _record(
+            "message.updated",
+            {
+                "sessionID": root,
+                "info": {"id": shared_message, "role": "assistant"},
+            },
+        ),
+        _record(
+            "message.part.delta",
+            {
+                "sessionID": root,
+                "messageID": shared_message,
+                "partID": shared_part,
+                "delta": "root-a",
+            },
+        ),
+        _record(
+            "message.part.delta",
+            {
+                "sessionID": root,
+                "messageID": shared_message,
+                "partID": shared_part,
+                "delta": "root-b",
+            },
+        ),
+        _record(
+            "message.updated",
+            {
+                "sessionID": child_a,
+                "info": {"id": shared_message, "role": "assistant"},
+            },
+        ),
+        _record(
+            "message.part.delta",
+            {
+                "sessionID": child_a,
+                "messageID": shared_message,
+                "partID": shared_part,
+                "delta": "child-a",
+            },
+        ),
+        _record(
+            "message.part.delta",
+            {
+                "sessionID": child_a,
+                "messageID": shared_message,
+                "partID": shared_part,
+                "delta": "-tail",
+            },
+        ),
+        _record("session.idle", {"sessionID": child_a}),
+        _record(
+            "message.updated",
+            {
+                "sessionID": child_b,
+                "info": {"id": shared_message, "role": "assistant"},
+            },
+        ),
+        _record(
+            "message.part.delta",
+            {
+                "sessionID": child_b,
+                "messageID": shared_message,
+                "partID": shared_part,
+                "delta": "child-b",
+            },
+        ),
+        _record(
+            "message.part.delta",
+            {
+                "sessionID": child_b,
+                "messageID": shared_message,
+                "partID": shared_part,
+                "delta": "-tail",
+            },
+        ),
+        _record("session.idle", {"sessionID": child_b}),
+        _record(
+            "message.part.updated",
+            {
+                "sessionID": root,
+                "part": {
+                    "type": "tool",
+                    "id": "tool-boundary",
+                    "messageID": shared_message,
+                    "callID": "call-boundary",
+                    "tool": "bash",
+                    "state": {
+                        "status": "running",
+                        "input": {"command": "echo boundary"},
+                    },
+                },
+            },
+        ),
+        _record(
+            "message.part.delta",
+            {
+                "sessionID": root,
+                "messageID": shared_message,
+                "partID": shared_part,
+                "delta": "root-c",
+            },
+        ),
+        _record(
+            "message.part.updated",
+            {
+                "sessionID": root,
+                "part": {
+                    "type": "tool",
+                    "id": "tool-boundary",
+                    "messageID": shared_message,
+                    "callID": "call-boundary",
+                    "tool": "bash",
+                    "state": {"status": "completed", "output": "done"},
+                },
+            },
+        ),
+        _record("session.idle", {"sessionID": root}),
+    ]
+
+    _emit(runtime_dir, "run.started", {"runtime_bundle_digest": "d" * 64})
+    _translate(runtime_dir, records)
+
+    events = _events(runtime_dir)
+    deltas = [event for event in events if event["type"] == "message.delta"]
+    assert [event["payload"]["content"] for event in deltas] == [
+        "root-a",
+        "root-b",
+        "child-a",
+        "-tail",
+        "child-b",
+        "-tail",
+        "root-c",
+    ]
+    assert [event["payload"].get("agent", {}).get("id") for event in deltas] == [
+        None,
+        None,
+        child_a,
+        child_a,
+        child_b,
+        child_b,
+        None,
+    ]
+    tool_started = next(event for event in events if event["type"] == "tool.started")
+    assert events.index(tool_started) > events.index(deltas[5])
+    assert events.index(tool_started) < events.index(deltas[6])
+    completed = {
+        event["payload"]["agent"]["id"]: event["payload"]["text"]
+        for event in events
+        if event["type"] == "message.completed" and "agent" in event["payload"]
+    }
+    assert completed == {child_a: "child-a-tail", child_b: "child-b-tail"}
+    result = json.loads((runtime_dir / "harness-result.json").read_text(encoding="utf-8"))
+    assert result["result"] == "root-aroot-broot-c"
+
+
+def test_opencode_pending_delta_is_flushed_on_eof_failure(tmp_path):
+    runtime_dir = tmp_path / "delta-eof"
+    runtime_dir.mkdir()
+    session_id = "ses-oc-eof"
+    message_id = "m-eof"
+    _emit(runtime_dir, "run.started")
+    _translate(
+        runtime_dir,
+        [
+            _record(
+                "message.updated",
+                {"sessionID": session_id, "info": {"id": message_id, "role": "assistant"}},
+            ),
+            _record(
+                "message.part.delta",
+                {
+                    "sessionID": session_id,
+                    "messageID": message_id,
+                    "partID": "p-eof",
+                    "delta": "first",
+                },
+            ),
+            _record(
+                "message.part.delta",
+                {
+                    "sessionID": session_id,
+                    "messageID": message_id,
+                    "partID": "p-eof",
+                    "delta": "second",
+                },
+            ),
+        ],
+    )
+
+    events = _events(runtime_dir)
+    assert "".join(
+        event["payload"]["content"]
+        for event in events
+        if event["type"] == "message.delta"
+    ) == "firstsecond"
+    assert events[-1]["type"] == "harness.failed"
+    result = json.loads((runtime_dir / "harness-result.json").read_text(encoding="utf-8"))
+    assert result["status"] == "protocol_error"
 
 
 def test_opencode_real_session_id_is_retained_for_result_after_sanitization(tmp_path):
@@ -998,6 +1391,104 @@ def test_opencode_part_family_ignores_later_durable_lifecycle(tmp_path):
     assert completed[0]["payload"] == {"reasoning_id": part_id, "client": "opencode"}
     assert not any("reason-both" in e["payload"].get("reasoning_id", "") for e in started + completed)
     assert not any(e["type"] == "reasoning_summary.interrupted" for e in events)
+
+
+def test_opencode_reasoning_family_is_scoped_to_agent_message(tmp_path):
+    runtime_dir = tmp_path / "reasoning-agent-family"
+    runtime_dir.mkdir()
+    root = "ses-root"
+    child = "ses-child"
+    shared_message = "shared-message"
+    records = [
+        _record("codify.root_session", {"sessionID": root}),
+        _durable_record(
+            "session.next.reasoning.started",
+            {
+                "sessionID": root,
+                "assistantMessageID": shared_message,
+                "reasoningID": "root-reasoning",
+            },
+        ),
+        _record(
+            "session.created",
+            {"sessionID": child, "info": {"id": child, "parentID": root, "agent": "general"}},
+        ),
+        _reasoning_part_record(
+            part_id="child-reasoning",
+            message_id=shared_message,
+            session_id=child,
+        ),
+        _reasoning_part_record(
+            ended=True,
+            part_id="child-reasoning",
+            message_id=shared_message,
+            session_id=child,
+        ),
+    ]
+
+    _emit(runtime_dir, "run.started")
+    _translate(runtime_dir, records)
+
+    events = _events(runtime_dir)
+    lifecycle = [
+        event
+        for event in events
+        if event["type"] in {"reasoning_summary.started", "reasoning_summary.completed"}
+    ]
+    assert [event["payload"]["reasoning_id"] for event in lifecycle] == [
+        "opencode-reason-ses-root-shared-message-root-reasoning",
+        "opencode-reason-part-ses-child-shared-message-child-reasoning",
+        "opencode-reason-part-ses-child-shared-message-child-reasoning",
+    ]
+    assert lifecycle[1]["type"] == "reasoning_summary.started"
+    assert lifecycle[2]["type"] == "reasoning_summary.completed"
+    assert lifecycle[1]["payload"]["agent"]["id"] == child
+    assert lifecycle[2]["payload"]["agent"]["id"] == child
+
+
+def test_opencode_reasoning_interrupt_uses_block_owner_after_agent_switch(tmp_path):
+    runtime_dir = tmp_path / "reasoning-agent-owner"
+    runtime_dir.mkdir()
+    root = "ses-root"
+    child = "ses-child"
+    records = [
+        _record("codify.root_session", {"sessionID": root}),
+        _durable_record(
+            "session.next.reasoning.started",
+            {
+                "sessionID": root,
+                "assistantMessageID": "root-message",
+                "reasoningID": "root-reasoning",
+            },
+        ),
+        _record(
+            "session.created",
+            {"sessionID": child, "info": {"id": child, "parentID": root, "agent": "general"}},
+        ),
+        _reasoning_part_record(
+            part_id="child-reasoning",
+            message_id="child-message",
+            session_id=child,
+        ),
+        _record(
+            "session.status",
+            {"sessionID": root, "status": {"type": "busy"}},
+        ),
+    ]
+
+    _emit(runtime_dir, "run.started")
+    _translate(runtime_dir, records)
+
+    interrupted = [
+        event
+        for event in _events(runtime_dir)
+        if event["type"] == "reasoning_summary.interrupted"
+    ]
+    by_reasoning_id = {event["payload"]["reasoning_id"]: event for event in interrupted}
+    assert by_reasoning_id["opencode-reason-ses-root-root-message-root-reasoning"]["payload"].get("agent") is None
+    assert by_reasoning_id[
+        "opencode-reason-part-ses-child-child-message-child-reasoning"
+    ]["payload"]["agent"]["id"] == child
 
 
 def test_opencode_two_part_blocks_ignore_later_durable_lifecycle(tmp_path):

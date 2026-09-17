@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -783,6 +785,77 @@ def test_event_writer_derives_seq_from_stream_after_state_loss(tmp_path):
     (tmp_path / ".event-seq").unlink(missing_ok=True)
     _emit(tmp_path, "worker.finalization", {"exit_code": 0})
     assert [event["seq"] for event in _events(tmp_path)] == [1, 2, 3]
+
+
+def test_event_writer_uses_the_last_stream_seq_not_record_count(tmp_path):
+    _emit(tmp_path, "run.started")
+    event_path = tmp_path / "event.jsonl"
+    event = _events(tmp_path)[0]
+    event["seq"] = 9
+    event_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+    _emit(tmp_path, "diagnostic", {"code": "seq-probe"})
+
+    assert [event["seq"] for event in _events(tmp_path)] == [9, 10]
+
+
+def test_event_writer_rejects_a_truncated_tail_without_appending(tmp_path):
+    _emit(tmp_path, "run.started")
+    event_path = tmp_path / "event.jsonl"
+    event_path.write_bytes(event_path.read_bytes() + b'{"schema":"truncated"')
+
+    result = subprocess.run(
+        ["python3", str(EVENT_WRITER), "diagnostic", "--payload-stdin"],
+        input="{}",
+        check=False,
+        env=_environment(tmp_path),
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "invalid JSON" in result.stderr
+    assert event_path.read_bytes().endswith(b'{"schema":"truncated"')
+
+
+def test_event_writer_message_delta_hot_path_skips_full_history_scan(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location("canonical_event_writer_test", EVENT_WRITER)
+    assert spec is not None and spec.loader is not None
+    writer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(writer)
+    for key, value in _environment(tmp_path).items():
+        monkeypatch.setenv(key, value)
+
+    writer.emit("run.started", {}, None)
+
+    def fail_scan(_event_path):
+        raise AssertionError("ordinary event path scanned the full history")
+
+    monkeypatch.setattr(writer, "_scan_event_stream", fail_scan)
+    writer.emit("message.delta", {"content": "hot"}, None)
+
+    assert _events(tmp_path)[-1]["payload"]["content"] == "hot"
+
+
+def test_event_writer_lock_keeps_concurrent_sequences_unique(tmp_path):
+    _emit(tmp_path, "run.started")
+    environment = _environment(tmp_path)
+
+    def emit_diagnostic(index: int):
+        return subprocess.run(
+            ["python3", str(EVENT_WRITER), "diagnostic", "--payload-stdin"],
+            input=json.dumps({"index": index}),
+            check=False,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(emit_diagnostic, range(16)))
+
+    assert all(result.returncode == 0 for result in results)
+    assert [event["seq"] for event in _events(tmp_path)] == list(range(1, 18))
 
 
 def test_event_type_exists_finds_nonterminal_jsonl_record(tmp_path):

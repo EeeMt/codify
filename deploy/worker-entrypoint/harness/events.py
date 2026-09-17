@@ -63,6 +63,81 @@ _PREVIEW_SKIP_TYPES = {
 _TOOL_PREVIEW_MAX_CHARS = 500
 _TEXT_PREVIEW_MAX_CHARS = 2000
 _WHITESPACE = re.compile(r"\s+")
+_EVENT_READ_CHUNK_SIZE = 8192
+_LIFECYCLE_SCAN_TYPES = (
+    HARNESS_TERMINAL_TYPES
+    | TASK_TERMINALS
+    | {"worker.finalization"}
+)
+
+
+def _parse_event_record(raw_line: bytes) -> dict:
+    try:
+        parsed = json.loads(raw_line.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("canonical event stream contains invalid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError("canonical event stream record must be an object")
+    return parsed
+
+
+def _read_first_event(event_path: Path) -> dict | None:
+    with event_path.open("rb") as stream:
+        for raw_line in stream:
+            if raw_line.strip():
+                return _parse_event_record(raw_line)
+    return None
+
+
+def _read_last_event(event_path: Path) -> dict | None:
+    """Read only the final non-empty record without scanning the whole stream."""
+    with event_path.open("rb") as stream:
+        remaining = stream.seek(0, os.SEEK_END)
+        suffix_parts = []
+        while remaining:
+            size = min(_EVENT_READ_CHUNK_SIZE, remaining)
+            read_start = remaining - size
+            stream.seek(read_start)
+            chunk = stream.read(size)
+            newline = chunk.rfind(b"\n")
+            if newline >= 0:
+                raw_line = chunk[newline + 1:] + b"".join(reversed(suffix_parts))
+                if raw_line.strip():
+                    return _parse_event_record(raw_line)
+                suffix_parts = []
+                remaining = read_start + newline
+            else:
+                suffix_parts.append(chunk)
+                remaining = read_start
+        if suffix_parts:
+            raw_line = b"".join(reversed(suffix_parts))
+            if raw_line.strip():
+                return _parse_event_record(raw_line)
+    return None
+
+
+def _scan_event_stream(event_path: Path) -> tuple[dict | None, dict | None, bool]:
+    """Read the full stream only for lifecycle checks that need prior events."""
+    first_event = None
+    last_event = None
+    harness_terminal_seen = False
+    with event_path.open("rb") as stream:
+        for raw_line in stream:
+            if not raw_line.strip():
+                continue
+            parsed = _parse_event_record(raw_line)
+            first_event = first_event or parsed
+            last_event = parsed
+            if parsed.get("type") in HARNESS_TERMINAL_TYPES:
+                harness_terminal_seen = True
+    return first_event, last_event, harness_terminal_seen
+
+
+def _event_seq(event: dict) -> int:
+    seq = event.get("seq")
+    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1:
+        raise RuntimeError("canonical event stream has invalid final seq")
+    return seq
 
 
 def _required_env(name: str) -> str:
@@ -280,21 +355,25 @@ def emit(event_type: str, payload: dict, raw_ref: dict | None) -> dict:
         # state can therefore never make a recovered container regenerate a
         # divergent seq for the same record.
         first_event = None
-        last_type = None
-        last_seq = 0
+        last_event = None
         harness_terminal_seen = False
         if event_path.exists():
-            for line in event_path.read_text(encoding="utf-8", errors="strict").splitlines():
-                if not line.strip():
-                    continue
-                parsed = json.loads(line)
-                first_event = first_event or parsed
-                last_type = parsed.get("type")
-                last_seq += 1
-                if last_type in HARNESS_TERMINAL_TYPES:
-                    harness_terminal_seen = True
+            needs_history = (
+                event_type in _LIFECYCLE_SCAN_TYPES
+                or event_type.startswith("delivery.")
+            )
+            if needs_history:
+                first_event, last_event, harness_terminal_seen = _scan_event_stream(event_path)
+            else:
+                first_event = _read_first_event(event_path)
+                last_event = _read_last_event(event_path)
+            last_type = last_event.get("type") if last_event is not None else None
+            last_seq = _event_seq(last_event) if last_event is not None else 0
             if last_type in TASK_TERMINALS:
                 raise RuntimeError("cannot append an event after the Task terminal")
+        else:
+            last_type = None
+            last_seq = 0
         if last_seq == 0 and event_type != "run.started":
             raise RuntimeError(
                 f"run.started must be the first canonical event; got {event_type}"

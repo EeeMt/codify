@@ -37,6 +37,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from result_builder import v2_harness_block
@@ -105,6 +106,8 @@ _INTERACTIVE_EVENT_TYPES = frozenset(
 )
 _CANONICAL_CLOSED_TYPES = frozenset({"worker.finalization", "run.completed", "run.failed"})
 _HARNESS_TERMINAL_TYPES = frozenset({"harness.completed", "harness.failed"})
+_DELTA_BATCH_MAX_BYTES = 1024
+_DELTA_BATCH_MAX_AGE_SECONDS = 0.250
 
 # These are OpenCode server/catalog/UI events. They are deliberately explicit
 # no-ops: the sanitized raw SSE archive remains the source of truth, while
@@ -147,7 +150,7 @@ _STATE: dict = {
     "model_id": None,
     "session_id": None,
     "text_parts": [],
-    "messages": {},             # message_id -> part_id -> text state
+    "messages": {},             # (agent_id, message_id) -> part_id -> text state
     "tools": {},                # tool_id -> lifecycle state
     "assistant_message_ids": [],
     "user_message_ids": set(),
@@ -161,11 +164,11 @@ _STATE: dict = {
     # Open reasoning blocks keyed by canonical reasoning_id (plan §4.4). Only
     # blocks whose started was observed are ever completed/interrupted here;
     # closed blocks stay recorded so replays never emit a second lifecycle.
-    "reasoning_blocks": {},                  # reasoning_id -> {message_id, family, status}
+    "reasoning_blocks": {},                  # reasoning_id -> {message_id, family, status, agent}
     # The first valid family to surface for one assistant message owns every
     # reasoning block in that message. This preserves the native part ids on
     # the frozen 1.18.19 path and avoids cross-family double projection.
-    "reasoning_family_by_message": {},       # assistant message_id -> "part" | "durable"
+    "reasoning_family_by_message": {},       # (agent_id, message_id) -> "part" | "durable"
     "interactive_block": None,
     "settled": False,
     "settled_line": None,
@@ -177,13 +180,15 @@ _STATE: dict = {
     "root_session_id": None,
     "agents": {},               # child session_id -> {id, parent_id, role}
     "delegations": {},          # root tool_id -> child session_id
-    "child_message_ids": [],    # child assistant messages pending completion
+    "child_message_ids": [],    # {message_id, agent} refs pending completion
     "child_usage": {},          # child session id -> summed leaf usage (detail)
     # A child session's usage arrives with every message.updated of the same
     # message, so each message keeps its latest value and only the per-message
     # values are summed; adding every update would inflate the child's leaf
     # total and, through it, the attempt total (plan §5.6).
     "child_message_usage": {},  # child session id -> message id -> latest usage
+    "pending_delta": None,       # one contiguous canonical message.delta batch
+    "last_delta_identity": None,
 }
 _REAL_SESSION_ID: str = ""
 
@@ -210,6 +215,7 @@ ROOT_AGENT_KEY = "root"
 # One OpenCode session that the root delegates to is a child, never a second
 # Task: support_tier stays root + direct children only (no nested subagents).
 _CURRENT_AGENT: dict | None = None
+_USE_CURRENT_AGENT = object()
 
 
 def _current_agent_id() -> str | None:
@@ -406,13 +412,101 @@ def _is_rate_limit_reason(value: object) -> bool:
     return normalized in _RATE_LIMIT_REASONS
 
 
-def _emit(event_type: str, payload: dict, raw_line: int) -> None:
+def _agent_snapshot(agent: object = _USE_CURRENT_AGENT) -> dict | None:
+    current = _CURRENT_AGENT if agent is _USE_CURRENT_AGENT else agent
+    return dict(current) if isinstance(current, dict) else None
+
+
+def _same_delta_identity(left: dict | None, right: dict) -> bool:
+    return (
+        isinstance(left, dict)
+        and left.get("message_id") == right.get("message_id")
+        and left.get("agent") == right.get("agent")
+    )
+
+
+def _flush_pending_delta(*, preserve_identity: bool = False) -> None:
+    pending = _STATE.get("pending_delta")
+    if not isinstance(pending, dict):
+        if not preserve_identity:
+            _STATE["last_delta_identity"] = None
+        return
+    text = pending.get("text")
+    if isinstance(text, str) and text:
+        _emit(
+            "message.delta",
+            {"content": text, "role": "assistant"},
+            int(pending["last_raw_line"]),
+            agent=pending.get("agent"),
+        )
+    identity = {
+        "message_id": pending.get("message_id"),
+        "agent": pending.get("agent"),
+    }
+    _STATE["pending_delta"] = None
+    _STATE["last_delta_identity"] = identity if preserve_identity else None
+
+
+def _emit_message_delta(
+    content: str,
+    message_id: str,
+    raw_line: int,
+    *,
+    agent: object = _USE_CURRENT_AGENT,
+) -> None:
+    """Emit the first text fragment promptly and batch only its continuation."""
+    if not content:
+        return
+    agent_snapshot = _agent_snapshot(agent)
+    identity = {"message_id": message_id, "agent": agent_snapshot}
+    pending = _STATE.get("pending_delta")
+    if isinstance(pending, dict) and not _same_delta_identity(pending, identity):
+        _flush_pending_delta()
+        pending = None
+    if isinstance(pending, dict):
+        pending["text"] += content
+        pending["last_raw_line"] = raw_line
+        if (
+            len(pending["text"].encode("utf-8")) >= _DELTA_BATCH_MAX_BYTES
+            or time.monotonic() - pending["first_monotonic"] >= _DELTA_BATCH_MAX_AGE_SECONDS
+        ):
+            _flush_pending_delta(preserve_identity=True)
+        return
+    if _same_delta_identity(_STATE.get("last_delta_identity"), identity):
+        _STATE["pending_delta"] = {
+            "agent": agent_snapshot,
+            "message_id": message_id,
+            "text": content,
+            "first_raw_line": raw_line,
+            "last_raw_line": raw_line,
+            "first_monotonic": time.monotonic(),
+        }
+        return
+    _emit(
+        "message.delta",
+        {"content": content, "role": "assistant"},
+        raw_line,
+        agent=agent_snapshot,
+    )
+    _STATE["last_delta_identity"] = identity
+
+
+def _emit(
+    event_type: str,
+    payload: dict,
+    raw_line: int,
+    *,
+    agent: object = _USE_CURRENT_AGENT,
+) -> None:
+    if event_type != "message.delta":
+        _flush_pending_delta()
+    agent_snapshot = _agent_snapshot(agent)
     writer = os.environ["CODIFY_CANONICAL_EVENT_WRITER"]
     # Child attribution is applied here, once, so no per-event branch can
     # forget it and no adapter-private field can drift. Root events carry no
     # `agent` key at all (open-harness-v2-subagent-adaptation.md §5.3).
-    if _CURRENT_AGENT is not None and event_type in _AGENT_ATTRIBUTED_EVENT_TYPES:
-        payload = {**payload, "agent": dict(_CURRENT_AGENT)}
+    if agent_snapshot is not None and event_type in _AGENT_ATTRIBUTED_EVENT_TYPES:
+        payload = {**payload, "agent": agent_snapshot}
     try:
         subprocess.run(
             [
@@ -827,6 +921,7 @@ def _open_reasoning_block(
         "message_id": message_id,
         "family": family,
         "status": "open",
+        "agent": _agent_snapshot(),
     }
     _emit("reasoning_summary.started", {"reasoning_id": canonical_id}, raw_line)
 
@@ -847,6 +942,7 @@ def _close_reasoning_block(canonical_id: str, raw_line: int) -> None:
         "reasoning_summary.completed",
         {"reasoning_id": canonical_id, "client": "opencode"},
         raw_line,
+        agent=block.get("agent"),
     )
 
 
@@ -863,6 +959,7 @@ def _record_orphan_reasoning_end(canonical_id: str, message_id: str | None, fami
             "message_id": message_id,
             "family": family,
             "status": "closed",
+            "agent": _agent_snapshot(),
         }
     _emit(
         "diagnostic",
@@ -892,6 +989,7 @@ def _interrupt_open_reasoning(
             "reasoning_summary.interrupted",
             {"reasoning_id": canonical_id, "reason": reason},
             raw_line,
+            agent=block.get("agent"),
         )
         block["status"] = "closed"
 
@@ -930,7 +1028,7 @@ def _handle_durable_event(record_type: str, data: dict, raw_line: int) -> None:
         state = _part_state(message_id, part_id)
         if delta and not state["text"].endswith(delta):
             state["text"] += delta
-            _emit("message.delta", {"content": delta, "role": "assistant"}, raw_line)
+            _emit_message_delta(delta, message_id, raw_line)
         _refresh_text()
         return
 
@@ -959,14 +1057,16 @@ def _handle_durable_event(record_type: str, data: dict, raw_line: int) -> None:
             )
             return
         if message_id:
-            family = _STATE["reasoning_family_by_message"].get(message_id)
+            family = _STATE["reasoning_family_by_message"].get(_message_state_key(message_id))
             if family == "part":
                 # Frozen native part snapshots own this message. Durable is
                 # an optional compatibility family, so it is ignored rather
                 # than folded onto a non-unique part block.
                 return
-            _STATE["reasoning_family_by_message"].setdefault(message_id, "durable")
-        if _STATE["reasoning_family_by_message"].get(message_id) == "part":
+            _STATE["reasoning_family_by_message"].setdefault(
+                _message_state_key(message_id), "durable"
+            )
+        if _STATE["reasoning_family_by_message"].get(_message_state_key(message_id)) == "part":
             return
         _open_reasoning_block(reasoning_id, message_id, "durable", raw_line)
         return
@@ -982,10 +1082,12 @@ def _handle_durable_event(record_type: str, data: dict, raw_line: int) -> None:
             )
             return
         if message_id:
-            family = _STATE["reasoning_family_by_message"].get(message_id)
+            family = _STATE["reasoning_family_by_message"].get(_message_state_key(message_id))
             if family == "part":
                 return
-            _STATE["reasoning_family_by_message"].setdefault(message_id, "durable")
+            _STATE["reasoning_family_by_message"].setdefault(
+                _message_state_key(message_id), "durable"
+            )
         if reasoning_id in _STATE["reasoning_blocks"]:
             _close_reasoning_block(reasoning_id, raw_line)
             return
@@ -1197,13 +1299,18 @@ def _handle_child_durable_text(record_type: str, data: dict, raw_line: int) -> N
         delta = data.get("delta")
         if isinstance(delta, str) and delta and not state["text"].endswith(delta):
             state["text"] += delta
-            _emit("message.delta", {"content": delta, "role": "assistant"}, raw_line)
+            _emit_message_delta(
+                delta,
+                message_id,
+                raw_line,
+                agent=_agent_snapshot(),
+            )
         return
     if record_type == "session.next.text.ended":
         text = data.get("text")
         if isinstance(text, str):
             state["text"] = text
-        _emit_child_message_completed(message_id, raw_line)
+        _emit_child_message_completed(message_id, raw_line, agent=_agent_snapshot())
 
 
 def _delegation_child(state: dict) -> str | None:
@@ -1422,6 +1529,7 @@ def _finalize_terminal() -> None:
     """
     if _STATE["terminal"] is not None:
         return
+    _flush_pending_delta()
     terminal_line = int(_STATE["settled_line"] or _STATE["last_line"] or 1)
     if _STATE["aborted"] or _STATE["terminal_failure"] is not None:
         # Safety net for every failing terminal: reasoning blocks still open
@@ -1663,17 +1771,33 @@ def _handle_message_updated(properties: dict, raw_line: int) -> None:
     if not message_id and role == "assistant":
         message_id = "__assistant__"
     if message_id and role == "user":
-        _STATE["user_message_ids"].add(message_id)
-        _STATE["messages"].pop(message_id, None)
+        message_key = _message_state_key(message_id)
+        _STATE["user_message_ids"].add(message_key)
+        _STATE["messages"].pop(message_key, None)
     if role == "assistant" and _CURRENT_AGENT is not None:
         # A child assistant message completes as its own timeline row; it never
         # replaces the root's final message.
-        if isinstance(message_id, str) and message_id and message_id not in _STATE["child_message_ids"]:
-            _STATE["child_message_ids"].append(message_id)
-        if _message_finished(info) and _emit_child_message_completed(message_id, raw_line):
-            if message_id in _STATE["child_message_ids"]:
-                _STATE["child_message_ids"].remove(message_id)
-        _flush_pending_deltas(message_id)
+        agent = _agent_snapshot()
+        child_ref = {"message_id": message_id, "agent": agent}
+        if (
+            isinstance(message_id, str)
+            and message_id
+            and not any(
+                ref["message_id"] == message_id and ref["agent"] == agent
+                for ref in _STATE["child_message_ids"]
+            )
+        ):
+            _STATE["child_message_ids"].append(child_ref)
+        _flush_pending_deltas(message_id, agent=agent)
+        emitted = _message_finished(info) and _emit_child_message_completed(
+            message_id, raw_line, agent=agent
+        )
+        if emitted:
+            _STATE["child_message_ids"] = [
+                ref
+                for ref in _STATE["child_message_ids"]
+                if not (ref["message_id"] == message_id and ref["agent"] == agent)
+            ]
         _remember_session(properties)
         return
     if role == "assistant":
@@ -1705,12 +1829,23 @@ def _message_id(properties: dict, part: dict | None = None) -> str:
     return "__unattributed__"
 
 
+def _message_state_key(message_id: object, agent: object = _USE_CURRENT_AGENT) -> object:
+    agent_snapshot = _agent_snapshot(agent)
+    if agent_snapshot is None:
+        return message_id
+    return (agent_snapshot.get("id"), message_id)
+
+
+def _is_user_message(message_id: object) -> bool:
+    return _message_state_key(message_id) in _STATE["user_message_ids"]
+
+
 def _part_id(properties: dict, part: dict | None, message_id: str) -> str:
     part = part or {}
     explicit = properties.get("partID") or properties.get("partId") or part.get("id")
     if explicit:
         return explicit
-    existing = _STATE["messages"].get(message_id, {})
+    existing = _STATE["messages"].get(_message_state_key(message_id), {})
     if len(existing) == 1:
         return next(iter(existing))
     return "__default__"
@@ -1718,7 +1853,7 @@ def _part_id(properties: dict, part: dict | None, message_id: str) -> str:
 
 def _part_state(message_id: str, part_id: str) -> dict:
     messages = _STATE["messages"]
-    message = messages.setdefault(message_id, {})
+    message = messages.setdefault(_message_state_key(message_id), {})
     return message.setdefault(
         part_id,
         {"text": "", "pending_deltas": []},
@@ -1728,7 +1863,7 @@ def _part_state(message_id: str, part_id: str) -> dict:
 def _refresh_text() -> None:
     text_parts: list[str] = []
     for message_id in _STATE["assistant_message_ids"]:
-        for part in _STATE["messages"].get(message_id, {}).values():
+        for part in _STATE["messages"].get(_message_state_key(message_id, agent=None), {}).values():
             text = part.get("text")
             if isinstance(text, str):
                 text_parts.append(text)
@@ -1743,43 +1878,68 @@ def _message_finished(info: dict) -> bool:
     )
 
 
-def _child_message_text(message_id: object) -> str:
+def _child_message_text(message_id: object, *, agent: object = _USE_CURRENT_AGENT) -> str:
     if not isinstance(message_id, str) or not message_id:
         return ""
     return "".join(
         part.get("text")
-        for part in _STATE["messages"].get(message_id, {}).values()
+        for part in _STATE["messages"].get(_message_state_key(message_id, agent), {}).values()
         if isinstance(part.get("text"), str)
     )
 
 
-def _emit_child_message_completed(message_id: object, raw_line: int) -> bool:
+def _emit_child_message_completed(
+    message_id: object,
+    raw_line: int,
+    *,
+    agent: object = _USE_CURRENT_AGENT,
+) -> bool:
     """Emit one child message row; return whether it was actually emitted.
 
     A ``message.updated`` completion can arrive before the part snapshot that
     carries its text, so a message with no text yet stays pending instead of
     being dropped silently.
     """
-    text = _child_message_text(message_id)
+    text = _child_message_text(message_id, agent=agent)
     if not text:
         return False
-    _emit("message.completed", {"message_id": message_id, "text": text}, raw_line)
+    _emit(
+        "message.completed",
+        {"message_id": message_id, "text": text},
+        raw_line,
+        agent=agent,
+    )
     return True
 
 
 def _flush_child_messages(raw_line: int) -> None:
     """Close the pending child assistant messages when their session idles."""
-    for message_id in list(_STATE["child_message_ids"]):
-        _emit_child_message_completed(message_id, raw_line)
+    for ref in list(_STATE["child_message_ids"]):
+        _flush_pending_deltas(ref["message_id"], agent=ref["agent"])
+        _emit_child_message_completed(
+            ref["message_id"],
+            raw_line,
+            agent=ref["agent"],
+        )
     _STATE["child_message_ids"] = []
 
 
-def _flush_pending_deltas(message_id: str) -> None:
+def _flush_pending_deltas(message_id: str, *, agent: object = _USE_CURRENT_AGENT) -> None:
     """Emit deltas buffered until OpenCode identifies their message role."""
-    for part in _STATE["messages"].get(message_id, {}).values():
+    for part in _STATE["messages"].get(_message_state_key(message_id, agent), {}).values():
         pending = part.get("pending_deltas") or []
-        for delta, raw_line in pending:
-            _emit("message.delta", {"content": delta, "role": "assistant"}, raw_line)
+        for item in pending:
+            if len(item) == 2:
+                delta, raw_line = item
+                item_agent = agent
+            else:
+                delta, raw_line, item_agent = item
+            _emit_message_delta(
+                delta,
+                message_id,
+                raw_line,
+                agent=item_agent,
+            )
         part["pending_deltas"] = []
 
 
@@ -1809,7 +1969,7 @@ def _handle_reasoning_part(properties: dict, part: dict, raw_line: int) -> None:
         )
         return
     message_id = _message_id(properties, part)
-    if message_id in _STATE["user_message_ids"]:
+    if _is_user_message(message_id):
         return
     part_id = _part_id(properties, part, message_id)
     session_id = properties.get("sessionID") or properties.get("sessionId") or part.get("sessionID")
@@ -1821,12 +1981,14 @@ def _handle_reasoning_part(properties: dict, part: dict, raw_line: int) -> None:
             raw_line,
         )
         return
-    family = _STATE["reasoning_family_by_message"].get(message_id)
+    family = _STATE["reasoning_family_by_message"].get(_message_state_key(message_id))
     if family == "durable":
         # Durable appeared first for this message; keep its compatibility
         # lifecycle stable and suppress all native snapshots for it.
         return
-    _STATE["reasoning_family_by_message"].setdefault(message_id, "part")
+    _STATE["reasoning_family_by_message"].setdefault(
+        _message_state_key(message_id), "part"
+    )
     if not ended:
         _open_reasoning_block(reasoning_id, message_id, "part", raw_line)
         return
@@ -1847,7 +2009,7 @@ def _handle_message_part_updated(properties: dict, raw_line: int) -> None:
         text = part.get("text")
         if isinstance(text, str):
             message_id = _message_id(properties, part)
-            if message_id in _STATE["user_message_ids"]:
+            if _is_user_message(message_id):
                 return
             part_id = _part_id(properties, part, message_id)
             state = _part_state(message_id, part_id)
@@ -1907,7 +2069,7 @@ def _handle_message_part_delta(properties: dict, raw_line: int) -> None:
     delta = properties.get("delta")
     if isinstance(delta, str) and delta:
         message_id = _message_id(properties)
-        if message_id in _STATE["user_message_ids"]:
+        if _is_user_message(message_id):
             return
         part_id = _part_id(properties, None, message_id)
         state = _part_state(message_id, part_id)
@@ -1916,12 +2078,12 @@ def _handle_message_part_delta(properties: dict, raw_line: int) -> None:
             state["text"] += delta
         _refresh_text()
         if message_id in _STATE["assistant_message_ids"]:
-            _emit("message.delta", {"content": delta, "role": "assistant"}, raw_line)
+            _emit_message_delta(delta, message_id, raw_line)
         else:
             # The assistant message.updated event may trail its part stream.
             # Buffer the canonical delta until the role is known; this avoids
             # leaking the user prompt while preserving the event once identified.
-            state["pending_deltas"].append((delta, raw_line))
+            state["pending_deltas"].append((delta, raw_line, _agent_snapshot()))
 
 
 def _handle_session_idle(properties: dict, raw_line: int) -> None:
@@ -2098,7 +2260,7 @@ def translate(record: dict, raw_line: int) -> None:
     elif record_type == "message.removed":
         message_id = properties.get("messageID") or properties.get("messageId")
         if message_id:
-            _STATE["messages"].pop(message_id, None)
+            _STATE["messages"].pop(_message_state_key(message_id), None)
             if _STATE["message"].get("id") == message_id:
                 _STATE["message"] = {}
             _refresh_text()
@@ -2107,7 +2269,7 @@ def translate(record: dict, raw_line: int) -> None:
         message_id = properties.get("messageID") or properties.get("messageId")
         part_id = properties.get("partID") or properties.get("partId")
         if message_id and part_id:
-            _STATE["messages"].get(message_id, {}).pop(part_id, None)
+            _STATE["messages"].get(_message_state_key(message_id), {}).pop(part_id, None)
             _refresh_text()
         _emit("diagnostic", {"code": "message_part_removed"}, raw_line)
     elif record_type in {"todo.updated", "command.executed"}:
