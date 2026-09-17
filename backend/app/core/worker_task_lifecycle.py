@@ -1299,47 +1299,6 @@ async def monitor_container_run(
         and bool(getattr(task, "commit_sha", None))
     )
 
-    if (
-        task.status == TaskStatus.CANCELLED or cancellation_requested
-    ) and task.status != TaskStatus.COMPLETED and not timed_out:
-        if task.status != TaskStatus.CANCELLED:
-            task.status = TaskStatus.CANCELLED
-            task.completed_at = task.completed_at or utcnow()
-            task.error_message = "Cancelled by user"
-            await db.commit()
-            logger.info(
-                "[Task %s] Applied persisted cancellation intent during worker finalization",
-                task.id,
-            )
-        elif input_session_reconciled:
-            await db.commit()
-        if issue:
-            issue.workspace_last_used_at = utcnow()
-            issue.workspace_delete_attempted_at = None
-            issue.workspace_deleted_at = None
-            issue.workspace_delete_error = None
-        if raw_logs_finalized:
-            logger.info(f"[Task {task.id}] Task was cancelled during execution; removing container")
-            try:
-                worker.docker.remove_container(container, force=True)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "[Task %s] Failed to remove cancelled container%s: %s",
-                    task.id,
-                    resume_prefix,
-                    exc,
-                )
-            else:
-                task.container_id = None
-        else:
-            logger.error(
-                f"[Task {task.id}] Retaining cancelled task container because raw logs "
-                "were not finalized"
-            )
-        await db.commit()
-        await worker._send_cancelled_notifications(task)
-        return False
-
     if cancellation_requested:
         logger.info(
             "[Task %s] Cancellation intent arrived after the run had already completed; "
@@ -1389,6 +1348,47 @@ async def monitor_container_run(
             session_id=output_session_id,
         )
         await db.commit()
+
+    if (
+        task.status == TaskStatus.CANCELLED or cancellation_requested
+    ) and task.status != TaskStatus.COMPLETED and not timed_out:
+        if task.status != TaskStatus.CANCELLED:
+            task.status = TaskStatus.CANCELLED
+            task.completed_at = task.completed_at or utcnow()
+            task.error_message = "Cancelled by user"
+            await db.commit()
+            logger.info(
+                "[Task %s] Applied persisted cancellation intent during worker finalization",
+                task.id,
+            )
+        elif input_session_reconciled:
+            await db.commit()
+        if issue:
+            issue.workspace_last_used_at = utcnow()
+            issue.workspace_delete_attempted_at = None
+            issue.workspace_deleted_at = None
+            issue.workspace_delete_error = None
+        if raw_logs_finalized:
+            logger.info(f"[Task {task.id}] Task was cancelled during execution; removing container")
+            try:
+                worker.docker.remove_container(container, force=True)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "[Task %s] Failed to remove cancelled container%s: %s",
+                    task.id,
+                    resume_prefix,
+                    exc,
+                )
+            else:
+                task.container_id = None
+        else:
+            logger.error(
+                f"[Task {task.id}] Retaining cancelled task container because raw logs "
+                "were not finalized"
+            )
+        await db.commit()
+        await worker._send_cancelled_notifications(task)
+        return False
 
     if issue and freeform_delivered and issue.target_branch:
         # Freeform MR delivery happens only after a canonical commit_sha was

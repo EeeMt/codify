@@ -558,6 +558,45 @@ async def test_freeform_cancelled_does_not_trigger_mr_delivery():
     worker._send_cancelled_notifications.assert_awaited_once()
 
 
+async def test_cancelled_run_persists_output_session_for_followup():
+    """A cancelled run must leave its emitted session as the Issue lineage tail."""
+    worker, db, task, issue, container = _monitor_fixtures()
+    task.output_session_id = "session-cancelled"
+    task.projected_harness_key = "claude"
+    task.projected_session_namespace = "claude-test"
+    task.projected_lineage_generation = 0
+    task.projected_reset_task_id = None
+    task.lineage_projection_reason = "initial"
+    worker._parse_task_result = AsyncMock(side_effect=_parse_cb(TaskStatus.CANCELLED, None))
+
+    with (
+        patch(
+            "app.core.worker_task_lifecycle.record_projected_output_session",
+            new=AsyncMock(),
+        ) as record_projected,
+        patch(
+            "app.core.worker_task_lifecycle.record_task_output_session",
+            new=AsyncMock(),
+        ) as record_legacy,
+    ):
+        result = await _run_monitor(worker, db, task, issue, container)
+
+    assert result is False
+    record_projected.assert_awaited_once_with(
+        db,
+        task=task,
+        session_id="session-cancelled",
+    )
+    record_legacy.assert_awaited_once_with(
+        db,
+        issue=issue,
+        harness_key="claude",
+        session_namespace="claude-" + hashlib.sha256(b"claude||state-1").hexdigest()[:16],
+        session_id="session-cancelled",
+    )
+    worker._send_cancelled_notifications.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_execute_completed_keeps_existing_timing_and_notification():
     worker, db, task, issue, container = _monitor_fixtures(task_mode="execute", issue_mr_iid=7)
