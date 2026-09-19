@@ -23,7 +23,10 @@ This folder contains the artifacts needed to deploy the current Codify build int
 - `scripts/verify-kit-content.py`: content-inventory verifier; `package-bundle.sh` copies it in
   from `deploy/worker-kit/` when it builds the archive
 - `images/`: Docker image archives and checksum files
-- `kits/`: versioned worker-kit archives and checksums
+- `kits/`: versioned worker-kit archives and checksums. Only the release version's
+  archives are packaged (`WORKER_KIT_VERSION`, passed by `make offline-bundle-export`);
+  older archives stay in the build machine's `kits/` directory as rollback coordinates
+  and are left out of the bundle.
 
 An installed Kit directory is named `<version>-linux-<arch>-<12 hex digits of the manifest
 SHA-256>` under `/opt/codify/worker-kits/`. `install-worker-kit.sh` only accepts an archive whose

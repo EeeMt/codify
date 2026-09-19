@@ -2,9 +2,16 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Optional Docker context for this export (build, platform gate, create/cp).
+# The offline bundle ships two platforms, and one daemon rarely serves both,
+# so the Makefile passes a per-platform context when one is configured.
+if [[ -n "${WORKER_KIT_DOCKER_CONTEXT:-}" ]]; then
+    export DOCKER_CONTEXT="${WORKER_KIT_DOCKER_CONTEXT}"
+fi
 VERSION="${WORKER_KIT_VERSION:-0.6.17}"   # keep in step with ARG WORKER_KIT_VERSION in deploy/Dockerfile.worker-kit
 PLATFORM="${WORKER_KIT_PLATFORM:-linux/amd64}"
 ARCH="${PLATFORM#linux/}"
+ARCH="${ARCH%%/*}"   # linux/arm64/v8 -> arm64 (payload directory + kit name)
 SELECTION="${WORKER_KIT_CLI_SELECTION:-pi,opencode}"
 if [[ "${SELECTION}" == "none" ]]; then
     SELECTION=""
@@ -12,8 +19,10 @@ fi
 OUTPUT_DIR="${WORKER_KIT_OUTPUT_DIR:-${PROJECT_ROOT}/deploy/offline-bundle/kits}"
 cid=""
 
-# Per-key staged payload layout: <source path under deploy/worker-cli/> ->
-# <relative executable path inside the Kit harness/<key>/ directory>.
+# Harness payload sets are per target architecture so the x86-64 and aarch64
+# builds never borrow each other's binaries: <source path under
+# deploy/worker-cli/${ARCH}/> -> <relative executable path inside the Kit
+# harness/<key>/ directory>.
 cli_source_for() {
     case "$1" in
         pi) echo "pi" ;;
@@ -106,8 +115,10 @@ EOF
 # Validate the selection set and stage only the selected payloads into the
 # build context (deploy/worker-cli/kit-staging). Unselected payloads never
 # enter the Kit, so manifest absent entries can never conflict with shipped
-# files. A selected key whose payload is missing is left absent: the manifest
-# records it as missing_payload (degraded Kit) instead of failing the build.
+# files. Payloads are read from deploy/worker-cli/${ARCH}/, so the amd64 and
+# arm64 kits cannot borrow each other's binaries. A selected key whose payload
+# is missing is left absent: the manifest records it as missing_payload
+# (degraded Kit) instead of failing the build.
 stage_selected_payloads() {
     local keys="" key src rel staged
     # Always create the build-context staging directory: the Dockerfile COPYs
@@ -117,6 +128,22 @@ stage_selected_payloads() {
     # placeholder keeps the COPY source present for 0-payload selections.
     : > "${PROJECT_ROOT}/deploy/worker-cli/kit-staging/.keep"
     [[ -n "${SELECTION}" ]] || return 0
+    # A missing architecture directory means this platform was never staged:
+    # that is a build-configuration error rather than a degraded Kit, so fail
+    # closed instead of emitting a Kit whose every selected harness is absent.
+    if [ ! -d "${PROJECT_ROOT}/deploy/worker-cli/${ARCH}" ]; then
+        cat >&2 <<EOF
+
+No Harness CLI payloads for platform "${PLATFORM}":
+deploy/worker-cli/${ARCH} does not exist.
+
+Stage the ${ARCH} payloads there (see docs/dev/worker-kits.md, "Supplying
+Harness CLIs"), or build a payload-free Kit with WORKER_KIT_CLI_SELECTION=none.
+
+Aborting; no kit was produced for "${PLATFORM}".
+EOF
+        exit 2
+    fi
     keys="$(printf '%s' "${SELECTION}" | tr ',+' '  ')"
     for key in ${keys}; do
         case "${key}" in
@@ -126,7 +153,7 @@ stage_selected_payloads() {
                 exit 2
                 ;;
         esac
-        src="$(cli_source_for "${key}")"
+        src="${ARCH}/$(cli_source_for "${key}")"
         rel="$(cli_rel_for "${key}")"
         staged="${PROJECT_ROOT}/deploy/worker-cli/kit-staging/${key}"
         if [ ! -e "${PROJECT_ROOT}/deploy/worker-cli/${src}" ]; then

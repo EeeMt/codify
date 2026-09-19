@@ -8,9 +8,27 @@ OUTPUT_ARCHIVE="${DEPLOY_DIR}/codify-offline-bundle.tar.gz"
 TMP_ARCHIVE="${DEPLOY_DIR}/.codify-offline-bundle.tar.gz.tmp"
 STAGING_DIR=""
 
+# Kit trees extract with read-only directories (0555) and files (0444). A
+# non-root cleanup cannot unlink entries from a read-only directory, so grant
+# write permission first; this only touches a temporary copy.
+remove_tree() {
+    chmod -R u+w "$1" 2>/dev/null || true
+    rm -rf "$1"
+}
+
+# Keep archives that must not ship (other releases, legacy names) out of the
+# staged bundle while leaving them in kits/ on the build machine.
+drop_from_staging() {
+    local archive
+    for archive in "$@"; do
+        rm -f "${STAGING_DIR}/offline-bundle/kits/${archive}" \
+            "${STAGING_DIR}/offline-bundle/kits/${archive}.sha256"
+    done
+}
+
 cleanup() {
     if [[ -n "${STAGING_DIR}" ]]; then
-        rm -rf "${STAGING_DIR}"
+        remove_tree "${STAGING_DIR}"
     fi
 }
 trap cleanup EXIT
@@ -24,15 +42,39 @@ if [[ ! -x "${DEPLOY_DIR}/worker-kit/verify-runtime.sh" || ! -f "${DEPLOY_DIR}/w
   exit 1
 fi
 KIT_CHECK_DIR="$(mktemp -d "${DEPLOY_DIR}/.worker-kit-package-check.XXXXXX")"
-trap 'rm -rf "${KIT_CHECK_DIR}"; cleanup' EXIT
+trap 'remove_tree "${KIT_CHECK_DIR}"; cleanup' EXIT
+
+# Nix closures contain paths that differ only by case (ncurses terminfo A/a,
+# P/p). A case-insensitive host filesystem (the default APFS/HFS+ layout)
+# cannot represent them, so the extracted-tree cross-check below would report
+# a false mismatch. The case-preserving archive verification stays
+# authoritative here, and install-worker-kit.sh repeats the extracted-tree
+# check on the target host, where the Kit is actually installed.
+FS_CASE_INSENSITIVE=0
+FS_PROBE_DIR="$(mktemp -d "${DEPLOY_DIR}/.worker-kit-fs-probe.XXXXXX")"
+if : > "${FS_PROBE_DIR}/CaseProbe" && [[ -e "${FS_PROBE_DIR}/caseprobe" ]]; then
+    FS_CASE_INSENSITIVE=1
+fi
+remove_tree "${FS_PROBE_DIR}"
 if ! compgen -G "${ROOT_DIR}/kits/codify-worker-kit-*.tar.gz" >/dev/null; then
     echo "Worker kit archive not found. Run deploy/worker-kit/export.sh first." >&2
     exit 1
 fi
 verified_kit_count=0
 legacy_kit_archives=()
+skipped_kit_archives=()
+# Only the release version's Kit archives ship in the bundle. Older archives
+# stay in kits/ as rollback coordinates and must not double the bundle size
+# (they share their payloads with the current release). WORKER_KIT_VERSION
+# selects the release; the Makefile passes the same value it exports with.
+KIT_VERSION="${WORKER_KIT_VERSION:-}"
 for kit_archive in "${ROOT_DIR}"/kits/codify-worker-kit-*.tar.gz; do
     kit_name="$(basename "${kit_archive}" .tar.gz)"
+    if [[ -n "${KIT_VERSION}" && "${kit_name}" != "codify-worker-kit-${KIT_VERSION}-"* ]]; then
+        echo "Skipping Worker Kit archive for another release: ${kit_archive}" >&2
+        skipped_kit_archives+=("$(basename "${kit_archive}")")
+        continue
+    fi
     # Archives produced before the immutable Kit release contract do not carry
     # a manifest digest in their name and cannot be safely mixed into a new
     # offline bundle. Keep them out of the staged bundle while allowing a
@@ -77,15 +119,19 @@ for kit_archive in "${ROOT_DIR}"/kits/codify-worker-kit-*.tar.gz; do
         echo "Worker Kit archive content inventory does not match its bytes: ${kit_archive}" >&2
         exit 1
     }
-    embedded_content_digest="$(python3 "${DEPLOY_DIR}/worker-kit/verify-kit-content.py" \
-        --root "${kit_root}")" || {
-        echo "Worker Kit extracted content inventory does not match its bytes: ${kit_archive}" >&2
-        exit 1
-    }
-    [[ "${archive_content_digest}" == "${embedded_content_digest}" ]] || {
-        echo "Worker Kit archive embedded verifier disagrees with release verifier: ${kit_archive}" >&2
-        exit 1
-    }
+    if [[ "${FS_CASE_INSENSITIVE}" == 1 ]]; then
+        echo "Skipping extracted-tree cross-check on a case-insensitive filesystem: ${kit_archive}" >&2
+    else
+        embedded_content_digest="$(python3 "${DEPLOY_DIR}/worker-kit/verify-kit-content.py" \
+            --root "${kit_root}")" || {
+            echo "Worker Kit extracted content inventory does not match its bytes: ${kit_archive}" >&2
+            exit 1
+        }
+        [[ "${archive_content_digest}" == "${embedded_content_digest}" ]] || {
+            echo "Worker Kit archive embedded verifier disagrees with release verifier: ${kit_archive}" >&2
+            exit 1
+        }
+    fi
     verified_kit_count=$((verified_kit_count + 1))
 done
 if [[ "${verified_kit_count}" -eq 0 ]]; then
@@ -100,10 +146,10 @@ cp -R "${ROOT_DIR}" "${STAGING_DIR}/offline-bundle"
 cp "${DEPLOY_DIR}/worker-kit/verify-kit-content.py" \
     "${STAGING_DIR}/offline-bundle/scripts/verify-kit-content.py"
 if [[ "${#legacy_kit_archives[@]}" -gt 0 ]]; then
-    for legacy_archive in "${legacy_kit_archives[@]}"; do
-        rm -f "${STAGING_DIR}/offline-bundle/kits/${legacy_archive}" \
-            "${STAGING_DIR}/offline-bundle/kits/${legacy_archive}.sha256"
-    done
+    drop_from_staging "${legacy_kit_archives[@]}"
+fi
+if [[ "${#skipped_kit_archives[@]}" -gt 0 ]]; then
+    drop_from_staging "${skipped_kit_archives[@]}"
 fi
 
 echo "Packaging offline bundle to ${OUTPUT_ARCHIVE}..."

@@ -95,8 +95,12 @@ def test_make_offline_bundle_export_target_builds_exports_and_packages():
     assert "Dockerfile.worker-java21-maven" not in result.stdout
     assert "codify-worker/java21-maven:2026.07" not in result.stdout
     assert "deploy/worker-kit/export.sh" in result.stdout
-    assert "deploy/offline-bundle && ./scripts/export-images.sh" in result.stdout
-    assert "deploy/offline-bundle && ./scripts/package-bundle.sh" in result.stdout
+    assert "scripts/export-images.sh" in result.stdout
+    # The bundle ships only the release version's Kit archives, so the
+    # packaging step must be told which release it is packaging.
+    package_steps = [line for line in result.stdout.splitlines() if "scripts/package-bundle.sh" in line]
+    assert len(package_steps) == 1, result.stdout
+    assert "WORKER_KIT_VERSION=" in package_steps[0], package_steps[0]
 
 
 def test_offline_artifacts_are_excluded_from_docker_build_contexts():
@@ -195,6 +199,65 @@ def test_worker_kit_export_none_selection_stages_placeholder_and_passes_sentinel
             names = archive.getnames()
         assert any(name.endswith("/.keep") for name in names)
         assert any(name.endswith("/manifest.json") for name in names)
+
+
+def test_worker_kit_export_aborts_when_target_arch_payload_set_is_absent():
+    repo_root = Path(__file__).resolve().parents[3]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        worker_kit_dir = root / "deploy" / "worker-kit"
+        worker_kit_dir.mkdir(parents=True)
+        shutil.copy2(repo_root / "deploy/worker-kit/export.sh", worker_kit_dir / "export.sh")
+        shutil.copy2(
+            repo_root / "deploy/worker-kit/export-archive.py",
+            worker_kit_dir / "export-archive.py",
+        )
+        (root / "deploy" / "Dockerfile.worker-kit").write_text("FROM scratch\n", encoding="utf-8")
+        # Payloads exist for amd64 only; the export below targets arm64.
+        (root / "deploy" / "worker-cli" / "amd64").mkdir(parents=True)
+
+        fake_bin = root / "bin"
+        fake_bin.mkdir()
+        docker_args_log = root / "docker-args.log"
+        docker = fake_bin / "docker"
+        docker.write_text(
+            "#!/bin/sh\n"
+            "set -eu\n"
+            "printf '%s\\n' \"$@\" >> \"$FAKE_DOCKER_ARGS_LOG\"\n"
+            "case \"${1:-}\" in\n"
+            "  buildx) exit 0 ;;\n"
+            "  *) exit 0 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        docker.chmod(0o755)
+
+        output_dir = root / "out"
+        env = {
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_DOCKER_ARGS_LOG": str(docker_args_log),
+            "WORKER_KIT_VERSION": "test-arch",
+            "WORKER_KIT_PLATFORM": "linux/arm64",
+            "WORKER_KIT_CLI_SELECTION": "pi,opencode",
+            "WORKER_KIT_OUTPUT_DIR": str(output_dir),
+        }
+
+        result = subprocess.run(
+            [str(worker_kit_dir / "export.sh")],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 2
+        assert "deploy/worker-cli/arm64" in result.stderr
+        assert not list(output_dir.glob("codify-worker-kit-*.tar.gz"))
+        docker_args = docker_args_log.read_text(encoding="utf-8").splitlines()
+        assert "build" not in docker_args
 
 
 def test_export_images_script_creates_missing_output_directory():

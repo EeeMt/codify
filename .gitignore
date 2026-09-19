@@ -73,10 +73,13 @@ temporary/*.png
 /.multica/
 
 # Offline bundle archives (large binaries)
-deploy/codify-offline-bundle*.tar.gz
+deploy/codify-offline-bundle*.tar.gz*
 deploy/offline-bundle/images/*.tar.xz
 
 # Harness CLI binaries staged for the worker image build (large, not in git).
+# Each target architecture keeps its own payload set under
+# deploy/worker-cli/<arch>/ so the amd64 and arm64 kits cannot borrow each
+# other's binaries.
 # The Pi extension policy payload is a few KB and MUST be tracked: it carries
 # the pin/lockfile, MIT license, audit record, ceiling config, agent
 # definitions and the vendor patch (open-harness-v2-subagent-adaptation.md §6.4).

@@ -86,6 +86,35 @@ make worker-kit-export WORKER_KIT_VERSION=0.6.17 WORKER_KIT_PLATFORM=linux/amd64
 
 This creates an archive and checksum under `deploy/offline-bundle/kits/`. Kit versions are
 immutable. The manifest records the actual nixpkgs version used by the build.
+
+Harness CLI payloads are read from `deploy/worker-cli/<arch>/`, where `<arch>` is the target
+architecture of `WORKER_KIT_PLATFORM` (`amd64` or `arm64`). The two payload sets are separate, so
+an x86-64 build can never embed an aarch64 binary (or the reverse). Payloads are large and stay
+out of git. A selected Harness whose payload file is missing degrades to `missing_payload` in the
+manifest, but a missing `deploy/worker-cli/<arch>/` directory aborts the export: it means the
+platform was never staged, not that one payload is absent. Use
+`WORKER_KIT_CLI_SELECTION=none` for a payload-free Kit.
+
+`make offline-bundle-export` builds the application images, exports both platform kits, saves the
+image archive, and packages `deploy/codify-offline-bundle.tar.gz`. One daemon rarely builds both
+platforms, so each Kit export can name its own Docker context, and the selection is passed
+through to both:
+
+```bash
+make offline-bundle-export WORKER_KIT_VERSION=0.6.20 \
+  WORKER_KIT_CLI_SELECTION=pi,opencode,claude,codex \
+  WORKER_KIT_ARM64_CONTEXT=colima
+```
+
+`WORKER_KIT_DOCKER_CONTEXT` (single-platform `make worker-kit-export`) and
+`WORKER_KIT_AMD64_CONTEXT` / `WORKER_KIT_ARM64_CONTEXT` (bundle target) select the Docker context
+used by the platform gate, the image build, and `docker create/cp`; empty means the active
+context. Existing Kit archives are never overwritten, so re-running the target fails after the
+kits exist for that version — package the bundle instead of rebuilding an identical identity.
+Packaging ships only the release version's Kit archives (`WORKER_KIT_VERSION`): the previous
+release stays in `deploy/offline-bundle/kits/` as a rollback coordinate but is left out of the
+bundle, because consecutive Kit versions share their payloads and would otherwise double it.
+
 Version `0.3.0` adds the Issue-level shallow/partial repository preparation module and its
 `[repo]` telemetry. Version `0.3.1` keeps the mounted kit on `PATH` inside the unprivileged
 login shell, including for project runtime images that do not provide Git themselves. Version
@@ -168,6 +197,22 @@ installed directory in place; the directory is root-owned and not writable by ot
 Harness CLIs marked `present` in the kit's `harness_inventory` are delivered by the Worker Kit
 itself; the Adapter uses the path frozen in the kit manifest, and no profile-level CLI wiring is
 needed. The runtime image never provides a fallback.
+
+The export stages each selected Harness CLI from the payload set of the target architecture:
+
+| Harness | Payload source | Path inside the Kit |
+|---|---|---|
+| `pi` | `deploy/worker-cli/<arch>/pi/` (directory) | `harness/pi/bin/pi` |
+| `opencode` | `deploy/worker-cli/<arch>/opencode/opencode` | `harness/opencode/opencode` |
+| `claude` | `deploy/worker-cli/<arch>/claude` | `harness/claude/claude` |
+| `codex` | `deploy/worker-cli/<arch>/codex` | `harness/codex/bin/codex` |
+
+`<arch>` is `amd64` or `arm64`, taken from `WORKER_KIT_PLATFORM`. `pi` is a directory payload: its
+sidecar files (`docs/`, `package.json`, native modules) ship next to the executable, so a payload
+directory must be staged whole and must belong to the target architecture. The build executes
+`--version` on every selected payload and fails when the observed version contradicts
+`WORKER_KIT_<KEY>_CLI_VERSION` (or the Dockerfile default), so a mismatched or non-executable
+payload is a build failure, never a shipped Kit.
 
 For a one-Harness break-glass override, an administrator can add an explicit read-only host
 mount and declare it in `harness_runtimes` with `source: "host_mount"`. For example:

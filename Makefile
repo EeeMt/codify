@@ -12,6 +12,13 @@ export COMPOSE_DOCKER_CLI_BUILD := 1
 WORKER_KIT_VERSION ?= 0.6.17
 WORKER_KIT_PLATFORM ?= linux/amd64
 WORKER_KIT_CLI_SELECTION ?= pi,opencode
+# Optional Docker context per Kit platform. The offline bundle ships both
+# architectures, and one daemon rarely builds both, so each export can name
+# its own context (e.g. WORKER_KIT_ARM64_CONTEXT=colima next to an amd64
+# remote daemon). Empty means the active context.
+WORKER_KIT_DOCKER_CONTEXT ?=
+WORKER_KIT_AMD64_CONTEXT ?=
+WORKER_KIT_ARM64_CONTEXT ?=
 RUNTIME_IMAGE ?= codify-worker/java21-maven:2026.07
 
 # ============================================
@@ -26,18 +33,18 @@ build-app-images: ## Build Codify application images (backend and nginx)
 build: build-app-images ## Build application images (backend and nginx)
 
 .PHONY: offline-bundle-export
-offline-bundle-export: build-app-images ## Build app images, export kits/images, and package deploy/offline-bundle
-	WORKER_KIT_VERSION=$(WORKER_KIT_VERSION) WORKER_KIT_PLATFORM=linux/amd64 $(PROJECT_ROOT)/deploy/worker-kit/export.sh
-	WORKER_KIT_VERSION=$(WORKER_KIT_VERSION) WORKER_KIT_PLATFORM=linux/arm64 $(PROJECT_ROOT)/deploy/worker-kit/export.sh
+offline-bundle-export: build-app-images ## Build app images, export both kits and images, then package deploy/offline-bundle (WORKER_KIT_CLI_SELECTION, WORKER_KIT_<ARCH>_CONTEXT)
+	WORKER_KIT_VERSION=$(WORKER_KIT_VERSION) WORKER_KIT_PLATFORM=linux/amd64 WORKER_KIT_CLI_SELECTION=$(WORKER_KIT_CLI_SELECTION) WORKER_KIT_DOCKER_CONTEXT=$(WORKER_KIT_AMD64_CONTEXT) $(PROJECT_ROOT)/deploy/worker-kit/export.sh
+	WORKER_KIT_VERSION=$(WORKER_KIT_VERSION) WORKER_KIT_PLATFORM=linux/arm64 WORKER_KIT_CLI_SELECTION=$(WORKER_KIT_CLI_SELECTION) WORKER_KIT_DOCKER_CONTEXT=$(WORKER_KIT_ARM64_CONTEXT) $(PROJECT_ROOT)/deploy/worker-kit/export.sh
 	cd $(PROJECT_ROOT)/deploy/offline-bundle && ./scripts/export-images.sh
-	cd $(PROJECT_ROOT)/deploy/offline-bundle && ./scripts/package-bundle.sh
+	cd $(PROJECT_ROOT)/deploy/offline-bundle && WORKER_KIT_VERSION=$(WORKER_KIT_VERSION) ./scripts/package-bundle.sh
 
 .PHONY: export
 export: offline-bundle-export ## Alias for offline-bundle-export: app images, kits, offline bundle
 
 .PHONY: worker-kit-export
 worker-kit-export: ## Build and export the content-addressed worker kit; set WORKER_KIT_CLI_SELECTION (default pi,opencode) and optional WORKER_KIT_<KEY>_CLI_VERSION per harness
-	WORKER_KIT_VERSION=$(WORKER_KIT_VERSION) WORKER_KIT_PLATFORM=$(WORKER_KIT_PLATFORM) WORKER_KIT_CLI_SELECTION=$(WORKER_KIT_CLI_SELECTION) WORKER_KIT_OUTPUT_DIR=$(WORKER_KIT_OUTPUT_DIR) WORKER_KIT_PI_CLI_VERSION=$(WORKER_KIT_PI_CLI_VERSION) WORKER_KIT_OPENCODE_CLI_VERSION=$(WORKER_KIT_OPENCODE_CLI_VERSION) WORKER_KIT_CLAUDE_CLI_VERSION=$(WORKER_KIT_CLAUDE_CLI_VERSION) WORKER_KIT_CODEX_CLI_VERSION=$(WORKER_KIT_CODEX_CLI_VERSION) $(PROJECT_ROOT)/deploy/worker-kit/export.sh
+	WORKER_KIT_VERSION=$(WORKER_KIT_VERSION) WORKER_KIT_PLATFORM=$(WORKER_KIT_PLATFORM) WORKER_KIT_CLI_SELECTION=$(WORKER_KIT_CLI_SELECTION) WORKER_KIT_OUTPUT_DIR=$(WORKER_KIT_OUTPUT_DIR) WORKER_KIT_DOCKER_CONTEXT=$(WORKER_KIT_DOCKER_CONTEXT) WORKER_KIT_PI_CLI_VERSION=$(WORKER_KIT_PI_CLI_VERSION) WORKER_KIT_OPENCODE_CLI_VERSION=$(WORKER_KIT_OPENCODE_CLI_VERSION) WORKER_KIT_CLAUDE_CLI_VERSION=$(WORKER_KIT_CLAUDE_CLI_VERSION) WORKER_KIT_CODEX_CLI_VERSION=$(WORKER_KIT_CODEX_CLI_VERSION) $(PROJECT_ROOT)/deploy/worker-kit/export.sh
 
 .PHONY: worker-kit-verify
 worker-kit-verify: ## Verify one Harness; add RUNTIME_MANIFEST and VERIFY_ALL_HARNESSES=1 for V2 release verification
