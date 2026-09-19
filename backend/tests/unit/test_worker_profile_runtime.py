@@ -420,6 +420,9 @@ async def test_create_execute_container_uses_snapshot_runtime(tmp_path):
         "CODIFY_CLI_SOURCE"
     ] == "worker_kit"
     assert worker.docker.create_container.call_args.kwargs["environment"][
+        "CODIFY_CLI_VERSION"
+    ] == "1.0.0"
+    assert worker.docker.create_container.call_args.kwargs["environment"][
         "CODIFY_CLI_BINARY_DIGEST"
     ] == "f" * 64
     assert db.commit.await_count == 2

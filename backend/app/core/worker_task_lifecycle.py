@@ -373,11 +373,6 @@ async def create_execute_container(
         mr_iid = issue.merge_request_iid
         mr_web_url = issue.merge_request_url
         if issue.target_branch:
-            try:
-                worker.gitlab.ensure_project_label(task.project_id, "Codify", "#6699cc")
-            except Exception as e:
-                logger.warning(f"[Task {task_id}] Failed to ensure Codify label: {e}")
-
             mr_iid, mr_web_url = worker._create_mr_if_needed(
                 task,
                 issue,
@@ -700,6 +695,7 @@ async def create_execute_container(
         # Set the frozen V2 binding after profile/runtime environment merges so
         # editable custom variables cannot override the selected CLI identity.
         environment["CODIFY_CLI_SOURCE"] = snapshot_cli_identity["source"]
+        environment["CODIFY_CLI_VERSION"] = snapshot_cli_identity["version"]
         environment["CODIFY_CLI_BINARY_DIGEST"] = snapshot_cli_identity["binary_digest"]
     volumes = worker._build_container_volumes(
         settings,
@@ -1394,10 +1390,6 @@ async def monitor_container_run(
         # Freeform MR delivery happens only after a canonical commit_sha was
         # persisted: create/reuse the MR now and persist the real Issue MR
         # association before draft removal / description updates run below.
-        try:
-            worker.gitlab.ensure_project_label(task.project_id, "Codify", "#6699cc")
-        except Exception as e:
-            logger.warning(f"[Task {task.id}] Failed to ensure Codify label: {e}")
         try:
             mr_iid, mr_web_url = worker._create_mr_if_needed(
                 task,

@@ -1450,6 +1450,10 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
         "pi": "/opt/codify-kit/harness/pi/bin/pi",
         "opencode": "/opt/codify-kit/harness/opencode/bin/opencode",
     }
+    assert {
+        key: call.kwargs["environment"]["CODIFY_CLI_VERSION"]
+        for key, call in calls_by_harness.items()
+    } == {"claude": "1.0", "pi": "0.1", "opencode": "1.2"}
     expected_manifest = "/tmp/codify-runtime/orchestration/manifest.json"
     assert all(
         call.kwargs["environment"]["CODIFY_RUNTIME_VERIFICATION_MANIFEST"] == expected_manifest

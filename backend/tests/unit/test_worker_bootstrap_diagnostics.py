@@ -16,6 +16,9 @@ BOOTSTRAP_SCRIPT = (
     / "worker-entrypoint"
     / "bootstrap.sh"
 )
+RUNTIME_SCRIPT = BOOTSTRAP_SCRIPT.with_name("runtime.sh")
+ENTRYPOINT_SCRIPT = BOOTSTRAP_SCRIPT.parents[1] / "entrypoint.worker.sh"
+MAIN_SCRIPT = BOOTSTRAP_SCRIPT.with_name("main.sh")
 
 
 def _summary_function() -> str:
@@ -30,6 +33,53 @@ def _console_tee_drain_function() -> str:
     match = re.search(r"(?ms)^codify_drain_console_tee\(\) \{\n.*?^\}\n", source)
     assert match is not None
     return match.group(0)
+
+
+def _startup_function(name: str) -> str:
+    source = RUNTIME_SCRIPT.read_text(encoding="utf-8")
+    match = re.search(rf"(?ms)^{re.escape(name)}\(\) \{{\n.*?^\}}\n", source)
+    assert match is not None
+    return match.group(0)
+
+
+def test_startup_timing_log_has_stable_phase_fields():
+    script = "\n".join(
+        (
+            _startup_function("codify_startup_now_ms"),
+            _startup_function("codify_startup_log"),
+            'CODIFY_STARTUP_STARTED_MS="$(codify_startup_now_ms)"',
+            'started="$(codify_startup_now_ms)"',
+            'codify_startup_log "test_phase" "${started}" "skipped"',
+        )
+    )
+    result = subprocess.run(
+        ["bash", "-c", script],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert re.search(
+        r"\[startup\] phase=test_phase duration_ms=\d+ elapsed_ms=\d+ status=skipped",
+        result.stdout,
+    )
+
+
+def test_entrypoint_preserves_millisecond_startup_origin():
+    content = ENTRYPOINT_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'date +%s%3N' in content
+    assert 'startup_started_ms="$(date +%s)000"' in content
+    assert 'export CODIFY_STARTUP_STARTED_MS="${startup_started_ms}"' in content
+    assert 'export CODIFY_STARTUP_STARTED_MS="$(date +%s)000"' not in content
+
+
+def test_startup_path_does_not_wait_for_mr_status_update():
+    content = MAIN_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'codify_startup_log "harness_ready"' in content
+    assert "update_mr_description" not in content
 
 
 @pytest.mark.parametrize(

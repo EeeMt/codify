@@ -9,17 +9,6 @@ configure_codegraph() {
     codify_run_shell 'cd /workspace && export PATH="${CODIFY_RUNTIME_PATH}" && codegraph install --target=claude --location=global --yes'
 }
 
-disable_codegraph() {
-    if ! command -v codegraph >/dev/null 2>&1; then
-        echo "Warning: codegraph CLI is unavailable; skipping Claude config cleanup"
-        return 0
-    fi
-
-    if ! codify_run_shell 'cd /workspace && export PATH="${CODIFY_RUNTIME_PATH}" && codegraph uninstall --target=claude --location=global --yes'; then
-        echo "Warning: could not remove CodeGraph from Claude configuration"
-    fi
-}
-
 run_codegraph_index() {
     local action="$1"
     local action_label="$2"
@@ -64,19 +53,21 @@ run_codegraph_index() {
 }
 
 prepare_codegraph() {
+    CODEGRAPH_STARTUP_STATUS="skipped"
+
     if [ "${CODIFY_CODEGRAPH_ENABLED:-false}" != "true" ]; then
-        echo "CodeGraph disabled for this worker profile"
-        disable_codegraph
+        echo "CodeGraph disabled for this worker profile; skipping"
         return 0
     fi
 
+    # Pi/Codex/OpenCode never consume Claude's CodeGraph configuration. Keep
+    # the shared Claude workspace untouched and avoid starting CodeGraph at all.
     if [ "${CODIFY_HARNESS_KEY:-claude}" != "claude" ]; then
-        echo "Warning: CodeGraph is only supported on the claude harness " \
-            "(profile harness=${CODIFY_HARNESS_KEY}); continuing without CodeGraph"
-        disable_codegraph
+        echo "CodeGraph is not applicable to the ${CODIFY_HARNESS_KEY} harness; skipping"
         return 0
     fi
 
+    CODEGRAPH_STARTUP_STATUS="enabled"
     echo "CodeGraph enabled for this worker profile"
     configure_codegraph
 

@@ -1,5 +1,10 @@
 #!/bin/bash
 set -e
+startup_started_ms="$(date +%s%3N 2>/dev/null || true)"
+case "${startup_started_ms}" in
+    *[!0-9]* | "") startup_started_ms="$(date +%s)000" ;;
+esac
+export CODIFY_STARTUP_STARTED_MS="${startup_started_ms}"
 
 # Keep the image entrypoint stable and load implementation modules in lifecycle order.
 CODIFY_KIT_HOME="${CODIFY_KIT_HOME:-}"

@@ -96,6 +96,11 @@ def create_mr_if_needed(
     if existing:
         return existing
 
+    try:
+        gitlab_client.ensure_project_label(task.project_id, "Codify", "#6699cc")
+    except Exception as exc:  # noqa: BLE001 - label setup must not block MR creation
+        logger.warning(f"[Task {task.id}] Failed to ensure Codify label: {exc}")
+
     return create_new_mr(task, issue, gitlab_client, sudo_gl=sudo_gl)
 
 

@@ -1032,6 +1032,7 @@ async def verify_worker_profile_runtime(
                         **(
                             {
                                 "CODIFY_CLI_SOURCE": cli_identity["source"],
+                                "CODIFY_CLI_VERSION": cli_identity["version"],
                                 "CODIFY_CLI_BINARY_DIGEST": cli_identity["binary_digest"],
                             }
                             if cli_identity is not None

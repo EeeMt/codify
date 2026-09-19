@@ -1,4 +1,3 @@
-
 # Required configuration, console capture, TLS, repository clone, and branch checkout.
 # Receives task parameters from environment variables
 

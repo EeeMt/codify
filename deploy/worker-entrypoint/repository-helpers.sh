@@ -21,6 +21,35 @@ repo_now_ms() {
     esac
 }
 
+repo_timing_record() {
+    local name="$1"
+    local started_ms="$2"
+    local finished_ms="${3:-$(repo_now_ms)}"
+    local elapsed_ms
+
+    case "${started_ms}" in '' | *[!0-9]*) return 0 ;; esac
+    case "${finished_ms}" in '' | *[!0-9]*) return 0 ;; esac
+    elapsed_ms=$((finished_ms - started_ms))
+    [ "${elapsed_ms}" -ge 0 ] || elapsed_ms=0
+    case "${name}" in
+        remote_probe) REPO_TIMING_REMOTE_PROBE_MS="${elapsed_ms}" ;;
+        clone) REPO_TIMING_CLONE_MS="${elapsed_ms}" ;;
+        fetch) REPO_TIMING_FETCH_MS="${elapsed_ms}" ;;
+        work_branch_fetch) REPO_TIMING_WORK_BRANCH_FETCH_MS="${elapsed_ms}" ;;
+        branch_sync) REPO_TIMING_BRANCH_SYNC_MS="${elapsed_ms}" ;;
+        branch_checkout) REPO_TIMING_BRANCH_CHECKOUT_MS="${elapsed_ms}" ;;
+        *) return 0 ;;
+    esac
+    repo_log "timing name=${name} duration_ms=${elapsed_ms}"
+}
+
+repo_timing_json() {
+    case "${1:-}" in
+        '' | *[!0-9]*) printf 'null\n' ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
 repo_delivery_snapshot_value() {
     # repo_delivery_snapshot_value <jq-filter> [default]
     local filter="$1"
@@ -271,6 +300,13 @@ repo_write_preparation_artifact() {
         --arg work_branch "${BRANCH_NAME}" \
         --arg commit_sha "${commit_sha}" \
         --arg pack_size "${pack_size}" \
+        --arg fetch_action "${REPO_FETCH_ACTION}" \
+        --argjson remote_probe_ms "$(repo_timing_json "${REPO_TIMING_REMOTE_PROBE_MS:-}")" \
+        --argjson clone_ms "$(repo_timing_json "${REPO_TIMING_CLONE_MS:-}")" \
+        --argjson fetch_ms "$(repo_timing_json "${REPO_TIMING_FETCH_MS:-}")" \
+        --argjson work_branch_fetch_ms "$(repo_timing_json "${REPO_TIMING_WORK_BRANCH_FETCH_MS:-}")" \
+        --argjson branch_sync_ms "$(repo_timing_json "${REPO_TIMING_BRANCH_SYNC_MS:-}")" \
+        --argjson branch_checkout_ms "$(repo_timing_json "${REPO_TIMING_BRANCH_CHECKOUT_MS:-}")" \
         --argjson elapsed_ms "${elapsed_ms}" \
         --argjson exit_code "${exit_code}" \
         '{
@@ -309,6 +345,15 @@ repo_write_preparation_artifact() {
             work_branch: $work_branch,
             commit_sha: $commit_sha,
             pack_size: (if $pack_size == "" then null else $pack_size end),
+            fetch_action: (if $fetch_action == "" then null else $fetch_action end),
+            timings_ms: {
+                remote_probe: $remote_probe_ms,
+                clone: $clone_ms,
+                fetch: $fetch_ms,
+                work_branch_fetch: $work_branch_fetch_ms,
+                branch_sync: $branch_sync_ms,
+                branch_checkout: $branch_checkout_ms
+            },
             elapsed_ms: $elapsed_ms
         }' > "${REPOSITORY_PREPARATION_FILE}"
     chmod 644 "${REPOSITORY_PREPARATION_FILE}" 2>/dev/null || true

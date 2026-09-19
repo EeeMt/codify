@@ -1,33 +1,51 @@
 # Execute the selected harness, validate delivery, commit/push changes, and persist metadata.
 
+codify_startup_log "bootstrap_and_repository_ready" "${CODIFY_STARTUP_STARTED_MS}"
+if [ -n "${REPO_PREPARE_STARTED_MS:-}" ]; then
+    codify_startup_log "repository_preparation" "${REPO_PREPARE_STARTED_MS}"
+fi
+
 # Freeze and validate the Adapter/capability view before any Harness-specific
 # optional tooling is prepared. codify_harness_run reuses this initialization.
+HARNESS_INITIALIZE_STARTED_MS="$(codify_startup_now_ms)"
 if ! codify_harness_initialize; then
+    codify_startup_log "harness_initialize" "${HARNESS_INITIALIZE_STARTED_MS}" "failed"
     set +e
     codify_harness_run "${CODIFY_HARNESS_PROMPT_FILE}" "${CODIFY_HARNESS_OUTPUT_FILE}"
     HARNESS_INITIALIZATION_RESULT=$?
     set -e
     exit "${HARNESS_INITIALIZATION_RESULT}"
 fi
+codify_startup_log "harness_initialize" "${HARNESS_INITIALIZE_STARTED_MS}"
 
 # Fix the repository start point (S = local task-branch HEAD, R0 = confirmed
 # remote work-branch HEAD at preparation, B0 = confirmed base HEAD) before any
 # pre-script or harness code can move the workspace. Delivery attribution and
 # safe publishing depend on these immutable pins.
+REPO_PIN_STARTED_MS="$(codify_startup_now_ms)"
 if ! repo_pin_delivery_start; then
+    codify_startup_log "repository_pin" "${REPO_PIN_STARTED_MS}" "failed"
     echo "ERROR: Could not pin the repository start commit for delivery attribution"
     exit 1
 fi
+codify_startup_log "repository_pin" "${REPO_PIN_STARTED_MS}"
 
-run_worker_script "pre" "${CODIFY_WORKER_PRE_SCRIPT_FILE}"
+PRE_SCRIPT_STARTED_MS="$(codify_startup_now_ms)"
+if ! run_worker_script "pre" "${CODIFY_WORKER_PRE_SCRIPT_FILE}"; then
+    codify_startup_log "pre_script" "${PRE_SCRIPT_STARTED_MS}" "failed"
+    exit 1
+fi
+codify_startup_log "pre_script" "${PRE_SCRIPT_STARTED_MS}"
 
+CODEGRAPH_STARTED_MS="$(codify_startup_now_ms)"
 prepare_codegraph
+codify_startup_log "codegraph" "${CODEGRAPH_STARTED_MS}" "${CODEGRAPH_STARTUP_STATUS:-completed}"
 
-echo "CodeGraph CLI version: $(codegraph --version 2>/dev/null || echo unavailable)"
+if [ "${CODEGRAPH_STARTUP_STATUS:-}" = "enabled" ]; then
+    echo "CodeGraph CLI version: $(codegraph --version 2>/dev/null || echo unavailable)"
+fi
 echo "Harness: ${CODIFY_HARNESS_KEY:-claude}"
-echo "Updating MR with execution status..."
-update_mr_description "$(build_running_mr_description)" || true
-
+codify_startup_log "harness_ready" "$(codify_startup_now_ms)"
 echo "Starting Harness Adapter (streaming mode)..."
 set +e
 codify_harness_run "${CODIFY_HARNESS_PROMPT_FILE}" "${CODIFY_HARNESS_OUTPUT_FILE}"

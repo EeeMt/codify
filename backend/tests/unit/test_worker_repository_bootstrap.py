@@ -33,6 +33,20 @@ def _git(cwd: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def _assert_repository_timing_shape(telemetry: dict) -> None:
+    timings = telemetry["timings_ms"]
+    assert set(timings) == {
+        "remote_probe",
+        "clone",
+        "fetch",
+        "work_branch_fetch",
+        "branch_sync",
+        "branch_checkout",
+    }
+    for value in timings.values():
+        assert value is None or isinstance(value, int) and value >= 0
+
+
 def _create_remote_with_issue_branch(root: Path) -> tuple[Path, str]:
     source = root / "source"
     source.mkdir()
@@ -226,6 +240,12 @@ def test_shallow_partial_clone_recovers_existing_issue_branch_and_writes_telemet
     assert telemetry["base_branch"] == "main"
     assert telemetry["work_branch"] == branch_name
     assert telemetry["elapsed_ms"] >= 0
+    _assert_repository_timing_shape(telemetry)
+    assert telemetry["timings_ms"]["remote_probe"] >= 0
+    assert telemetry["timings_ms"]["clone"] >= 0
+    assert telemetry["timings_ms"]["work_branch_fetch"] >= 0
+    assert telemetry["timings_ms"]["branch_checkout"] >= 0
+    assert telemetry["fetch_action"] is None
 
     assert (
         "[repo] prepare workspace=new strategy=shallow depth=2 filter=blob:none"
@@ -278,6 +298,11 @@ def test_reused_interrupted_shallow_clone_still_recovers_remote_issue_branch(
     assert telemetry["action"] == "fetch"
     assert telemetry["workspace_reused"] is True
     assert telemetry["remote_work_branch"] is True
+    _assert_repository_timing_shape(telemetry)
+    assert telemetry["timings_ms"]["remote_probe"] >= 0
+    assert telemetry["timings_ms"]["fetch"] >= 0
+    assert telemetry["timings_ms"]["branch_checkout"] >= 0
+    assert telemetry["fetch_action"] == "fetched"
     assert "[repo] prepare workspace=reused strategy=shallow" in result.stdout
 
 
@@ -320,6 +345,9 @@ def test_reused_workspace_fast_forwards_a_human_remote_update(
     assert telemetry["work_branch_relation"] == "remote_ahead"
     assert telemetry["sync_action"] == "fast_forward"
     assert telemetry["remote_work_sha"] == remote_sha
+    assert telemetry["fetch_action"] == "fetched"
+    _assert_repository_timing_shape(telemetry)
+    assert telemetry["timings_ms"]["branch_sync"] >= 0
     assert (
         f"[repo] sync work_branch={branch_name} relation=remote_ahead "
         "action=fast_forward dirty=false"
@@ -405,6 +433,8 @@ def test_reused_workspace_preserves_a_local_branch_never_observed_on_remote(
     assert resumed_telemetry["remote_work_sha"] is None
     assert resumed_telemetry["work_branch_relation"] == "remote_missing"
     assert resumed_telemetry["sync_action"] == "preserve_local"
+    assert resumed_telemetry["fetch_action"] == "skipped_unchanged"
+    assert "fetch skipped reason=refs_unchanged" in resumed.stdout
     assert (
         f"[repo] warning work_branch={branch_name} remote=missing; preserving local branch"
         in resumed.stdout
@@ -444,6 +474,8 @@ def test_reused_workspace_preserves_an_unpushed_local_commit(
     )
     assert telemetry["work_branch_relation"] == "local_ahead"
     assert telemetry["sync_action"] == "preserve_local"
+    assert telemetry["fetch_action"] == "skipped_unchanged"
+    assert "fetch skipped reason=refs_unchanged" in resumed.stdout
 
 
 

@@ -1284,10 +1284,6 @@ class TestEntrypointCommitAttribution(unittest.TestCase):
             'export PATH="${CODIFY_RUNTIME_PATH}" && codegraph install --target=claude --location=global --yes',
             content,
         )
-        self.assertIn(
-            'export PATH="${CODIFY_RUNTIME_PATH}" && codegraph uninstall --target=claude --location=global --yes',
-            content,
-        )
         self.assertNotIn('del(.mcpServers.codegraph)', content)
         self.assertNotIn('<!-- CODEGRAPH_START -->', content)
 
@@ -1362,6 +1358,70 @@ class TestEntrypointCommitAttribution(unittest.TestCase):
         self.assertIn("codegraph status /workspace --json", result.stdout)
         self.assertIn('{"initialized":true}', result.stdout)
         self.assertIn("RESULT:17", result.stdout)
+
+    def test_codegraph_skips_non_claude_harness_without_cleanup(self):
+        script = (
+            Path(__file__).resolve().parents[3]
+            / "deploy"
+            / "worker-entrypoint"
+            / "codegraph.sh"
+        )
+        harness = textwrap.dedent(
+            """
+            set -u
+            CODIFY_HARNESS_KEY=pi
+            CODIFY_CODEGRAPH_ENABLED=true
+            disable_codegraph() { printf 'UNEXPECTED_CLEANUP\\n'; return 99; }
+            configure_codegraph() { printf 'UNEXPECTED_CONFIGURE\\n'; return 99; }
+            . "$1"
+            prepare_codegraph
+            printf 'STATUS:%s\\n' "${CODEGRAPH_STARTUP_STATUS}"
+            """
+        )
+
+        result = subprocess.run(
+            ["bash", "-c", harness, "--", str(script)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("CodeGraph is not applicable to the pi harness; skipping", result.stdout)
+        self.assertIn("STATUS:skipped", result.stdout)
+        self.assertNotIn("UNEXPECTED_", result.stdout)
+
+    def test_codegraph_disabled_profile_skips_without_cleanup(self):
+        script = (
+            Path(__file__).resolve().parents[3]
+            / "deploy"
+            / "worker-entrypoint"
+            / "codegraph.sh"
+        )
+        harness = textwrap.dedent(
+            """
+            set -u
+            CODIFY_HARNESS_KEY=claude
+            CODIFY_CODEGRAPH_ENABLED=false
+            disable_codegraph() { printf 'UNEXPECTED_CLEANUP\\n'; return 99; }
+            configure_codegraph() { printf 'UNEXPECTED_CONFIGURE\\n'; return 99; }
+            . "$1"
+            prepare_codegraph
+            printf 'STATUS:%s\\n' "${CODEGRAPH_STARTUP_STATUS}"
+            """
+        )
+
+        result = subprocess.run(
+            ["bash", "-c", harness, "--", str(script)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("CodeGraph disabled for this worker profile; skipping", result.stdout)
+        self.assertIn("STATUS:skipped", result.stdout)
+        self.assertNotIn("UNEXPECTED_", result.stdout)
 
     def test_entrypoint_writes_plan_task_metadata_for_previous_summaries(self):
         script = Path(__file__).resolve().parents[3] / "deploy" / "entrypoint.worker.sh"
@@ -1932,6 +1992,29 @@ class TestCreateMrIfNeeded(unittest.TestCase):
         result = worker._create_mr_if_needed(task, issue, mr_iid=None, mr_web_url=None)
 
         self.assertEqual(result, (77, "http://gitlab.example.com/mr/77"))
+        mock_gitlab.ensure_project_label.assert_not_called()
+
+    @patch('app.core.worker.get_settings')
+    def test_new_mr_ensures_codify_label_after_lookup(self, mock_get_settings):
+        """Only the new-MR path should ensure the project label."""
+        mock_get_settings.return_value = _make_settings()
+
+        mock_project = MagicMock()
+        mock_project.mergerequests.list.return_value = []
+        mock_mr = MagicMock(iid=88, web_url="http://gitlab.example.com/mr/88")
+        mock_project.mergerequests.create.return_value = mock_mr
+
+        mock_gitlab = MagicMock()
+        mock_gitlab.gl.projects.get.return_value = mock_project
+        mock_gitlab.normalize_web_url.return_value = mock_mr.web_url
+        worker = _make_worker(mock_gitlab=mock_gitlab)
+        task = _make_task()
+        issue = task.issue
+
+        result = worker._create_mr_if_needed(task, issue, mr_iid=None, mr_web_url=None)
+
+        self.assertEqual(result, (88, "http://gitlab.example.com/mr/88"))
+        mock_gitlab.ensure_project_label.assert_called_once_with(100, "Codify", "#6699cc")
 
     def test_find_existing_mr_returns_none_when_no_mrs(self):
         """_find_existing_mr returns None when no open MRs — line 429-430."""

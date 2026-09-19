@@ -1,5 +1,28 @@
 # Runtime exports, custom hooks, events, and archive lifecycle.
 
+codify_startup_now_ms() {
+    local now
+    now=$(date +%s%3N 2>/dev/null || true)
+    case "${now}" in
+        *[!0-9]* | "") printf '%s000\n' "$(date +%s)" ;;
+        *) printf '%s\n' "${now}" ;;
+    esac
+}
+
+codify_startup_log() {
+    local phase="$1"
+    local started_ms="$2"
+    local status="${3:-completed}"
+    local finished_ms duration_ms elapsed_ms
+    finished_ms="$(codify_startup_now_ms)"
+    duration_ms=$((finished_ms - started_ms))
+    elapsed_ms=$((finished_ms - CODIFY_STARTUP_STARTED_MS))
+    if [ "${duration_ms}" -lt 0 ]; then duration_ms=0; fi
+    if [ "${elapsed_ms}" -lt 0 ]; then elapsed_ms=0; fi
+    printf '[startup] phase=%s duration_ms=%s elapsed_ms=%s status=%s\n' \
+        "${phase}" "${duration_ms}" "${elapsed_ms}" "${status}"
+}
+
 export ANTHROPIC_BASE_URL
 export ANTHROPIC_API_KEY
 export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_API_KEY}}"

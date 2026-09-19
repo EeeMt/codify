@@ -49,17 +49,34 @@ pi_adapter_verify_runtime() {
     fi
     CODIFY_PI_BIN="${bin}"
     export CODIFY_PI_BIN
-    local version_output pinned normalized
-    version_output="$("${bin}" --version 2>/dev/null | head -n 1)"
-    if [ -z "${version_output}" ]; then
-        echo "Could not read Pi CLI version" >&2
+    local normalized
+    if [ -z "${CODIFY_RUNTIME_VERIFICATION_MANIFEST:-}" ] \
+        && [ "${CODIFY_RUNTIME_CONTRACT_VERSION:-}" = "codify.worker.harness/v2" ] \
+        && [ -n "${CODIFY_CLI_BINARY_DIGEST:-}" ] \
+        && [ -n "${CODIFY_CLI_VERSION:-}" ] \
+        && [ "${CODIFY_CLI_VERSION}" != "unknown" ]; then
+        # The V2 launcher has already verified the frozen CLI path and bytes.
+        # Re-running `pi --version` here only starts a second CLI process on
+        # every task, while the version is already frozen in the Task binding.
+        normalized="${CODIFY_CLI_VERSION}"
+    elif [ -z "${CODIFY_RUNTIME_VERIFICATION_MANIFEST:-}" ] \
+        && [ "${CODIFY_RUNTIME_CONTRACT_VERSION:-}" = "codify.worker.harness/v2" ] \
+        && [ -n "${CODIFY_CLI_BINARY_DIGEST:-}" ]; then
+        echo "Frozen V2 CLI version is missing" >&2
         return 1
+    else
+        local version_output
+        version_output="$("${bin}" --version 2>/dev/null | head -n 1)"
+        if [ -z "${version_output}" ]; then
+            echo "Could not read Pi CLI version" >&2
+            return 1
+        fi
+        # pi --version may print "pi 0.84.2" or bare "0.84.2"; normalize to
+        # the trailing token before comparing against the manifest pin.
+        normalized="$(printf '%s\n' "${version_output}" | awk '{print $NF}')"
+        CODIFY_CLI_VERSION="${normalized}"
+        export CODIFY_CLI_VERSION
     fi
-    # pi --version may print "pi 0.84.2" or bare "0.84.2"; normalize to the
-    # trailing token before comparing against the manifest pin.
-    normalized="$(printf '%s\n' "${version_output}" | awk '{print $NF}')"
-    CODIFY_CLI_VERSION="${normalized}"
-    export CODIFY_CLI_VERSION
     # The Adapter-declared pinned version is the tested/baseline, not a hard
     # gate: an observed difference only logs a sanitized advisory warning and
     # execution continues (§11.2 Compatibility policy).

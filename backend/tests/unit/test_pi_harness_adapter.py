@@ -925,6 +925,63 @@ def test_pi_verify_runtime_enforces_pinned_cli_version(tmp_path):
     assert "advisory" in bad.stderr
 
 
+def test_pi_verify_runtime_reuses_frozen_v2_cli_version(tmp_path):
+    marker = tmp_path / "version-invoked"
+    cli = tmp_path / "pi"
+    cli.write_text(f"#!/bin/sh\nprintf invoked > '{marker}'\nexit 99\n", encoding="utf-8")
+    cli.chmod(0o755)
+    env = {
+        **V2_ENV,
+        "CODIFY_ORCHESTRATION_DIR": str(REPO_ROOT / "deploy"),
+        "CODIFY_HARNESS_CLI_BIN": str(cli),
+        "CODIFY_CLI_VERSION": "0.84.2",
+        "CODIFY_CLI_BINARY_DIGEST": "a" * 64,
+    }
+
+    result = _source_adapter("pi_adapter_verify_runtime", env)
+
+    assert result.returncode == 0, result.stderr
+    assert not marker.exists()
+
+
+def test_pi_verify_runtime_requires_frozen_v2_cli_version(tmp_path):
+    cli = tmp_path / "pi"
+    cli.write_text("#!/bin/sh\necho pi 0.84.2\n", encoding="utf-8")
+    cli.chmod(0o755)
+    env = {
+        **V2_ENV,
+        "CODIFY_ORCHESTRATION_DIR": str(REPO_ROOT / "deploy"),
+        "CODIFY_HARNESS_CLI_BIN": str(cli),
+        "CODIFY_CLI_VERSION": "unknown",
+        "CODIFY_CLI_BINARY_DIGEST": "a" * 64,
+    }
+
+    result = _source_adapter("pi_adapter_verify_runtime", env)
+
+    assert result.returncode == 1
+    assert "Frozen V2 CLI version is missing" in result.stderr
+
+
+def test_pi_verify_runtime_does_not_reuse_frozen_version_for_admin_verify(tmp_path):
+    marker = tmp_path / "version-invoked"
+    cli = tmp_path / "pi"
+    cli.write_text(f"#!/bin/sh\nprintf invoked > '{marker}'\nexit 99\n", encoding="utf-8")
+    cli.chmod(0o755)
+    env = {
+        **V2_ENV,
+        "CODIFY_ORCHESTRATION_DIR": str(REPO_ROOT / "deploy"),
+        "CODIFY_HARNESS_CLI_BIN": str(cli),
+        "CODIFY_CLI_VERSION": "0.84.2",
+        "CODIFY_CLI_BINARY_DIGEST": "a" * 64,
+        "CODIFY_RUNTIME_VERIFICATION_MANIFEST": str(tmp_path / "manifest.json"),
+    }
+
+    result = _source_adapter("pi_adapter_verify_runtime", env)
+
+    assert result.returncode != 0
+    assert marker.exists()
+
+
 def test_pi_continuation_raw_stream_maps_model_resolved(tmp_path):
     # Pi --session loads the persisted transcript before RPC starts. Its first
     # get_state therefore reports a non-empty messageCount; continuation does

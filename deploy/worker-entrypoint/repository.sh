@@ -32,15 +32,19 @@ repo_clear_ignored_filter_config() {
 }
 
 repo_fetch_work_branch() {
+    local timing_started_ms
+    timing_started_ms=$(repo_now_ms)
     if [ -n "${CODIFY_GIT_CLONE_DEPTH}" ]; then
         codify_run_shell 'cd /workspace && git fetch --depth "${CODIFY_GIT_CLONE_DEPTH}" origin "+refs/heads/${BRANCH_NAME}:refs/remotes/origin/${BRANCH_NAME}"'
     else
         codify_run_shell 'cd /workspace && git fetch origin "+refs/heads/${BRANCH_NAME}:refs/remotes/origin/${BRANCH_NAME}"'
     fi
+    repo_timing_record work_branch_fetch "${timing_started_ms}"
 }
 
 repo_read_remote_refs() {
-    local refs
+    local refs timing_started_ms
+    timing_started_ms=$(repo_now_ms)
     refs=$(codify_run_shell 'git ls-remote --symref "${GIT_REPO_URL}" HEAD "refs/heads/${BASE_BRANCH}" "refs/heads/${BRANCH_NAME}"')
     REPO_REMOTE_DEFAULT_BRANCH=$(
         printf '%s\n' "${refs}" \
@@ -67,6 +71,7 @@ repo_read_remote_refs() {
         REPO_REMOTE_WORK_BRANCH="true"
     fi
     repo_log "remote_refs base=${REPO_REMOTE_BASE_SHA:-missing} work=${REPO_REMOTE_WORK_SHA:-missing} default=${REPO_REMOTE_DEFAULT_BRANCH:-unknown}"
+    repo_timing_record remote_probe "${timing_started_ms}"
 }
 
 repo_resolve_remote_base() {
@@ -86,6 +91,34 @@ repo_resolve_remote_base() {
 }
 
 repo_fetch_selected_refs() {
+    local timing_started_ms local_base_sha local_work_sha refs_unchanged
+    timing_started_ms=$(repo_now_ms)
+    REPO_FETCH_ACTION="fetched"
+
+    local_base_sha=$(codify_run_shell \
+        'cd /workspace && git show-ref --verify --hash "refs/remotes/origin/${BASE_BRANCH}"' \
+        2>/dev/null || true
+    )
+    refs_unchanged=true
+    if [ -z "${REPO_REMOTE_BASE_SHA}" ] || [ "${local_base_sha}" != "${REPO_REMOTE_BASE_SHA}" ]; then
+        refs_unchanged=false
+    fi
+    if [ -n "${REPO_REMOTE_WORK_SHA}" ]; then
+        local_work_sha=$(codify_run_shell \
+            'cd /workspace && git show-ref --verify --hash "refs/remotes/origin/${BRANCH_NAME}"' \
+            2>/dev/null || true
+        )
+        if [ "${local_work_sha}" != "${REPO_REMOTE_WORK_SHA}" ]; then
+            refs_unchanged=false
+        fi
+    fi
+    if [ "${refs_unchanged}" = true ]; then
+        REPO_FETCH_ACTION="skipped_unchanged"
+        repo_log "fetch skipped reason=refs_unchanged depth=${CODIFY_GIT_CLONE_DEPTH:-full}"
+        repo_timing_record fetch "${timing_started_ms}"
+        return 0
+    fi
+
     if [ -n "${CODIFY_GIT_CLONE_DEPTH}" ]; then
         if [ -n "${REPO_REMOTE_WORK_SHA}" ] && [ "${BASE_BRANCH}" != "${BRANCH_NAME}" ]; then
             codify_run_shell 'cd /workspace && git fetch --depth "${CODIFY_GIT_CLONE_DEPTH}" origin "+refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}" "+refs/heads/${BRANCH_NAME}:refs/remotes/origin/${BRANCH_NAME}"'
@@ -105,6 +138,7 @@ repo_fetch_selected_refs() {
         REPO_REMOTE_WORK_SHA=$(codify_run_shell 'cd /workspace && git rev-parse "refs/remotes/origin/${BRANCH_NAME}"')
     fi
     repo_log "fetch refs=base${REPO_REMOTE_WORK_SHA:+,work} depth=${CODIFY_GIT_CLONE_DEPTH:-full}"
+    repo_timing_record fetch "${timing_started_ms}"
 }
 
 repo_classify_work_branch() {
@@ -146,7 +180,8 @@ repo_classify_work_branch() {
 }
 
 repo_sync_local_work_branch() {
-    local dirty="$1"
+    local dirty="$1" timing_started_ms
+    timing_started_ms=$(repo_now_ms)
     repo_classify_work_branch
 
     case "${REPO_WORK_BRANCH_RELATION}" in
@@ -192,6 +227,7 @@ repo_sync_local_work_branch() {
     esac
 
     repo_log "sync work_branch=${BRANCH_NAME} relation=${REPO_WORK_BRANCH_RELATION} action=${REPO_SYNC_ACTION} dirty=$([ -n "${dirty}" ] && printf true || printf false) local=${REPO_LOCAL_WORK_SHA} remote=${REPO_REMOTE_WORK_SHA:-missing}"
+    repo_timing_record branch_sync "${timing_started_ms}"
 }
 
 REPO_PREPARE_STARTED_MS=$(repo_now_ms)
@@ -210,6 +246,13 @@ REPO_PREVIOUS_REMOTE_WORK_SHA=""
 REPO_LOCAL_WORK_SHA=""
 REPO_WORK_BRANCH_RELATION=""
 REPO_SYNC_ACTION=""
+REPO_FETCH_ACTION=""
+REPO_TIMING_REMOTE_PROBE_MS=""
+REPO_TIMING_CLONE_MS=""
+REPO_TIMING_FETCH_MS=""
+REPO_TIMING_WORK_BRANCH_FETCH_MS=""
+REPO_TIMING_BRANCH_SYNC_MS=""
+REPO_TIMING_BRANCH_CHECKOUT_MS=""
 REPO_REQUESTED_STRATEGY="full"
 export REPO_REMOTE_WORK_SHA REPO_PREVIOUS_REMOTE_WORK_SHA
 [ -n "${CODIFY_GIT_CLONE_DEPTH}" ] && REPO_REQUESTED_STRATEGY="shallow"
@@ -261,6 +304,7 @@ else
         repo_resolve_remote_base
     fi
 
+    REPO_CLONE_STARTED_MS=$(repo_now_ms)
     if [ -n "${CODIFY_GIT_CLONE_FILTER}" ]; then
         REPO_CLONE_LOG_DIR="${CODIFY_RUNTIME_DIR:-/tmp/codify-runtime}"
         mkdir -p "${REPO_CLONE_LOG_DIR}"
@@ -288,6 +332,7 @@ else
     else
         repo_clone false
     fi
+    repo_timing_record clone "${REPO_CLONE_STARTED_MS}"
 
     if [ -z "${CODIFY_GIT_CLONE_DEPTH}" ] \
         && codify_run_shell 'cd /workspace && git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"'; then
@@ -306,6 +351,8 @@ if [ "${REPO_WORKSPACE_STATE}" = "new" ] \
     repo_fetch_work_branch
 fi
 cd /workspace
+
+REPO_BRANCH_CHECKOUT_STARTED_MS=$(repo_now_ms)
 
 # Configure git
 git config --global user.email "bot@codify.local"
@@ -368,6 +415,7 @@ else
     echo "Creating new branch from ${BASE_BRANCH}..."
     codify_run_shell 'cd /workspace && git checkout -b "${BRANCH_NAME}" "origin/${BASE_BRANCH}"'
 fi
+repo_timing_record branch_checkout "${REPO_BRANCH_CHECKOUT_STARTED_MS}"
 
 REPO_ACTUAL_SHALLOW=$(codify_run_shell 'cd /workspace && git rev-parse --is-shallow-repository' 2>/dev/null || echo "unknown")
 REPO_EFFECTIVE_FILTER=$(codify_run_shell 'cd /workspace && git config --get remote.origin.partialclonefilter' 2>/dev/null || true)
