@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_DIR="$(cd "${ROOT_DIR}/.." && pwd)"
-IMAGE_ARCHIVE="${ROOT_DIR}/images/codify-offline-images.tar.gz"
 OUTPUT_ARCHIVE="${DEPLOY_DIR}/codify-offline-bundle.tar.gz"
 TMP_ARCHIVE="${DEPLOY_DIR}/.codify-offline-bundle.tar.gz.tmp"
 STAGING_DIR=""
@@ -33,10 +32,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ ! -f "${IMAGE_ARCHIVE}" ]]; then
-  echo "Image archive not found: ${IMAGE_ARCHIVE}. Run ./scripts/export-images.sh first." >&2
+if ! compgen -G "${ROOT_DIR}/images/codify-offline-images-*.tar.gz" >/dev/null; then
+  echo "No per-architecture image archive found. Run ./scripts/export-images.sh first." >&2
   exit 1
 fi
+# Every declared platform must have its own archive: the bundle has to be
+# loadable on each target host architecture. `IMAGE_PLATFORMS` is also what
+# keeps undeclared archives out of the staged bundle below.
+IMAGE_PLATFORMS="${IMAGE_PLATFORMS:-}"
+for platform in ${IMAGE_PLATFORMS}; do
+  platform_arch="${platform#linux/}"
+  platform_arch="${platform_arch%%/*}"
+  if [[ ! -f "${ROOT_DIR}/images/codify-offline-images-${platform_arch}.tar.gz" ]]; then
+    echo "Image archive for ${platform} is missing: images/codify-offline-images-${platform_arch}.tar.gz" >&2
+    exit 1
+  fi
+done
 if [[ ! -x "${DEPLOY_DIR}/worker-kit/verify-runtime.sh" || ! -f "${DEPLOY_DIR}/worker-kit/validate-runtime-manifest.py" || ! -f "${DEPLOY_DIR}/worker-kit/verify-kit-content.py" ]]; then
   echo "Worker Kit portable verifier/validator is missing; refusing to package" >&2
   exit 1
@@ -150,6 +161,37 @@ if [[ "${#legacy_kit_archives[@]}" -gt 0 ]]; then
 fi
 if [[ "${#skipped_kit_archives[@]}" -gt 0 ]]; then
     drop_from_staging "${skipped_kit_archives[@]}"
+fi
+
+# Ship exactly the declared platforms: drop any other image archive and keep
+# the staged images/SHA256SUMS listing only the archives that actually ship.
+if [[ -n "${IMAGE_PLATFORMS}" ]]; then
+    for staged_archive in "${STAGING_DIR}"/offline-bundle/images/codify-offline-images-*.tar.gz; do
+        [[ -f "${staged_archive}" ]] || continue
+        staged_arch="$(basename "${staged_archive}" .tar.gz)"
+        staged_arch="${staged_arch#codify-offline-images-}"
+        keep_archive=0
+        for platform in ${IMAGE_PLATFORMS}; do
+            platform_arch="${platform#linux/}"
+            platform_arch="${platform_arch%%/*}"
+            [[ "${platform_arch}" == "${staged_arch}" ]] && keep_archive=1
+        done
+        if [[ "${keep_archive}" -eq 0 ]]; then
+            echo "Skipping image archive for an undeclared platform: ${staged_archive}" >&2
+            rm -f "${staged_archive}"
+        fi
+    done
+    : > "${STAGING_DIR}/offline-bundle/images/SHA256SUMS"
+    for staged_archive in "${STAGING_DIR}"/offline-bundle/images/codify-offline-images-*.tar.gz; do
+        [[ -f "${staged_archive}" ]] || continue
+        if command -v sha256sum >/dev/null 2>&1; then
+            (cd "$(dirname "${staged_archive}")" && sha256sum "$(basename "${staged_archive}")") \
+                >> "${STAGING_DIR}/offline-bundle/images/SHA256SUMS"
+        else
+            (cd "$(dirname "${staged_archive}")" && shasum -a 256 "$(basename "${staged_archive}")") \
+                >> "${STAGING_DIR}/offline-bundle/images/SHA256SUMS"
+        fi
+    done
 fi
 
 echo "Packaging offline bundle to ${OUTPUT_ARCHIVE}..."

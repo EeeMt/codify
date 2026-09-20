@@ -95,8 +95,10 @@ manifest, but a missing `deploy/worker-cli/<arch>/` directory aborts the export:
 platform was never staged, not that one payload is absent. Use
 `WORKER_KIT_CLI_SELECTION=none` for a payload-free Kit.
 
-`make offline-bundle-export` builds the application images, exports both platform kits, saves the
-image archive, and packages `deploy/codify-offline-bundle.tar.gz`. One daemon rarely builds both
+`make offline-bundle-export` builds the application images on every platform in `IMAGE_PLATFORMS`,
+exports both platform kits, saves one image archive per platform
+(`images/codify-offline-images-<arch>.tar.gz`), and packages
+`deploy/codify-offline-bundle.tar.gz`. One daemon rarely builds both
 platforms, so each Kit export can name its own Docker context, and the selection is passed
 through to both:
 

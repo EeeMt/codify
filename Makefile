@@ -19,6 +19,11 @@ WORKER_KIT_CLI_SELECTION ?= pi,opencode
 WORKER_KIT_DOCKER_CONTEXT ?=
 WORKER_KIT_AMD64_CONTEXT ?=
 WORKER_KIT_ARM64_CONTEXT ?=
+# The offline bundle carries one image archive and one Kit per platform, so
+# each listed platform needs a builder that can run it (see the context
+# variables above). Deployment hosts run arm64, so arm64 images are the
+# default; add linux/amd64 when an amd64 host needs its own archive.
+IMAGE_PLATFORMS ?= linux/arm64
 RUNTIME_IMAGE ?= codify-worker/java21-maven:2026.07
 
 # ============================================
@@ -33,11 +38,22 @@ build-app-images: ## Build Codify application images (backend and nginx)
 build: build-app-images ## Build application images (backend and nginx)
 
 .PHONY: offline-bundle-export
-offline-bundle-export: build-app-images ## Build app images, export both kits and images, then package deploy/offline-bundle (WORKER_KIT_CLI_SELECTION, WORKER_KIT_<ARCH>_CONTEXT)
+offline-bundle-export: ## Build app images per platform, export both kits and image archives, then package deploy/offline-bundle (WORKER_KIT_CLI_SELECTION, IMAGE_PLATFORMS, WORKER_KIT_<ARCH>_CONTEXT)
+	@set -e; \
+	for platform in $(IMAGE_PLATFORMS); do \
+	    case "$$platform" in \
+	        linux/amd64) context="$(WORKER_KIT_AMD64_CONTEXT)" ;; \
+	        linux/arm64) context="$(WORKER_KIT_ARM64_CONTEXT)" ;; \
+	        *) echo "IMAGE_PLATFORMS entry is not supported: $$platform" >&2; exit 2 ;; \
+	    esac; \
+	    echo "== $$platform: app images =="; \
+	    (cd $(PROJECT_ROOT)/deploy && DOCKER_CONTEXT="$$context" docker-compose --env-file .env.test build); \
+	    echo "== $$platform: image archive =="; \
+	    (cd $(PROJECT_ROOT)/deploy/offline-bundle && DOCKER_CONTEXT="$$context" IMAGE_PLATFORM="$$platform" ./scripts/export-images.sh); \
+	done
 	WORKER_KIT_VERSION=$(WORKER_KIT_VERSION) WORKER_KIT_PLATFORM=linux/amd64 WORKER_KIT_CLI_SELECTION=$(WORKER_KIT_CLI_SELECTION) WORKER_KIT_DOCKER_CONTEXT=$(WORKER_KIT_AMD64_CONTEXT) $(PROJECT_ROOT)/deploy/worker-kit/export.sh
 	WORKER_KIT_VERSION=$(WORKER_KIT_VERSION) WORKER_KIT_PLATFORM=linux/arm64 WORKER_KIT_CLI_SELECTION=$(WORKER_KIT_CLI_SELECTION) WORKER_KIT_DOCKER_CONTEXT=$(WORKER_KIT_ARM64_CONTEXT) $(PROJECT_ROOT)/deploy/worker-kit/export.sh
-	cd $(PROJECT_ROOT)/deploy/offline-bundle && ./scripts/export-images.sh
-	cd $(PROJECT_ROOT)/deploy/offline-bundle && WORKER_KIT_VERSION=$(WORKER_KIT_VERSION) ./scripts/package-bundle.sh
+	cd $(PROJECT_ROOT)/deploy/offline-bundle && WORKER_KIT_VERSION=$(WORKER_KIT_VERSION) IMAGE_PLATFORMS="$(IMAGE_PLATFORMS)" ./scripts/package-bundle.sh
 
 .PHONY: export
 export: offline-bundle-export ## Alias for offline-bundle-export: app images, kits, offline bundle
@@ -561,7 +577,7 @@ help:
 	@echo "  make build              Build application images (backend and nginx)"
 	@echo "  make build-app-images   Build backend and nginx images"
 	@echo "  make export             Build app images, export kits/images, and package offline bundle"
-	@echo "  make offline-bundle-export  Build app images, export kits/images, and package them"
+	@echo "  make offline-bundle-export  Build app images per platform, export kits/images, and package them"
 	@echo "  make worker-kit-export  Build and export the content-addressed worker kit (WORKER_KIT_CLI_SELECTION)"
 	@echo "  make worker-kit-verify  Verify KIT_PATH against RUNTIME_IMAGE (optional CLAUDE_HOST_PATH and SMOKE)"
 	@echo "  make up                Start development environment"

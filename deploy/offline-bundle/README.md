@@ -9,11 +9,13 @@ This folder contains the artifacts needed to deploy the current Codify build int
 - `config/worker-images.txt.example` and `config/worker-binaries.txt.example`: templates for the
   runtime images and fixed host binaries that must be present on the target hosts
 - `docs/CONFIGURATION.md`: variable explanations and deployment checklist
-- `scripts/load-images.sh`: load exported images into Docker
+- `scripts/load-images.sh`: load this host's architecture image archive into Docker
 - `scripts/start.sh`: start the stack with `--env-file config/.env.offline`
 - `scripts/stop.sh`: stop the stack
 - `scripts/health-check.sh`: verify backend/frontend health using `BACKEND_URL` and `FRONTEND_URL`
-- `scripts/export-images.sh`: regenerate image archives from an online build machine
+- `scripts/export-images.sh`: regenerate one image archive per platform from an online build machine
+  (`IMAGE_PLATFORM` selects the platform; the script refuses to run on a daemon of another
+  architecture)
 - `scripts/package-bundle.sh`: package the whole `offline-bundle/` directory for distribution
 - `scripts/install-worker-kit.sh`: install a Kit archive on a Docker host as root
 - `scripts/validate-kit-archive.py`: reject an archive whose member paths leave the Kit root;
@@ -22,7 +24,8 @@ This folder contains the artifacts needed to deploy the current Codify build int
   validator protected by the installed Worker Kit archive checksum
 - `scripts/verify-kit-content.py`: content-inventory verifier; `package-bundle.sh` copies it in
   from `deploy/worker-kit/` when it builds the archive
-- `images/`: Docker image archives and checksum files
+- `images/`: per-architecture Docker image archives (`codify-offline-images-<arch>.tar.gz`) and
+  `SHA256SUMS` covering them
 - `kits/`: versioned worker-kit archives and checksums. Only the release version's
   archives are packaged (`WORKER_KIT_VERSION`, passed by `make offline-bundle-export`);
   older archives stay in the build machine's `kits/` directory as rollback coordinates
@@ -53,7 +56,9 @@ is shipped inside this bundle.
 
 ## Images exported by default
 
-The bundle exports these image tags without additional configuration:
+The bundle exports these image tags without additional configuration, one archive per
+platform listed in `IMAGE_PLATFORMS` (`linux/arm64` by default; add `linux/amd64` when an
+amd64 host needs its own archive):
 
 - `codify-backend:latest`
 - `codify-nginx:latest`
@@ -72,7 +77,8 @@ reference runtime must be available offline.
    `shasum -a 256 -c codify-offline-bundle.tar.gz.sha256`.
 3. After the checksum succeeds, extract the archive and copy `config/.env.offline.example` to `config/.env.offline`.
 4. Edit `config/.env.offline` and fill in your real values.
-5. Run `./scripts/load-images.sh`.
+5. Run `./scripts/load-images.sh`. It loads the archive matching the host architecture
+   (`IMAGE_ARCH=amd64|arm64` overrides the detected one).
 6. On every Docker host, install the kit as root with
    `sudo ./scripts/install-worker-kit.sh kits/<archive>`; the `.sha256` sidecar must sit next to
    the archive. The installer verifies that sidecar before extraction, refuses to overwrite an
@@ -142,14 +148,15 @@ This command:
 
 1. Builds the latest backend and nginx images in their pinned Docker build environments.
 2. Builds and exports the versioned mounted worker kit.
-3. Regenerates `images/codify-offline-images.tar.gz`.
+3. Regenerates `images/codify-offline-images-<arch>.tar.gz` for every platform in
+   `IMAGE_PLATFORMS`, building the app images on that platform's builder.
 4. Packages the entire `deploy/offline-bundle/` directory as `deploy/codify-offline-bundle.tar.gz`.
 
 ## Notes
 
 - The scheduler runs database migrations automatically on startup (`AUTO_MIGRATE=true`); `backend` stays at `AUTO_MIGRATE=false` so the two processes never race on Alembic.
 - `backend` and `scheduler` need access to the local Docker socket because worker containers are created dynamically.
-- `scripts/load-images.sh` loads the backend, nginx, Postgres, and any explicitly configured runtime images in the archive.
+- `scripts/load-images.sh` loads the backend, nginx, Postgres, and any explicitly configured runtime images from this host's architecture archive.
 - If you set or change `WORKER_IMAGE` in `config/.env.offline`, include an image with the same tag through `config/worker-images.txt` or load it separately on every worker Docker host.
 - Copy `config/worker-images.txt.example` to `config/worker-images.txt` before export and list
   all project runtime images that must be available offline.

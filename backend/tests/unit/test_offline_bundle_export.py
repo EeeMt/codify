@@ -278,8 +278,12 @@ def test_export_images_script_creates_missing_output_directory():
         docker_args_log = root / "docker-args.log"
         docker = fake_bin / "docker"
         docker.write_text(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_ARGS_LOG\"\n"
-            "printf 'fake image archive'\n",
+            "#!/bin/sh\n"
+            "case \"${1:-}\" in\n"
+            "  info) printf 'x86_64\\n' ;;\n"
+            "  image) printf 'amd64\\n' ;;\n"
+            "  save) printf '%s\\n' \"$@\" > \"$DOCKER_ARGS_LOG\"; printf 'fake image archive' ;;\n"
+            "esac\n",
             encoding="utf-8",
         )
         docker.chmod(docker.stat().st_mode | stat.S_IEXEC)
@@ -300,7 +304,7 @@ def test_export_images_script_creates_missing_output_directory():
 
         assert result.returncode == 0, result.stderr
         images_dir = root / "offline-bundle" / "images"
-        archive = images_dir / "codify-offline-images.tar.gz"
+        archive = images_dir / "codify-offline-images-amd64.tar.gz"
         assert gzip.decompress(archive.read_bytes()) == b"fake image archive"
         assert (images_dir / "SHA256SUMS").is_file()
         assert docker_args_log.read_text(encoding="utf-8").splitlines() == [
@@ -337,6 +341,54 @@ def test_export_images_script_creates_missing_output_directory():
             "codify-worker/java21-maven:2026.07",
             "team/node22-pnpm:2026.07",
         ]
+
+
+def test_export_images_script_rejects_daemon_of_another_architecture():
+    repo_root = Path(__file__).resolve().parents[3]
+    script_path = repo_root / "deploy" / "offline-bundle" / "scripts" / "export-images.sh"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        scripts_dir = root / "offline-bundle" / "scripts"
+        scripts_dir.mkdir(parents=True)
+        script_copy = scripts_dir / "export-images.sh"
+        shutil.copy2(script_path, script_copy)
+        script_copy.chmod(script_copy.stat().st_mode | stat.S_IEXEC)
+
+        fake_bin = root / "bin"
+        fake_bin.mkdir()
+        docker_args_log = root / "docker-args.log"
+        docker = fake_bin / "docker"
+        docker.write_text(
+            "#!/bin/sh\n"
+            "case \"${1:-}\" in\n"
+            "  info) printf 'aarch64\\n' ;;\n"
+            "  image) printf 'arm64\\n' ;;\n"
+            "  save) printf '%s\\n' \"$@\" >> \"$DOCKER_ARGS_LOG\"; printf 'fake image archive' ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        docker.chmod(docker.stat().st_mode | stat.S_IEXEC)
+
+        result = subprocess.run(
+            [str(script_copy)],
+            cwd=root,
+            env={
+                **os.environ,
+                "DOCKER_ARGS_LOG": str(docker_args_log),
+                "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        # The default platform is linux/amd64, so an aarch64 daemon would save
+        # the wrong architecture; the export must fail instead.
+        assert result.returncode == 2
+        assert "arm64" in result.stderr and "amd64" in result.stderr
+        assert not list((root / "offline-bundle" / "images").glob("*.tar.gz"))
+        assert not docker_args_log.exists()
 
 
 def test_verify_runtime_scripts_mount_claude_without_breaking_docker_args():
@@ -595,7 +647,13 @@ def test_package_bundle_script_creates_archive_under_deploy_directory():
         )
         (scripts_dir / "verify-worker-runtime.sh").chmod(0o755)
         (bundle_dir / "README.md").write_text("offline bundle", encoding="utf-8")
-        (images_dir / "codify-offline-images.tar.gz").write_text("image archive", encoding="utf-8")
+        (images_dir / "codify-offline-images-amd64.tar.gz").write_text(
+            "image archive", encoding="utf-8"
+        )
+        # An archive for a platform that is not declared below must not ship.
+        (images_dir / "codify-offline-images-arm64.tar.gz").write_text(
+            "stale arm64 image archive", encoding="utf-8"
+        )
         real_kit, fixture_manifest, artifact, fake_docker = _runtime_verifier_fixture(tmp_path / "source-kit")
         shutil.copy2(repo_root / "deploy/worker-kit/verify-runtime.sh", real_kit / "verify-runtime.sh")
         (real_kit / "verify-runtime.sh").chmod(0o755)
@@ -623,6 +681,7 @@ def test_package_bundle_script_creates_archive_under_deploy_directory():
         result = subprocess.run(
             [str(script_copy)],
             cwd=tmp_path,
+            env={**os.environ, "IMAGE_PLATFORMS": "linux/amd64"},
             capture_output=True,
             text=True,
             check=False,
@@ -639,9 +698,13 @@ def test_package_bundle_script_creates_archive_under_deploy_directory():
 
         with tarfile.open(archive_path, "r:gz") as archive:
             names = archive.getnames()
+            staged_sums = archive.extractfile("offline-bundle/images/SHA256SUMS").read().decode()
 
         assert "offline-bundle/README.md" in names
-        assert "offline-bundle/images/codify-offline-images.tar.gz" in names
+        assert "offline-bundle/images/codify-offline-images-amd64.tar.gz" in names
+        assert "offline-bundle/images/codify-offline-images-arm64.tar.gz" not in names
+        assert "codify-offline-images-amd64.tar.gz" in staged_sums
+        assert "codify-offline-images-arm64.tar.gz" not in staged_sums
         assert f"offline-bundle/kits/{kit_archive.name}" in names
         assert f"offline-bundle/kits/{legacy_archive.name}" not in names
         assert "offline-bundle/scripts/verify-worker-runtime.sh" in names
