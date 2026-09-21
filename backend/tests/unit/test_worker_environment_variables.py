@@ -56,27 +56,26 @@ class WorkerEnvironmentVariableHelperTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "reserved"):
             validate_worker_environment_variable_key("TASK_ID")
 
-    def test_validate_worker_environment_variable_key_rejects_frozen_provider_namespaces(self) -> None:
+    def test_validate_worker_environment_variable_key_reserves_codify_but_allows_harness_namespaces(self) -> None:
         for key in (
             "CODIFY_MODEL_PROTOCOL",
-            "OPENAI_API_KEY",
-            "PI_MODEL",
-            "OPENCODE_API_KEY",
             "CODIFY_HARNESS_KEY",
-            "CODIFY_RUNTIME_BUNDLE_DIGEST",
-            "CODIFY_RUNTIME_CONTRACT_VERSION",
-            "CODIFY_RUNTIME_EVENT_SCHEMA",
-            "CODIFY_HARNESS_MODEL_PROTOCOLS",
-            "CODIFY_HARNESS_CONTROL_TRANSPORT_KIND",
-            "CODIFY_HARNESS_CONTROL_TRANSPORT_PROTOCOL",
-            "ANTHROPIC_FUTURE_PROVIDER_OPTION",
-            "CLAUDE_FUTURE_OPTION",
-            "CODEX_FUTURE_OPTION",
             "CODIFY_FUTURE_OPTION",
-            "OPENAI_FUTURE_PROVIDER_OPTION",
         ):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, "reserved"):
                 validate_worker_environment_variable_key(key)
+
+        for key in (
+            "ANTHROPIC_FUTURE_PROVIDER_OPTION",
+            "CLAUDE_FUTURE_OPTION",
+            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+            "CODEX_FUTURE_OPTION",
+            "OPENAI_FUTURE_PROVIDER_OPTION",
+            "OPENCODE_FUTURE_OPTION",
+            "PI_FUTURE_OPTION",
+        ):
+            with self.subTest(key=key):
+                self.assertEqual(validate_worker_environment_variable_key(key), key)
 
     def test_secret_api_serialization_hides_value(self) -> None:
         row = WorkerEnvironmentVariable(

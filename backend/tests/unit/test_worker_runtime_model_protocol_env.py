@@ -98,9 +98,6 @@ def test_openai_snapshot_emits_no_anthropic_credentials():
         ("anthropic_messages", "CODIFY_EVENT_SCHEMA"),
         ("anthropic_messages", "CODIFY_ADAPTER_VERSION"),
         ("anthropic_messages", "CODIFY_ATTEMPT_ID"),
-        # The profile/shared environment overlay is merged after the frozen
-        # Provider values.  It must also be unable to redirect the selected
-        # adapter runner or substitute a CLI/bundle transport input.
         ("anthropic_messages", "CODIFY_HARNESS_COMMAND"),
         ("anthropic_messages", "CODIFY_HARNESS_CLI_BIN"),
         ("anthropic_messages", "CODIFY_HARNESS_MODEL_PROTOCOL"),
@@ -109,13 +106,9 @@ def test_openai_snapshot_emits_no_anthropic_credentials():
         ("anthropic_messages", "CODIFY_MODEL_PROVIDER_OPTIONS_JSON"),
         ("anthropic_messages", "CODIFY_PI_BIN"),
         ("anthropic_messages", "CODIFY_OPENCODE_BIN"),
-        ("anthropic_messages", "OPENCODE_PROVIDER_NPM"),
-        ("anthropic_messages", "PI_HOME"),
-        ("anthropic_messages", "CODEX_HOME"),
-        ("anthropic_messages", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"),
     ],
 )
-def test_custom_environment_cannot_override_or_mix_frozen_provider_values(protocol, custom_key):
+def test_custom_environment_rejects_codify_owned_and_exact_reserved_values(protocol, custom_key):
     task, issue, provider = _task_issue_provider(protocol)
     with pytest.raises(ValueError, match="reserved"):
         build_container_env(
@@ -127,6 +120,31 @@ def test_custom_environment_cannot_override_or_mix_frozen_provider_values(protoc
             custom_environment={custom_key: "custom-value"},
             settings=_settings(),
         )
+
+
+@pytest.mark.parametrize(
+    "custom_key",
+    [
+        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+        "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+        "CODEX_HOME",
+        "OPENCODE_PROVIDER_NPM",
+        "PI_HOME",
+    ],
+)
+def test_custom_environment_accepts_harness_owned_keys(custom_key):
+    task, issue, provider = _task_issue_provider("anthropic_messages")
+    env = build_container_env(
+        task,
+        issue,
+        None,
+        None,
+        provider,
+        custom_environment={custom_key: "custom-value"},
+        settings=_settings(),
+    )
+
+    assert env[custom_key] == "custom-value"
 
 
 def test_custom_environment_preserves_uncontrolled_keys():
