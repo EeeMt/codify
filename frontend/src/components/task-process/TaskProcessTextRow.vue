@@ -59,6 +59,7 @@ import { BulbOutline, ChatboxOutline, ChevronForward } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { formatEventDuration, formatTimestamp, renderMarkdown, type NormalizedTextEventRow } from './taskProcessUtils'
 import { formatDurationSec } from '../../utils/format'
+import { parseUtcDate } from '../../utils/datetime'
 import TaskProcessAgentBadge from './TaskProcessAgentBadge.vue'
 
 const props = withDefaults(defineProps<{
@@ -66,7 +67,7 @@ const props = withDefaults(defineProps<{
   expandedText: string
   loading: boolean
   showContent: boolean
-  // Shared monotonic wall clock owned by the panel; ticks only while the task runs.
+  // Shared server-aligned clock owned by the panel; ticks only while the task runs.
   nowMs?: number
   // Whether the parent task is still running. An in_progress record without an
   // active task is displayed as interrupted (the server may still complete it).
@@ -105,9 +106,10 @@ const showAssistantSpinner = computed(() => isStreamingAssistant.value && props.
 const showLiveSpinner = computed(() => showThinkingSpinner.value || showAssistantSpinner.value)
 
 const startedAtMs = computed<number | null>(() => {
-  const iso = props.row.textEntry.startedAt
-  if (!iso) return null
-  const ms = new Date(iso).getTime()
+  if (!props.row.textEntry.startedAt) return null
+  // TaskLog.created_at is written by the API host. The canonical event's
+  // started_at may come from a Worker host with a different wall clock.
+  const ms = parseUtcDate(props.row.event.created_at).getTime()
   return Number.isFinite(ms) ? ms : null
 })
 

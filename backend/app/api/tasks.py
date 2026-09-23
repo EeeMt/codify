@@ -722,6 +722,9 @@ async def get_task(
         # legacy raw-payload message, never replaces a structured reason.
         failure_summary["failure_message"] = archived_failure_detail
     result_data.update(failure_summary)
+    # The Task Process panel uses this as a clock anchor so a browser whose
+    # wall clock differs from the API host does not skew live elapsed time.
+    result_data["server_now"] = utcnow().isoformat()
     t4 = time.time()
 
     total = t4 - t0

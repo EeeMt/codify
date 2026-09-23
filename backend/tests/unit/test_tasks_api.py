@@ -2436,6 +2436,7 @@ class GetTaskEndpointTests(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["id"], 42)
         self.assertEqual(data["status"], "running")
+        self.assertIsInstance(data["server_now"], str)
 
     def test_get_task_returns_404_when_not_found(self):
         """GET /api/tasks/{id} should return 404 when task does not exist."""

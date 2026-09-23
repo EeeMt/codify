@@ -241,6 +241,7 @@ const scrollPositions = reactive<Record<ProcessTab, ScrollPosition>>({
 })
 const elapsedMs = ref(0)
 const nowMs = ref(Date.now())
+const serverClock = ref<{ serverMs: number; clientMs: number } | null>(null)
 const expandedRowId = ref<number | null>(null)
 const navigationRevealed = ref(false)
 
@@ -397,25 +398,46 @@ function onCollapseChange(expandedNames: (string | number)[], eventRow: Normaliz
   }
 }
 
-function updateElapsed() {
+function syncServerClock() {
+  const serverMs = props.task?.server_now
+    ? parseUtcDate(props.task.server_now).getTime()
+    : Number.NaN
+  serverClock.value = Number.isFinite(serverMs)
+    ? { serverMs, clientMs: Date.now() }
+    : null
+}
+
+function currentServerMs(): number {
+  const clock = serverClock.value
+  return clock ? clock.serverMs + Date.now() - clock.clientMs : Date.now()
+}
+
+function updateElapsed(currentMs = currentServerMs()) {
   if (!props.task?.started_at) return
   try {
-    const ms = Date.now() - parseUtcDate(props.task.started_at).getTime()
+    const ms = currentMs - parseUtcDate(props.task.started_at).getTime()
     elapsedMs.value = ms > 0 ? ms : 0
   } catch {
     elapsedMs.value = 0
   }
 }
 
+watch(() => [props.task?.id, props.task?.server_now], () => {
+  syncServerClock()
+  if (props.isActive) {
+    nowMs.value = currentServerMs()
+    updateElapsed(nowMs.value)
+  }
+}, { immediate: true })
+
 watch(() => props.isActive, (active) => {
   if (active) {
-    // Refresh the shared clock once on activation, then each tick — rows with
-    // in_progress thinking records derive their elapsed time from nowMs only.
-    nowMs.value = Date.now()
-    updateElapsed()
+    // Refresh the server-aligned clock once on activation, then each tick.
+    nowMs.value = currentServerMs()
+    updateElapsed(nowMs.value)
     elapsedTimer = setInterval(() => {
-      nowMs.value = Date.now()
-      updateElapsed()
+      nowMs.value = currentServerMs()
+      updateElapsed(nowMs.value)
     }, 1000)
   } else {
     if (elapsedTimer) {

@@ -826,4 +826,24 @@ describe('TaskProcessPanel', () => {
     await wrapper.setProps({ isActive: false })
     expect(textRow.props('taskActive')).toBe(false)
   })
+
+  it('anchors live elapsed time to the API server clock', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.parse('2026-04-23T09:55:00Z'))
+    const wrapper = mount(TaskProcessPanel, {
+      props: {
+        task: {
+          ...createTask('running'),
+          started_at: '2026-04-23T10:00:00Z',
+          server_now: '2026-04-23T10:05:00Z',
+        },
+        taskLogs: [],
+        isActive: true,
+        terminalHtml: '',
+        taskStatus: 'running',
+      },
+    })
+
+    expect(wrapper.get('.elapsed-time').text()).toBe('5m 0s')
+  })
 })

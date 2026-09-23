@@ -8,6 +8,7 @@ const { renderMarkdownMock } = vi.hoisted(() => ({
 }))
 
 vi.mock('vue-i18n', () => ({
+  createI18n: () => ({ global: { locale: { value: 'zh-CN' } } }),
   useI18n: () => ({
     // Plain keys render verbatim; interpolated messages surface as `key:time`
     // so tests can assert the translated-message shape without hardcoding locale.
@@ -125,7 +126,10 @@ describe('TaskProcessTextRow', () => {
       props: {
         row: {
           kind: 'thinking',
-          event: createTaskLog(),
+          event: {
+            ...createTaskLog(),
+            created_at: '2026-09-04T01:00:00Z',
+          },
           textEntry: {
             text: '',
             preview: '',
@@ -160,6 +164,40 @@ describe('TaskProcessTextRow', () => {
     await wrapper.setProps({ nowMs: Date.parse('2026-09-04T01:00:38Z') })
     expect(wrapper.get('.event-name').text()).toContain('38s')
     expect(renderMarkdownMock).not.toHaveBeenCalled()
+  })
+
+  it('uses the server-created TaskLog time for live thinking elapsed time', () => {
+    const wrapper = mount(TaskProcessTextRow, {
+      props: {
+        row: {
+          kind: 'thinking',
+          event: {
+            ...createTaskLog(),
+            created_at: '2026-09-04T01:00:00Z',
+          },
+          textEntry: {
+            text: '',
+            preview: '',
+            payloadId: null,
+            charCount: 0,
+            truncated: false,
+            thinkingStatus: 'in_progress',
+            // Deliberately skewed Worker timestamp.
+            startedAt: '2026-09-04T00:50:00Z',
+            endedAt: null,
+            durationMs: null,
+          },
+        },
+        expandedText: '',
+        loading: false,
+        showContent: false,
+        nowMs: Date.parse('2026-09-04T01:00:15Z'),
+        taskActive: true,
+      },
+    })
+
+    expect(wrapper.get('.event-name').text()).toContain('15s')
+    expect(wrapper.get('.event-name').text()).not.toContain('10m')
   })
 
   it('keeps explicit thinking content expandable while the lifecycle row is active', async () => {

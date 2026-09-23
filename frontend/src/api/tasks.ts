@@ -168,6 +168,7 @@ export interface Task {
   skill_selection_source: 'profile' | 'task'
   created_at: string
   updated_at: string
+  server_now?: string
   started_at: string | null
   execution_timeout_seconds: number | null
   execution_deadline_at: string | null
