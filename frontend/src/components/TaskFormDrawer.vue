@@ -587,19 +587,6 @@
                         >
                           {{ t('createTask.harnessProviderMismatchHint') }}
                         </div>
-                        <div
-                          v-if="harnessCatalogStatusRows.length"
-                          class="execution-environment__field-hint execution-environment__harness-status"
-                          data-testid="task-harness-catalog-status"
-                        >
-                          <div
-                            v-for="row in harnessCatalogStatusRows"
-                            :key="row.key"
-                            data-testid="task-harness-catalog-status-row"
-                          >
-                            {{ row.label }} · {{ row.status }}<span v-if="row.reason"> · {{ row.reason }}</span>
-                          </div>
-                        </div>
                       </label>
                     </div>
                     <div
@@ -1436,50 +1423,6 @@ function harnessDisplayLabel(key: string): string {
         : t('createTask.harnessClaude')
 }
 
-function harnessCatalogReasonLabel(reason: string | null | undefined): string {
-  switch (reason) {
-    case 'not_selected':
-      return t('createTask.harnessReasonNotSelected')
-    case 'missing_payload':
-      return t('createTask.harnessReasonMissingPayload')
-    case 'profile_disabled':
-      return t('createTask.harnessReasonProfileDisabled')
-    case 'harness_disabled':
-      return t('createTask.harnessReasonHarnessDisabled')
-    case 'worker_profile_unavailable':
-      return t('createTask.harnessReasonWorkerProfileUnavailable')
-    case 'worker_kit_unavailable':
-      return t('createTask.harnessReasonWorkerKitUnavailable')
-    case 'runtime_not_verified':
-      return t('createTask.harnessReasonRuntimeNotVerified')
-    case 'host_mount':
-      return t('createTask.harnessReasonHostMount')
-    case 'task_harness_bound':
-      return t('createTask.harnessReasonTaskHarnessBound')
-    default:
-      return reason ? t('createTask.harnessReasonUnknown') : ''
-  }
-}
-
-const harnessCatalogStatusRows = computed(() => {
-  if (!harnessCatalog.value?.some(entry => typeof entry.enabled === 'boolean')) return []
-  return harnessCatalog.value
-    .filter(entry => entry.enabled === false || entry.availability !== 'present')
-    .map(entry => ({
-      key: entry.key,
-      label: harnessDisplayLabel(entry.key),
-      status: entry.enabled === false
-        ? t('createTask.harnessDisabled')
-        : entry.availability === 'unavailable'
-          ? t('createTask.harnessUnavailable')
-          : t('createTask.harnessNotVerified'),
-      reason: harnessCatalogReasonLabel(
-        entry.enabled === false
-          ? entry.disabled_reason ?? entry.reason_code
-          : entry.availability_reason ?? entry.reason_code,
-      ),
-    }))
-})
 const executionEnvironmentOverridden = computed(() =>
   selectedProviderId.value !== null || !inheritProfileSkills.value || harnessOptionsDirty.value
 )

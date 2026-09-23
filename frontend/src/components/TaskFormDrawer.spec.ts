@@ -1141,7 +1141,7 @@ describe('TaskFormDrawer', () => {
       expect(wrapper.find('[data-testid="task-harness-locked-hint"]').exists()).toBe(false)
     })
 
-    it('shows catalog availability and profile-disabled reasons while disabling unsafe choices', async () => {
+    it('disables unsafe catalog choices without rendering catalog status rows', async () => {
       mockApi.getWorkerProfiles.mockResolvedValue([
         { ...mockWorkerProfiles[0], enabled_harnesses: ['claude', 'pi'] },
       ])
@@ -1162,10 +1162,7 @@ describe('TaskFormDrawer', () => {
       const harnessSelect = wrapper.get('[data-testid="task-harness-select"]')
       expect(harnessSelect.find('option[value="pi"]').attributes('disabled')).toBeDefined()
       expect(harnessSelect.find('option[value="codex"]').attributes('disabled')).toBeDefined()
-      const status = wrapper.get('[data-testid="task-harness-catalog-status"]')
-      expect(status.text()).toContain('createTask.harnessUnavailable')
-      expect(status.text()).toContain('createTask.harnessReasonMissingPayload')
-      expect(status.text()).toContain('createTask.harnessDisabled')
+      expect(wrapper.find('[data-testid="task-harness-catalog-status"]').exists()).toBe(false)
     })
 
     it('restores the issue harness when fresh-session mode is turned off', async () => {
