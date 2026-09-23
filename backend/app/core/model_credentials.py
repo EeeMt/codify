@@ -7,7 +7,6 @@ snapshot can only be soft-retired, never hard-deleted.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -19,6 +18,7 @@ from app.core.config_crypto import (
     decrypt_config_secret,
     encrypt_config_secret,
 )
+from app.core.utcnow import utcnow
 from app.models import ModelCredential, TaskWorkerProfileSnapshot
 
 
@@ -78,7 +78,7 @@ async def soft_retire_credential(db: AsyncSession, ref: str) -> None:
     if credential.status == "revoked":
         raise CredentialError(f"credential {ref} is revoked; cannot be retired")
     credential.status = "retired"
-    credential.retired_at = datetime.now(UTC)
+    credential.retired_at = utcnow()
     await db.flush()
 
 

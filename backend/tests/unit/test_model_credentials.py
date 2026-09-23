@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -82,7 +84,14 @@ async def test_create_and_resolve_active_credential(session_factory):
 async def test_retired_credential_blocks_new_selection_but_allows_retry(session_factory):
     async with session_factory() as db:
         credential = await create_model_credential(db, name="ds key", secret="sk-x")
-        await soft_retire_credential(db, credential.ref)
+        expected_retired_at = datetime(2026, 9, 21, 5, 25)
+        with patch(
+            "app.core.model_credentials.utcnow", return_value=expected_retired_at
+        ) as mocked_utcnow:
+            await soft_retire_credential(db, credential.ref)
+        mocked_utcnow.assert_called_once_with()
+        assert credential.retired_at == expected_retired_at
+        assert credential.retired_at.tzinfo is None
         with pytest.raises(CredentialError):
             await resolve_task_credential(db, credential.ref)
         resolved = await resolve_task_credential(db, credential.ref, allow_retired=True)
