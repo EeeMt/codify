@@ -554,12 +554,12 @@ def test_probe_keeps_legacy_v1_manifest_compatible_but_v2_requires_inventory():
     assert v2_result.failure_code == FAILURE_WORKER_KIT_INVALID
 
 
-def test_v2_probe_accepts_only_installer_managed_content_addressed_path():
+def test_v2_probe_accepts_operator_selected_kit_path():
     manifest = _valid_manifest()
     receipt = _valid_install_receipt(manifest)
     client = _make_probe_client(manifest=manifest, receipt=receipt)
     manifest_sha = hashlib.sha256(manifest).hexdigest()
-    kit_path = f"/opt/codify/worker-kits/0.3.5-linux-amd64-{manifest_sha[:12]}"
+    kit_path = "/srv/codify/kits/production-kit"
     with patch(
         "app.core.worker_runtime_readiness.DockerClientWrapper", return_value=client
     ):
@@ -575,25 +575,12 @@ def test_v2_probe_accepts_only_installer_managed_content_addressed_path():
     assert result.kit_identity["manifest_sha256"] == manifest_sha
 
 
-@pytest.mark.parametrize(
-    "kit_path,receipt_change",
-    [
-        ("/opt/codify/worker-kits/current", {}),
-        (None, {"manifest_sha256": "b" * 64}),
-    ],
-)
-def test_v2_probe_rejects_mutable_alias_or_mismatched_install_receipt(
-    kit_path: str | None, receipt_change: dict[str, str]
-):
+def test_v2_probe_rejects_mismatched_install_receipt():
     manifest = _valid_manifest()
     receipt_data = json.loads(_valid_install_receipt(manifest))
-    receipt_data.update(receipt_change)
+    receipt_data["manifest_sha256"] = "b" * 64
     receipt = json.dumps(receipt_data).encode()
     client = _make_probe_client(manifest=manifest, receipt=receipt)
-    manifest_sha = hashlib.sha256(manifest).hexdigest()
-    actual_path = kit_path or (
-        f"/opt/codify/worker-kits/0.3.5-linux-amd64-{manifest_sha[:12]}"
-    )
     with patch(
         "app.core.worker_runtime_readiness.DockerClientWrapper", return_value=client
     ):
@@ -602,7 +589,7 @@ def test_v2_probe_rejects_mutable_alias_or_mismatched_install_receipt(
             image="worker:latest",
             runtime_mode="mounted_kit",
             worker_kit_version="0.3.5",
-            worker_kit_path=actual_path,
+            worker_kit_path="/srv/codify/kits/production-kit",
             require_content_inventory=True,
         )
     assert result.status == READINESS_UNAVAILABLE

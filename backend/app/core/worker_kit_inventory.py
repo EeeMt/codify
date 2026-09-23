@@ -347,11 +347,9 @@ def validate_installer_managed_kit_provenance(
 
     The installer is the authority that publishes a Kit.  A normal Task does
     not repeat the full archive/content scan, so the administrative probe must
-    establish that the selected host path is the installer's exact
-    content-addressed directory and that its receipt agrees with the manifest.
-    The archive digest in the receipt is evidence of the install operation;
-    the manifest digest, path suffix, version, platform, and inventory digest
-    are independently checked here.
+    establish that the selected host path has a valid install receipt and that
+    the receipt agrees with the manifest.  The host directory name is an
+    operator-controlled locator, not part of the Kit identity.
     """
     if not isinstance(worker_kit_path, str) or not worker_kit_path.startswith("/"):
         raise HarnessInventoryError("Worker Kit install path must be absolute")
@@ -363,15 +361,11 @@ def validate_installer_managed_kit_provenance(
         manifest_bytes,
         require_content_inventory=True,
     )
-    expected_name = (
+    expected_archive_name = (
         f"{identity['kit_version']}-"
         f"{identity['platform'].replace('/', '-')}-"
         f"{identity['manifest_sha256'][:12]}"
     )
-    if posixpath.basename(normalized_path) != expected_name:
-        raise HarnessInventoryError(
-            "Worker Kit path is not the content-addressed installer directory"
-        )
 
     try:
         receipt = json.loads(receipt_bytes.decode("utf-8"))
@@ -395,7 +389,7 @@ def validate_installer_managed_kit_provenance(
         if not _is_sha256(receipt[key]):
             raise HarnessInventoryError(f"Worker Kit install receipt has an invalid {key}")
 
-    expected_archive = f"codify-worker-kit-{expected_name}.tar.gz"
+    expected_archive = f"codify-worker-kit-{expected_archive_name}.tar.gz"
     manifest = json.loads(manifest_bytes.decode("utf-8"))
     if (
         receipt["archive"] != expected_archive
@@ -404,7 +398,7 @@ def validate_installer_managed_kit_provenance(
         or receipt["kit_version"] != identity["kit_version"]
         or receipt["platform"] != identity["platform"]
     ):
-        raise HarnessInventoryError("Worker Kit install receipt does not match its manifest or path")
+        raise HarnessInventoryError("Worker Kit install receipt does not match its manifest")
     return {
         "schema": INSTALL_RECEIPT_SCHEMA,
         **{key: receipt[key] for key in required},
