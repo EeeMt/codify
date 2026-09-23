@@ -658,12 +658,6 @@
                 </n-form-item>
               </n-gi>
               <n-gi v-if="workerFormValue.worker_kit_source === 'profile' && workerFormValue.runtime_mode === 'mounted_kit'">
-                <n-form-item :label="t('config.workerKitVersion')">
-                  <code>{{ detectedProfileWorkerKitVersion || '—' }}</code>
-                  <template #feedback>{{ t('config.workerKitVersionDetectedHint') }}</template>
-                </n-form-item>
-              </n-gi>
-              <n-gi v-if="workerFormValue.worker_kit_source === 'profile' && workerFormValue.runtime_mode === 'mounted_kit'">
                 <n-form-item :label="t('config.workerKitPath')">
                   <n-input
                     v-model:value="workerFormValue.worker_kit_path"
@@ -1256,7 +1250,6 @@ type WorkerFormValue = {
   image: string
   worker_kit_source: 'system' | 'profile'
   runtime_mode: 'baked_image' | 'mounted_kit'
-  worker_kit_version: string
   worker_kit_path: string
   use_system_docker: boolean
   docker_host: string
@@ -1304,7 +1297,6 @@ type EnvironmentVariableFormItem = {
 type SharedFormValue = {
   revision: number
   runtime_mode: 'baked_image' | 'mounted_kit'
-  worker_kit_version: string
   worker_kit_path: string
   mounts: WorkerProfileMount[]
   environment_variables: EnvironmentVariableFormItem[]
@@ -1390,7 +1382,6 @@ const workerFormValue = ref<WorkerFormValue>({
   image: '',
   worker_kit_source: 'system',
   runtime_mode: 'mounted_kit',
-  worker_kit_version: '',
   worker_kit_path: '',
   use_system_docker: true,
   docker_host: '',
@@ -1683,7 +1674,6 @@ function mapProfileToWorkerFormValue(
     image: profile?.image ?? '',
     worker_kit_source: profile?.worker_kit_source ?? (profile?.overrides?.worker_kit ? 'profile' : 'system'),
     runtime_mode: profile?.runtime_mode ?? 'mounted_kit',
-    worker_kit_version: profile?.worker_kit_version ?? '',
     worker_kit_path: profile?.worker_kit_path ?? '',
     use_system_docker: !profile?.docker_host,
     docker_host: profile?.docker_host ?? '',
@@ -1735,7 +1725,6 @@ function cloneWorkerFormValue(value: WorkerFormValue): WorkerFormValue {
     image: value.image,
     worker_kit_source: value.worker_kit_source,
     runtime_mode: value.runtime_mode,
-    worker_kit_version: value.worker_kit_version,
     worker_kit_path: value.worker_kit_path,
     use_system_docker: value.use_system_docker,
     docker_host: value.docker_host,
@@ -1778,7 +1767,6 @@ function mapSharedConfigurationToForm(shared: WorkerSharedConfiguration): Shared
   return {
     revision: shared.revision,
     runtime_mode: shared.runtime_mode,
-    worker_kit_version: shared.worker_kit_version ?? '',
     worker_kit_path: shared.worker_kit_path ?? '',
     mounts: parseMounts(shared.volume_mounts),
     environment_variables: parseEnvironmentVariables(shared.environment_variables),
@@ -1950,7 +1938,6 @@ function createEmptySharedFormValue(): SharedFormValue {
   return {
     revision: 0,
     runtime_mode: 'mounted_kit',
-    worker_kit_version: '',
     worker_kit_path: '',
     mounts: [],
     environment_variables: [],
@@ -1972,7 +1959,6 @@ function createEmptyWorkerFormValue(): WorkerFormValue {
     image: '',
     worker_kit_source: 'system',
     runtime_mode: 'mounted_kit',
-    worker_kit_version: '',
     worker_kit_path: '',
     use_system_docker: true,
     docker_host: '',
@@ -2071,7 +2057,6 @@ function setWorkerKitFollowsSystem(followsSystem: boolean) {
   workerFormValue.value.worker_kit_source = followsSystem ? 'system' : 'profile'
   if (!followsSystem) {
     workerFormValue.value.runtime_mode = sharedFormValue.value.runtime_mode
-    workerFormValue.value.worker_kit_version = sharedFormValue.value.worker_kit_version
     workerFormValue.value.worker_kit_path = sharedFormValue.value.worker_kit_path
   }
 }
@@ -2479,7 +2464,6 @@ function handleCreateProfile() {
   const draft = createEmptyWorkerFormValue()
   draft.image = workerFormValue.value.image || 'codify-worker/java21-maven:2026.07'
   draft.runtime_mode = sharedFormValue.value.runtime_mode
-  draft.worker_kit_version = sharedFormValue.value.worker_kit_version
   draft.worker_kit_path = sharedFormValue.value.worker_kit_path
   draft.shared_revision = sharedFormValue.value.revision
   draft.mounts = composeProfileMounts(sharedFormValue.value.mounts, [], [])

@@ -666,7 +666,6 @@ describe('WorkerSettingsPanel', () => {
     expect(vm.workerFormValue.worker_pre_script).toBe(null)
     vm.setWorkerKitFollowsSystem(false)
     expect(vm.workerFormValue.worker_kit_source).toBe('profile')
-    expect(vm.workerFormValue.worker_kit_version).toBe('0.4.0')
 
     vm.setScriptFollowsSystem('pre', false)
     expect(vm.workerFormValue.worker_pre_script).toBe('echo shared pre')
@@ -1038,11 +1037,10 @@ describe('WorkerSettingsPanel', () => {
 
     const vm = wrapper.vm as any
     expect(vm.workerFormValue.runtime_mode).toBe('mounted_kit')
-    expect(vm.workerFormValue.worker_kit_version).toBe('0.1.0')
     expect(vm.workerFormValue.worker_kit_path).toBe(
       '/opt/codify/worker-kits/0.1.0-linux-amd64'
     )
-    expect(wrapper.text()).toContain('config.workerKitVersionDetectedHint')
+    expect(wrapper.text()).not.toContain('config.workerKitVersion')
     expect(wrapper.text()).toContain('config.workerKitPath')
 
     vm.workerFormValue.worker_kit_path = '/opt/codify/worker-kits/0.2.0-linux-amd64'
