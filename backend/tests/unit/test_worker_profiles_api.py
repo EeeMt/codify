@@ -769,6 +769,14 @@ async def test_set_default_rejects_disabled_profile():
 @pytest.mark.asyncio
 async def test_update_assigned_worker_allows_unchanged_docker_target_fields():
     profile = _make_profile(id=11)
+    profile.image_digest = "sha256:verified"
+    profile.verified_at = datetime(2026, 1, 2)
+    profile.verified_runtime_configuration_digest = "same-runtime-inputs"
+    profile.v2_worker_image_identity = {"image_id": "sha256:verified"}
+    profile.v2_harness_verification_evidence = {"claude": {"status": "present"}}
+    profile.v2_worker_image_identity_generation = 6
+    profile.worker_kit_identity = {"kit_version": "0.3.5"}
+    profile.worker_kit_identity_generation = 4
     db = MagicMock()
     db.get = AsyncMock(
         side_effect=lambda model, pk, **kwargs: profile if model is WorkerProfile else None
@@ -778,20 +786,81 @@ async def test_update_assigned_worker_allows_unchanged_docker_target_fields():
     db.execute = AsyncMock(return_value=SimpleNamespace(rowcount=1))
     db.refresh = AsyncMock()
 
-    response = await update_worker_profile(
-        11,
-        WorkerProfileUpdateRequest(
-            description="Updated description",
-            docker_host=profile.docker_host,
-            docker_tls_ca=profile.docker_tls_ca,
-            docker_tls_cert=profile.docker_tls_cert,
-            docker_tls_key=profile.docker_tls_key,
-        ),
-        db=db,
-    )
+    with patch(
+        "app.api.worker_profiles.current_runtime_verification_digest",
+        return_value="same-runtime-inputs",
+    ):
+        response = await update_worker_profile(
+            11,
+            WorkerProfileUpdateRequest(
+                description="Updated description",
+                docker_host=profile.docker_host,
+                docker_tls_ca=profile.docker_tls_ca,
+                docker_tls_cert=profile.docker_tls_cert,
+                docker_tls_key=profile.docker_tls_key,
+            ),
+            db=db,
+        )
 
     assert response["description"] == "Updated description"
+    assert profile.image_digest == "sha256:verified"
+    assert profile.verified_at == datetime(2026, 1, 2)
+    assert profile.verified_runtime_configuration_digest == "same-runtime-inputs"
+    assert profile.v2_worker_image_identity == {"image_id": "sha256:verified"}
+    assert profile.v2_harness_verification_evidence == {"claude": {"status": "present"}}
+    assert profile.v2_worker_image_identity_generation == 6
+    assert profile.worker_kit_identity == {"kit_version": "0.3.5"}
+    assert profile.worker_kit_identity_generation == 4
     db.execute.assert_not_awaited()
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_update_worker_profile_kit_path_invalidates_runtime_verification():
+    profile = _make_profile(id=11)
+    profile.image_digest = "sha256:verified"
+    profile.verified_at = datetime(2026, 1, 2)
+    profile.verified_runtime_configuration_digest = "old-runtime-inputs"
+    profile.v2_worker_image_identity = {"image_id": "sha256:verified"}
+    profile.v2_harness_verification_evidence = {"claude": {"status": "present"}}
+    profile.v2_worker_image_identity_generation = 6
+    profile.worker_kit_identity = {"kit_version": "0.3.5"}
+    profile.worker_kit_identity_generation = 4
+    db = MagicMock()
+    db.get = AsyncMock(
+        side_effect=lambda model, pk, **kwargs: profile if model is WorkerProfile else None
+    )
+    db.execute = AsyncMock()
+    db.commit = AsyncMock()
+    db.refresh = AsyncMock()
+
+    def digest_for_path(_profile, effective, _settings):
+        return (
+            "old-runtime-inputs"
+            if effective.worker_kit_path.endswith("0.3.5-linux-amd64")
+            else "new-runtime-inputs"
+        )
+
+    with patch(
+        "app.api.worker_profiles.current_runtime_verification_digest",
+        side_effect=digest_for_path,
+    ):
+        await update_worker_profile(
+            11,
+            WorkerProfileUpdateRequest(
+                worker_kit_path="/opt/codify/worker-kits/0.4.0-linux-amd64",
+            ),
+            db=db,
+        )
+
+    assert profile.image_digest is None
+    assert profile.verified_at is None
+    assert profile.verified_runtime_configuration_digest is None
+    assert profile.v2_worker_image_identity is None
+    assert profile.v2_harness_verification_evidence is None
+    assert profile.v2_worker_image_identity_generation == 7
+    assert profile.worker_kit_identity is None
+    assert profile.worker_kit_identity_generation == 5
     db.commit.assert_awaited_once()
 
 

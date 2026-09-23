@@ -310,6 +310,7 @@ from app.core.worker_kit import (
     WorkerKitValidationError,
     validate_no_worker_kit_mount_collision,
     validate_worker_kit_config,
+    validate_worker_kit_write_config,
     worker_kit_mounts,
 )
 from app.core.worker_profiles import TaskWorkerRuntime, WorkerProfileValidationError
@@ -331,15 +332,24 @@ def test_mounted_kit_is_the_new_default_and_requires_coordinates():
         )
 
 
-def test_mounted_mode_requires_version_and_absolute_docker_host_path():
+def test_mounted_mode_derives_version_and_requires_absolute_docker_host_path():
     assert validate_worker_kit_config(
         runtime_mode=MOUNTED_KIT_MODE,
-        worker_kit_version="0.1.0",
+        worker_kit_version=None,
         worker_kit_path="/opt/codify/worker-kits/0.1.0-linux-amd64/../0.1.0-linux-amd64",
     ) == (
         MOUNTED_KIT_MODE,
         "0.1.0",
         "/opt/codify/worker-kits/0.1.0-linux-amd64",
+    )
+    assert validate_worker_kit_write_config(
+        runtime_mode=MOUNTED_KIT_MODE,
+        worker_kit_version="manually-entered-value",
+        worker_kit_path="/opt/codify/worker-kits/0.6.19-linux-amd64-423899206f3b",
+    ) == (
+        MOUNTED_KIT_MODE,
+        "0.6.19",
+        "/opt/codify/worker-kits/0.6.19-linux-amd64-423899206f3b",
     )
 
     with pytest.raises(WorkerKitValidationError, match="absolute"):

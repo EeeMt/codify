@@ -382,7 +382,6 @@ export interface WorkerSharedConfiguration {
 export interface WorkerSharedConfigurationPayload {
   expected_revision: number
   runtime_mode: 'baked_image' | 'mounted_kit'
-  worker_kit_version: string | null
   worker_kit_path: string | null
   volume_mounts: WorkerProfileMount[]
   pre_script: string
@@ -409,7 +408,6 @@ export interface WorkerProfilePayload {
   image?: string
   worker_kit_source?: 'system' | 'profile'
   runtime_mode?: 'baked_image' | 'mounted_kit'
-  worker_kit_version?: string | null
   worker_kit_path?: string | null
   docker_host?: string | null
   docker_tls_ca?: string | null

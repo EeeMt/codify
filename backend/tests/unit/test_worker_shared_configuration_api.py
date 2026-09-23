@@ -9,6 +9,8 @@ patch before commit.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
@@ -25,9 +27,11 @@ from app.api.worker_shared_configuration import (
 from app.config import get_effective_settings
 from app.core.docker_client import resolve_docker_connection
 from app.core.harness_registry import capability_policy
+from app.core.worker_profiles import current_runtime_verification_digest
 from app.core.worker_shared_configuration import (
     WorkerSharedConfigurationContext,
     effective_configuration_digest,
+    load_shared_configuration,
     resolve_effective_configuration,
 )
 from app.models import (
@@ -298,6 +302,60 @@ async def test_patch_shared_configuration_preserves_secret_ciphertext(db_factory
             )
         ).scalar_one()
         assert stored.value == "ciphertext-v1"
+
+
+@pytest.mark.asyncio
+async def test_patch_shared_configuration_invalidates_only_runtime_input_changes(db_factory):
+    session_factory = await db_factory()
+    async with session_factory() as db:
+        await _seed_shared_configuration(db)
+        profile = await _seed_enabled_profile(db)
+        profile.worker_kit_source = "system"
+        await db.refresh(profile, attribute_names=["environment_variables", "default_skills"])
+        shared = await load_shared_configuration(db)
+        effective = resolve_effective_configuration(profile, shared)
+        profile.image_digest = "sha256:verified"
+        profile.verified_at = datetime(2026, 1, 2)
+        profile.verified_runtime_configuration_digest = current_runtime_verification_digest(
+            profile, effective, get_effective_settings()
+        )
+        profile.v2_worker_image_identity = {"image_id": "sha256:verified"}
+        profile.v2_harness_verification_evidence = {"claude": {"status": "present"}}
+        profile.v2_worker_image_identity_generation = 6
+        profile.worker_kit_identity = {"kit_version": "0.4.0"}
+        profile.worker_kit_identity_generation = 4
+        await db.commit()
+
+        await update_shared_configuration(
+            WorkerSharedConfigurationPatchRequest(
+                expected_revision=1,
+                pre_script="shared-pre-v2",
+            ),
+            db=db,
+        )
+        await db.refresh(profile)
+        assert profile.verified_runtime_configuration_digest is not None
+        assert profile.image_digest == "sha256:verified"
+        assert profile.v2_worker_image_identity_generation == 6
+        assert profile.worker_kit_identity_generation == 4
+
+        await update_shared_configuration(
+            WorkerSharedConfigurationPatchRequest(
+                expected_revision=2,
+                worker_kit_path="/opt/codify/worker-kits/0.5.0",
+            ),
+            db=db,
+        )
+        await db.refresh(profile)
+
+    assert profile.image_digest is None
+    assert profile.verified_at is None
+    assert profile.verified_runtime_configuration_digest is None
+    assert profile.v2_worker_image_identity is None
+    assert profile.v2_harness_verification_evidence is None
+    assert profile.v2_worker_image_identity_generation == 7
+    assert profile.worker_kit_identity is None
+    assert profile.worker_kit_identity_generation == 5
 
 
 @pytest.mark.asyncio

@@ -55,11 +55,11 @@ from app.core.worker_kit import (
     MOUNTED_KIT_MODE,
     WorkerKitValidationError,
     validate_no_worker_kit_mount_collision,
-    validate_worker_kit_config,
-    validate_worker_kit_write_config,
     validate_worker_kit_mounts,
+    validate_worker_kit_write_config,
     worker_kit_environment,
     worker_kit_mounts,
+    worker_kit_version_from_path,
 )
 from app.core.worker_kit_inventory import validate_worker_kit_identity
 from app.core.worker_runtime_readiness import (
@@ -590,6 +590,14 @@ def serialize_worker_profile_for_api(
     include_docker_target: bool = False,
 ) -> dict[str, Any]:
     """Serialize one worker profile for API responses."""
+    runtime_mode = getattr(profile, "runtime_mode", BAKED_IMAGE_MODE)
+    worker_kit_path = getattr(profile, "worker_kit_path", None)
+    worker_kit_version = getattr(profile, "worker_kit_version", None)
+    if runtime_mode == MOUNTED_KIT_MODE and worker_kit_path:
+        try:
+            worker_kit_version = worker_kit_version_from_path(worker_kit_path)
+        except WorkerKitValidationError:
+            pass
     payload = {
         "id": profile.id,
         "name": profile.name,
@@ -598,9 +606,9 @@ def serialize_worker_profile_for_api(
         "is_default": profile.is_default,
         "image": profile.image,
         "worker_kit_source": getattr(profile, "worker_kit_source", "profile") or "profile",
-        "runtime_mode": getattr(profile, "runtime_mode", BAKED_IMAGE_MODE),
-        "worker_kit_version": getattr(profile, "worker_kit_version", None),
-        "worker_kit_path": getattr(profile, "worker_kit_path", None),
+        "runtime_mode": runtime_mode,
+        "worker_kit_version": worker_kit_version,
+        "worker_kit_path": worker_kit_path,
         "codegraph_enabled": bool(getattr(profile, "codegraph_enabled", False)),
         "volume_mounts": profile.volume_mounts or [],
         "volume_mount_masks": getattr(profile, "volume_mount_masks", None) or [],

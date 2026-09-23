@@ -285,6 +285,32 @@ async def test_update_profile_to_system_kit_validates_against_shared(db_factory)
 
 
 @pytest.mark.asyncio
+async def test_update_system_kit_profile_ignores_stale_local_kit_fields(db_factory):
+    session_factory = await db_factory()
+    async with session_factory() as db:
+        await _seed_shared(db)
+        response = await create_worker_profile(
+            _create_request(worker_kit_source="system", runtime_mode="mounted_kit"),
+            db=db,
+        )
+
+        response = await update_worker_profile(
+            response["id"],
+            WorkerProfileUpdateRequest(
+                worker_kit_source="system",
+                runtime_mode="baked_image",
+                worker_kit_path=None,
+                description="Updated without changing the shared Kit",
+                expected_shared_revision=1,
+            ),
+            db=db,
+        )
+
+    assert response["worker_kit_source"] == "system"
+    assert response["description"] == "Updated without changing the shared Kit"
+
+
+@pytest.mark.asyncio
 async def test_duplicate_preserves_inheritance_intent(db_factory):
     session_factory = await db_factory()
     async with session_factory() as db:

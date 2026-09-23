@@ -29,11 +29,13 @@ from app.core.worker_environment_variables import (
 from app.core.worker_kit import (
     MOUNTED_KIT_MODE,
     WorkerKitValidationError,
-    validate_worker_kit_write_config,
     validate_worker_kit_mounts,
+    validate_worker_kit_write_config,
+    worker_kit_version_from_path,
 )
 from app.core.worker_profiles import (
     WorkerProfileValidationError,
+    current_runtime_verification_digest,
     parse_worker_profile_mounts,
     validate_profile_templates,
 )
@@ -64,7 +66,6 @@ class SharedEnvironmentVariableRequest(BaseModel):
 class WorkerSharedConfigurationPatchRequest(BaseModel):
     expected_revision: int
     runtime_mode: str | None = Field(default=None, max_length=32)
-    worker_kit_version: str | None = Field(default=None, max_length=128)
     worker_kit_path: str | None = Field(default=None, max_length=1024)
     volume_mounts: list[dict[str, Any]] | None = None
     pre_script: str | None = None
@@ -94,11 +95,17 @@ def serialize_shared_configuration_for_api(
     row: WorkerSharedConfiguration,
     environment_variables: list[WorkerSharedEnvironmentVariable],
 ) -> dict[str, Any]:
+    worker_kit_version = row.worker_kit_version
+    if row.runtime_mode == MOUNTED_KIT_MODE and row.worker_kit_path:
+        try:
+            worker_kit_version = worker_kit_version_from_path(row.worker_kit_path)
+        except WorkerKitValidationError:
+            pass
     return {
         "id": row.id,
         "revision": row.revision,
         "runtime_mode": row.runtime_mode,
-        "worker_kit_version": row.worker_kit_version,
+        "worker_kit_version": worker_kit_version,
         "worker_kit_path": row.worker_kit_path,
         "volume_mounts": row.volume_mounts or [],
         "pre_script": row.pre_script,
@@ -198,11 +205,7 @@ async def update_shared_configuration(
                 if "runtime_mode" in fields
                 else getattr(row, "runtime_mode", MOUNTED_KIT_MODE)
             ),
-            worker_kit_version=(
-                request.worker_kit_version
-                if "worker_kit_version" in fields
-                else getattr(row, "worker_kit_version", None)
-            ),
+            worker_kit_version=None,
             worker_kit_path=(
                 request.worker_kit_path
                 if "worker_kit_path" in fields
@@ -280,9 +283,12 @@ async def update_shared_configuration(
                 for item in environment_variables
             ),
         )
+        current_shared_context = WorkerSharedConfigurationContext(
+            row=row,
+            environment_variables=tuple(existing_environment),
+        )
         result = await db.execute(
             select(WorkerProfile)
-            .where(WorkerProfile.enabled.is_(True))
             .options(
                 selectinload(WorkerProfile.default_skills).selectinload(
                     Skill.current_version
@@ -293,7 +299,29 @@ async def update_shared_configuration(
         settings = get_effective_settings()
         errors: list[str] = []
         profiles: list[dict[str, Any]] = []
+        profiles_to_invalidate: list[int] = []
+
         for profile in result.scalars().all():
+            stored_digest = getattr(profile, "verified_runtime_configuration_digest", None)
+            if stored_digest:
+                try:
+                    current_effective = resolve_effective_configuration(
+                        profile, current_shared_context
+                    )
+                    current_digest = current_runtime_verification_digest(
+                        profile, current_effective, settings
+                    )
+                    next_effective = resolve_effective_configuration(profile, shared_context)
+                    next_digest = current_runtime_verification_digest(
+                        profile, next_effective, settings
+                    )
+                except Exception:  # noqa: BLE001 - invalid legacy state is fail-closed
+                    profiles_to_invalidate.append(profile.id)
+                else:
+                    if current_digest != stored_digest or current_digest != next_digest:
+                        profiles_to_invalidate.append(profile.id)
+            if not profile.enabled:
+                continue
             # §7.2/§7.3 (F1): shared environment variables and volume mounts
             # merge per-item into every enabled Profile; a Profile's own
             # set/override/mask rows hide specific shared items. A shared change
@@ -375,21 +403,28 @@ async def update_shared_configuration(
         row.ci_auto_repair_run_instruction_template = ci_template
         row.revision += 1
         await _replace_shared_environment_variables(db, row, environment_variables)
-        # Shared inputs participate in every inheriting Profile's runtime
-        # verification. Invalidate evidence atomically with this revision so a
-        # later V2 snapshot cannot reuse a pre-change daemon/image observation.
-        await db.execute(
-            update(WorkerProfile).values(
-                image_digest=None,
-                verified_at=None,
-                verified_runtime_configuration_digest=None,
-                v2_worker_image_identity=None,
-                v2_harness_verification_evidence=None,
-                v2_worker_image_identity_generation=(
-                    WorkerProfile.v2_worker_image_identity_generation + 1
-                ),
+        # Only Profiles whose effective verification inputs changed need a new
+        # runtime verification. Shared scripts/templates and a no-op full form
+        # save do not invalidate an existing image/Kit observation.
+        if profiles_to_invalidate:
+            await db.execute(
+                update(WorkerProfile)
+                .where(WorkerProfile.id.in_(profiles_to_invalidate))
+                .values(
+                    image_digest=None,
+                    verified_at=None,
+                    verified_runtime_configuration_digest=None,
+                    v2_worker_image_identity=None,
+                    v2_harness_verification_evidence=None,
+                    v2_worker_image_identity_generation=(
+                        WorkerProfile.v2_worker_image_identity_generation + 1
+                    ),
+                    worker_kit_identity=None,
+                    worker_kit_identity_generation=(
+                        WorkerProfile.worker_kit_identity_generation + 1
+                    ),
+                )
             )
-        )
         await db.commit()
 
         persisted_environment = await _load_shared_environment_variables(db, row.id)

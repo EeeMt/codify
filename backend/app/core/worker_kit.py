@@ -23,11 +23,27 @@ KIT_ENTRYPOINT = f"{KIT_CONTAINER_PATH}/launcher"
 KIT_CONTAINER_USER = "0:0"
 
 _KIT_VERSION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_KIT_PATH_VERSION_PATTERN = re.compile(
+    r"^(?P<version>[A-Za-z0-9][A-Za-z0-9._-]{0,127})"
+    r"-linux-[A-Za-z0-9][A-Za-z0-9_.-]*(?:-[0-9a-f]{12})?$"
+)
 _PROTECTED_KIT_PATHS = (KIT_CONTAINER_PATH, KIT_STORE_CONTAINER_PATH)
 
 
 class WorkerKitValidationError(ValueError):
     """Raised when a mounted worker-kit configuration is invalid."""
+
+
+def worker_kit_version_from_path(worker_kit_path: str) -> str:
+    """Derive the display/runtime version from an installed Kit directory."""
+    basename = os.path.basename(os.path.normpath(worker_kit_path))
+    match = _KIT_PATH_VERSION_PATTERN.fullmatch(basename)
+    version = match.group("version") if match else basename
+    if not _KIT_VERSION_PATTERN.fullmatch(version):
+        raise WorkerKitValidationError(
+            "worker_kit_path must end with a valid Worker Kit directory name"
+        )
+    return version
 
 
 def validate_worker_kit_config(
@@ -51,12 +67,7 @@ def validate_worker_kit_config(
             f"runtime_mode must be one of: {', '.join(sorted(WORKER_RUNTIME_MODES))}"
         )
 
-    version = (worker_kit_version or "").strip() or None
     path = (worker_kit_path or "").strip() or None
-    if version is None or not _KIT_VERSION_PATTERN.fullmatch(version):
-        raise WorkerKitValidationError(
-            "mounted_kit mode requires a simple worker_kit_version"
-        )
     if path is None or not os.path.isabs(path):
         raise WorkerKitValidationError(
             "mounted_kit mode requires an absolute worker_kit_path on the Docker host"
@@ -66,7 +77,10 @@ def validate_worker_kit_config(
         raise WorkerKitValidationError(
             "worker_kit_path must not be the Docker host filesystem root"
         )
-    return mode, version, normalized_path
+    # The path is the only editable Kit coordinate. The installed manifest is
+    # checked by runtime verification; the content-addressed directory name is
+    # the value available while saving the profile.
+    return mode, worker_kit_version_from_path(normalized_path), normalized_path
 
 
 def validate_worker_kit_write_config(

@@ -553,6 +553,8 @@ describe('WorkerSettingsPanel', () => {
         ]
       })
     )
+    expect(mockUpdateWorkerProfile.mock.calls[0][1]).not.toHaveProperty('runtime_mode')
+    expect(mockUpdateWorkerProfile.mock.calls[0][1]).not.toHaveProperty('worker_kit_path')
   })
 
   it('keeps overlapping shared and profile environment variable ids on distinct rows', async () => {
@@ -1040,9 +1042,9 @@ describe('WorkerSettingsPanel', () => {
     expect(vm.workerFormValue.worker_kit_path).toBe(
       '/opt/codify/worker-kits/0.1.0-linux-amd64'
     )
+    expect(wrapper.text()).toContain('config.workerKitVersionDetectedHint')
     expect(wrapper.text()).toContain('config.workerKitPath')
 
-    vm.workerFormValue.worker_kit_version = '0.2.0'
     vm.workerFormValue.worker_kit_path = '/opt/codify/worker-kits/0.2.0-linux-amd64'
     await vm.handleSaveWorker()
 
@@ -1050,10 +1052,10 @@ describe('WorkerSettingsPanel', () => {
       1,
       expect.objectContaining({
         runtime_mode: 'mounted_kit',
-        worker_kit_version: '0.2.0',
         worker_kit_path: '/opt/codify/worker-kits/0.2.0-linux-amd64'
       })
     )
+    expect(mockUpdateWorkerProfile.mock.calls[0][1]).not.toHaveProperty('worker_kit_version')
   })
 
   it('loads and saves the enabled/default harness fields', async () => {
@@ -1178,11 +1180,11 @@ describe('WorkerSettingsPanel', () => {
       1,
       expect.objectContaining({
         runtime_mode: 'baked_image',
-        worker_kit_version: null,
         worker_kit_path: null,
         default_skill_ids: []
       })
     )
+    expect(mockUpdateWorkerProfile.mock.calls[0][1]).not.toHaveProperty('worker_kit_version')
   })
 
   it('loads and saves workspace retention days', async () => {

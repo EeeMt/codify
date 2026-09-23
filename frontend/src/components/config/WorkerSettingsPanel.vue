@@ -238,11 +238,8 @@
                   </n-gi>
                   <n-gi v-if="sharedFormValue.runtime_mode === 'mounted_kit'">
                     <n-form-item :label="t('config.workerKitVersion')">
-                      <n-input
-                        v-model:value="sharedFormValue.worker_kit_version"
-                        class="config-form__input"
-                        placeholder="0.4.0"
-                      />
+                      <code>{{ detectedSharedWorkerKitVersion || '—' }}</code>
+                      <template #feedback>{{ t('config.workerKitVersionDetectedHint') }}</template>
                     </n-form-item>
                   </n-gi>
                   <n-gi v-if="sharedFormValue.runtime_mode === 'mounted_kit'" :span="isMobile ? 1 : 2">
@@ -662,11 +659,8 @@
               </n-gi>
               <n-gi v-if="workerFormValue.worker_kit_source === 'profile' && workerFormValue.runtime_mode === 'mounted_kit'">
                 <n-form-item :label="t('config.workerKitVersion')">
-                  <n-input
-                    v-model:value="workerFormValue.worker_kit_version"
-                    class="config-form__input"
-                    placeholder="0.3.6"
-                  />
+                  <code>{{ detectedProfileWorkerKitVersion || '—' }}</code>
+                  <template #feedback>{{ t('config.workerKitVersionDetectedHint') }}</template>
                 </n-form-item>
               </n-gi>
               <n-gi v-if="workerFormValue.worker_kit_source === 'profile' && workerFormValue.runtime_mode === 'mounted_kit'">
@@ -1474,15 +1468,29 @@ const effectiveRuntimeMode = computed(() =>
     ? sharedFormValue.value.runtime_mode
     : workerFormValue.value.runtime_mode
 )
-const effectiveWorkerKitVersion = computed(() =>
-  workerFormValue.value.worker_kit_source === 'system'
-    ? sharedFormValue.value.worker_kit_version
-    : workerFormValue.value.worker_kit_version
-)
 const effectiveWorkerKitPath = computed(() =>
   workerFormValue.value.worker_kit_source === 'system'
     ? sharedFormValue.value.worker_kit_path
     : workerFormValue.value.worker_kit_path
+)
+function detectWorkerKitVersion(path: string): string {
+  const basename = path.trim().replace(/\/+$/, '').split('/').pop() || ''
+  return basename.match(/^(.+)-linux-[A-Za-z0-9][A-Za-z0-9_.-]*(?:-[0-9a-f]{12})?$/)?.[1] || basename
+}
+const detectedSharedWorkerKitVersion = computed(() =>
+  sharedFormValue.value.runtime_mode === 'mounted_kit'
+    ? detectWorkerKitVersion(sharedFormValue.value.worker_kit_path)
+    : ''
+)
+const detectedProfileWorkerKitVersion = computed(() =>
+  effectiveRuntimeMode.value === 'mounted_kit'
+    ? detectWorkerKitVersion(effectiveWorkerKitPath.value)
+    : ''
+)
+const effectiveWorkerKitVersion = computed(() =>
+  workerFormValue.value.worker_kit_source === 'system'
+    ? detectedSharedWorkerKitVersion.value
+    : detectedProfileWorkerKitVersion.value
 )
 const piSubagentsEnabled = computed({
   get: () => harnessOptionRecord(workerFormValue.value.harness_options.pi).subagents === true,
@@ -2175,21 +2183,22 @@ function selectSharedConfiguration() {
 }
 
 function buildWorkerProfilePayload(): WorkerProfilePayload {
+  const workerKitPayload = workerFormValue.value.worker_kit_source === 'profile'
+    ? {
+        runtime_mode: workerFormValue.value.runtime_mode,
+        worker_kit_path:
+          workerFormValue.value.runtime_mode === 'mounted_kit'
+            ? workerFormValue.value.worker_kit_path
+            : null
+      }
+    : {}
   return {
     name: workerFormValue.value.name,
     description: workerFormValue.value.description,
     enabled: workerFormValue.value.enabled,
     image: workerFormValue.value.image,
     worker_kit_source: workerFormValue.value.worker_kit_source,
-    runtime_mode: workerFormValue.value.runtime_mode,
-    worker_kit_version:
-      workerFormValue.value.runtime_mode === 'mounted_kit'
-        ? workerFormValue.value.worker_kit_version
-        : null,
-    worker_kit_path:
-      workerFormValue.value.runtime_mode === 'mounted_kit'
-        ? workerFormValue.value.worker_kit_path
-        : null,
+    ...workerKitPayload,
     docker_host: workerFormValue.value.use_system_docker
       ? null
       : workerFormValue.value.docker_host,
@@ -2238,10 +2247,6 @@ function buildSharedConfigurationPayload(): WorkerSharedConfigurationPayload {
   return {
     expected_revision: sharedFormValue.value.revision,
     runtime_mode: sharedFormValue.value.runtime_mode,
-    worker_kit_version:
-      sharedFormValue.value.runtime_mode === 'mounted_kit'
-        ? sharedFormValue.value.worker_kit_version
-        : null,
     worker_kit_path:
       sharedFormValue.value.runtime_mode === 'mounted_kit'
         ? sharedFormValue.value.worker_kit_path

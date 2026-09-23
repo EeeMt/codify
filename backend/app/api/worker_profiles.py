@@ -44,6 +44,7 @@ from app.core.worker_kit import (
     MOUNTED_KIT_MODE,
     WorkerKitValidationError,
     validate_worker_kit_write_config,
+    worker_kit_version_from_path,
 )
 from app.core.worker_profiles import (
     TaskWorkerRuntime,
@@ -114,7 +115,6 @@ class WorkerProfileRequestBase(BaseModel):
     image: str | None = Field(default=None, max_length=255)
     worker_kit_source: str | None = Field(default=None, max_length=16)
     runtime_mode: str | None = Field(default=None, max_length=32)
-    worker_kit_version: str | None = Field(default=None, max_length=128)
     worker_kit_path: str | None = Field(default=None, max_length=1024)
     docker_host: str | None = Field(default=None, max_length=500)
     docker_tls_ca: str | None = Field(default=None, max_length=1024)
@@ -513,14 +513,22 @@ async def _profile_api_sections(
         .strip()
         or WORKER_KIT_SOURCE_PROFILE
     )
+    profile_runtime_mode = getattr(profile, "runtime_mode", None)
+    profile_kit_path = getattr(profile, "worker_kit_path", None)
+    profile_kit_version = getattr(profile, "worker_kit_version", None)
+    if profile_runtime_mode == MOUNTED_KIT_MODE and profile_kit_path:
+        try:
+            profile_kit_version = worker_kit_version_from_path(profile_kit_path)
+        except WorkerKitValidationError:
+            pass
     overrides = {
         "worker_kit": (
             None
             if kit_source == WORKER_KIT_SOURCE_SYSTEM
             else {
-                "runtime_mode": getattr(profile, "runtime_mode", None),
-                "worker_kit_version": getattr(profile, "worker_kit_version", None),
-                "worker_kit_path": getattr(profile, "worker_kit_path", None),
+                "runtime_mode": profile_runtime_mode,
+                "worker_kit_version": profile_kit_version,
+                "worker_kit_path": profile_kit_path,
             }
         ),
         "pre_script": getattr(profile, "pre_script", None),
@@ -1276,7 +1284,7 @@ async def create_worker_profile(
         else:
             runtime_mode, kit_version, kit_path = validate_worker_kit_write_config(
                 runtime_mode=request.runtime_mode,
-                worker_kit_version=request.worker_kit_version,
+                worker_kit_version=None,
                 worker_kit_path=request.worker_kit_path,
             )
         mounts = parse_worker_profile_mounts(request.volume_mounts)
@@ -1374,6 +1382,18 @@ async def update_worker_profile(
         db, expected_shared_revision=request.expected_shared_revision
     )
     profile = await _load_profile_or_404(db, profile_id, for_update=True)
+    settings = get_effective_settings()
+    stored_verification_digest = getattr(
+        profile, "verified_runtime_configuration_digest", None
+    )
+    previous_verification_digest: str | None = None
+    try:
+        previous_effective = resolve_effective_configuration(profile, shared)
+        previous_verification_digest = current_runtime_verification_digest(
+            profile, previous_effective, settings
+        )
+    except Exception:  # noqa: BLE001 - invalid legacy state is handled by normal validation
+        previous_verification_digest = None
     try:
         if "name" in fields and request.name is not None:
             name = request.name.strip()
@@ -1395,19 +1415,30 @@ async def update_worker_profile(
             profile.image = request.image.strip()
             if not profile.image:
                 raise WorkerProfileValidationError("Worker profile image cannot be blank")
-        kit_fields = {"runtime_mode", "worker_kit_version", "worker_kit_path"}
-        if kit_fields & fields:
+        if "worker_kit_source" in fields:
+            kit_source = request.worker_kit_source or WORKER_KIT_SOURCE_SYSTEM
+            if kit_source not in WORKER_KIT_SOURCES:
+                raise WorkerProfileValidationError(
+                    "worker_kit_source must be one of: "
+                    + ", ".join(sorted(WORKER_KIT_SOURCES))
+                )
+            profile.worker_kit_source = kit_source
+        else:
+            kit_source = (
+                getattr(profile, "worker_kit_source", WORKER_KIT_SOURCE_PROFILE)
+                or WORKER_KIT_SOURCE_PROFILE
+            )
+        kit_fields = {"runtime_mode", "worker_kit_path"}
+        # A full-form save may still carry stale local Kit coordinates while
+        # the Profile follows the shared Kit. They are not editable overrides.
+        if kit_fields & fields and kit_source == WORKER_KIT_SOURCE_PROFILE:
             runtime_mode, kit_version, kit_path = validate_worker_kit_write_config(
                 runtime_mode=(
                     request.runtime_mode
                     if "runtime_mode" in fields
                     else getattr(profile, "runtime_mode", BAKED_IMAGE_MODE)
                 ),
-                worker_kit_version=(
-                    request.worker_kit_version
-                    if "worker_kit_version" in fields
-                    else getattr(profile, "worker_kit_version", None)
-                ),
+                worker_kit_version=None,
                 worker_kit_path=(
                     request.worker_kit_path
                     if "worker_kit_path" in fields
@@ -1510,14 +1541,6 @@ async def update_worker_profile(
             profile.docker_tls_key = tls_key
         if "codegraph_enabled" in fields and request.codegraph_enabled is not None:
             profile.codegraph_enabled = request.codegraph_enabled
-        if "worker_kit_source" in fields:
-            kit_source = request.worker_kit_source or WORKER_KIT_SOURCE_SYSTEM
-            if kit_source not in WORKER_KIT_SOURCES:
-                raise WorkerProfileValidationError(
-                    "worker_kit_source must be one of: "
-                    + ", ".join(sorted(WORKER_KIT_SOURCES))
-                )
-            profile.worker_kit_source = kit_source
         if "volume_mounts" in fields and request.volume_mounts is not None:
             profile.volume_mounts = parse_worker_profile_mounts(request.volume_mounts)
         if "volume_mount_masks" in fields and request.volume_mount_masks is not None:
@@ -1591,33 +1614,24 @@ async def update_worker_profile(
                 request.default_skill_ids,
                 retained_disabled_skill_ids=existing_skill_ids,
             )
-        _validate_combined_configuration(
+        effective = _validate_combined_configuration(
             profile,
             shared,
             default_skills=getattr(profile, "default_skills", None) or [],
         )
+        next_verification_digest = current_runtime_verification_digest(
+            profile, effective, settings
+        )
+        verification_inputs_changed = bool(stored_verification_digest) and (
+            previous_verification_digest is None
+            or stored_verification_digest != previous_verification_digest
+            or next_verification_digest != previous_verification_digest
+        )
 
-        # Changing the image, Kit, or Harness allowlist/constraints invalidates
-        # the prior verification; existing Task snapshots are unaffected.
-        stale_fields = {
-            "image",
-            "worker_kit_source",
-            "runtime_mode",
-            "worker_kit_version",
-            "worker_kit_path",
-            "volume_mounts",
-            "volume_mount_masks",
-            "enabled_harnesses",
-            "default_harness_key",
-            "harness_constraints",
-            "harness_runtimes",
-            "docker_host",
-            "docker_tls_ca",
-            "docker_tls_cert",
-            "docker_tls_key",
-            "environment_variables",
-        }
-        if stale_fields & fields:
+        # Compare the effective inputs actually consumed by verification. The
+        # UI may submit a complete form payload for a name-only edit; field
+        # presence is not evidence that a runtime input changed.
+        if verification_inputs_changed:
             profile.image_digest = None
             profile.verified_at = None
             profile.verified_runtime_configuration_digest = None
