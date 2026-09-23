@@ -172,6 +172,19 @@ def test_build_runtime_bundle_v2_is_deterministic():
     assert first.adapter_digests == second.adapter_digests
 
 
+def test_build_runtime_bundle_v2_warns_on_adapter_version_drift_but_rejects_digest_drift(caplog):
+    version_drift = _frozen_v2_manifest()
+    version_drift["harness_verification_evidence"]["adapter"]["version"] = "1.9.0"
+    with caplog.at_level("WARNING"):
+        build_runtime_bundle_v2(version_drift)
+    assert "Adapter version does not match frozen Adapter" in caplog.text
+
+    digest_drift = _frozen_v2_manifest()
+    digest_drift["harness_verification_evidence"]["adapter"]["digest"] = "0" * 64
+    with pytest.raises(RuntimeError, match="Adapter digest does not match frozen Adapter"):
+        build_runtime_bundle_v2(digest_drift)
+
+
 def test_build_runtime_bundle_v2_validates_frozen_manifest():
     bundle = build_runtime_bundle_v2(_frozen_v2_manifest())
     assert bundle.schema == "codify.worker.runtime-bundle/v2"

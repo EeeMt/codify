@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import tarfile
@@ -39,6 +40,7 @@ _LINUX_PLATFORM_RE = re.compile(r"^linux/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _IMAGE_REFERENCE_RE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 _IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+logger = logging.getLogger(__name__)
 
 
 def _is_linux_platform(value: object) -> bool:
@@ -340,7 +342,7 @@ def build_runtime_bundle_v2(manifest: Mapping[str, Any]) -> BuiltRuntimeBundleV2
 def _validate_evidence_adapter_identity(
     evidence: Mapping[str, Any], adapters: Mapping[str, Mapping[str, Any]]
 ) -> None:
-    """Bind verification evidence to the selected, frozen Adapter bytes."""
+    """Bind evidence to the frozen Adapter bytes, keeping version drift advisory."""
     harness_key = evidence.get("harness_key")
     if not isinstance(harness_key, str) or harness_key not in adapters:
         raise RuntimeError("V2 Runtime Bundle evidence Harness key has no frozen Adapter")
@@ -348,11 +350,16 @@ def _validate_evidence_adapter_identity(
     expected = evidence.get("adapter")
     if not isinstance(expected, Mapping):
         raise RuntimeError("V2 Runtime Bundle evidence has no Adapter identity")
-    for field in ("version", "digest"):
-        if expected.get(field) != actual.get(field):
-            raise RuntimeError(
-                f"V2 Runtime Bundle evidence Adapter {field} does not match frozen Adapter"
-            )
+    if expected.get("version") != actual.get("version"):
+        logger.warning(
+            "V2 Runtime Bundle evidence Adapter version does not match frozen Adapter: "
+            "harness=%s evidence=%r frozen=%r",
+            harness_key,
+            expected.get("version"),
+            actual.get("version"),
+        )
+    if expected.get("digest") != actual.get("digest"):
+        raise RuntimeError("V2 Runtime Bundle evidence Adapter digest does not match frozen Adapter")
 
 
 def default_runtime_source_dir() -> Path:

@@ -11,6 +11,7 @@ import ctypes
 import errno
 import hashlib
 import json
+import logging
 import os
 import platform
 import re
@@ -37,6 +38,7 @@ _ARCHIVE_SECRET_PATTERNS = (
     re.compile(rb"\b(?:sk|glpat)-[A-Za-z0-9_-]{12,}"),
     re.compile(rb"(?i:(?:authorization|x-api-key)\s*[:=]\s*(?:bearer\s+)?[^\s'\"${]{12,})"),
 )
+logger = logging.getLogger(__name__)
 
 
 class RuntimeBundleExportError(RuntimeError):
@@ -90,9 +92,18 @@ def _selected_task_evidence(task: Task, bundle: WorkerRuntimeBundle) -> None:
     if not isinstance(adapter, Mapping) or not isinstance(frozen_adapter, Mapping):
         raise RuntimeBundleExportError("Task selected Harness Adapter is missing from Runtime Bundle")
     adapter_identity = frozen_adapter.get("adapter")
-    if not isinstance(adapter_identity, Mapping) or any(
-        adapter.get(field) != adapter_identity.get(field) for field in ("version", "digest")
-    ):
+    if not isinstance(adapter_identity, Mapping):
+        raise RuntimeBundleExportError("Task selected Harness Adapter identity does not match Runtime Bundle")
+    if adapter.get("version") != adapter_identity.get("version"):
+        logger.warning(
+            "Task selected Harness Adapter version does not match Runtime Bundle: "
+            "task=%s harness=%s evidence=%r frozen=%r",
+            getattr(task, "id", None),
+            key,
+            adapter.get("version"),
+            adapter_identity.get("version"),
+        )
+    if adapter.get("digest") != adapter_identity.get("digest"):
         raise RuntimeBundleExportError("Task selected Harness Adapter identity does not match Runtime Bundle")
     identity = bundle.manifest.get("worker_image_identity")
     if evidence.get("image_identity") != identity:
