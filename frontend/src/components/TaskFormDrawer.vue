@@ -2435,6 +2435,7 @@ onBeforeUnmount(() => {
 
 .run-instruction-advanced {
   width: 100%;
+  box-sizing: border-box;
   overflow: hidden;
   border: 1px solid rgba(128, 128, 128, 0.28);
   border-radius: 10px;
