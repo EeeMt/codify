@@ -402,7 +402,7 @@ describe('TaskProcessPanel', () => {
 
     await wrapper.get('[data-testid="scroll-to-bottom"]').trigger('click')
     await nextTick()
-    expect(mockScrollbarScrollTo).toHaveBeenLastCalledWith({ top: Number.MAX_SAFE_INTEGER, behavior: 'smooth' })
+    expect(mockScrollbarScrollTo).toHaveBeenLastCalledWith({ top: 800, behavior: 'smooth' })
     expect((wrapper.vm as any).autoScroll).toBe(true)
   })
 
@@ -465,7 +465,7 @@ describe('TaskProcessPanel', () => {
     await nextTick()
 
     expect(mockScrollbarScrollTo).toHaveBeenCalledWith({
-      top: Number.MAX_SAFE_INTEGER,
+      top: 800,
       behavior: 'smooth',
     })
   })

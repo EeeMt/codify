@@ -372,7 +372,7 @@ function onCollapseChange(expandedNames: (string | number)[], eventRow: Normaliz
       lastRowScrollTimer = setTimeout(() => {
         if (eventStreamRef.value) {
           setProgrammaticScroll()
-          eventStreamRef.value.scrollTo({ top: Number.MAX_SAFE_INTEGER, behavior: getScrollBehavior() })
+          scrollEventStreamToLatest(getScrollBehavior())
         }
       }, 260)
     } else {
@@ -459,6 +459,15 @@ function getEventScrollElement(): HTMLElement | null {
   return eventStreamPaneRef.value?.querySelector<HTMLElement>('.n-scrollbar-container') ?? null
 }
 
+function scrollEventStreamToLatest(behavior: ScrollBehavior) {
+  const element = getEventScrollElement()
+  if (!element || !eventStreamRef.value) return
+  eventStreamRef.value.scrollTo({
+    top: Math.max(0, element.scrollHeight - element.clientHeight),
+    behavior,
+  })
+}
+
 function updateActiveScrollPosition() {
   const el = activeTab.value === 'events' ? getEventScrollElement() : logContentRef.value
   if (el) {
@@ -506,7 +515,7 @@ function scrollToLatest() {
   setProgrammaticScroll()
   nextTick(() => {
     const behavior = getScrollBehavior()
-    if (activeTab.value === 'events') eventStreamRef.value?.scrollTo({ top: Number.MAX_SAFE_INTEGER, behavior })
+    if (activeTab.value === 'events') scrollEventStreamToLatest(behavior)
     else logContentRef.value?.scrollTo?.({ top: logContentRef.value.scrollHeight, behavior })
   })
 }
@@ -517,7 +526,7 @@ watch(processRows, async () => {
   if (activeTab.value !== 'events') return
   if (shouldFollowLatest && eventStreamRef.value) {
     setProgrammaticScroll()
-    eventStreamRef.value.scrollTo({ top: Number.MAX_SAFE_INTEGER, behavior: getScrollBehavior() })
+    scrollEventStreamToLatest(getScrollBehavior())
     return
   }
   updateActiveScrollPosition()
@@ -530,7 +539,7 @@ watch(expandedPayloads, async () => {
   await nextTick()
   if (eventStreamRef.value) {
     setProgrammaticScroll()
-    eventStreamRef.value.scrollTo({ top: Number.MAX_SAFE_INTEGER, behavior: getScrollBehavior() })
+    scrollEventStreamToLatest(getScrollBehavior())
   }
 })
 
