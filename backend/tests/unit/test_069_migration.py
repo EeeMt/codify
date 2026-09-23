@@ -247,3 +247,55 @@ async def test_069_backfill_marks_only_consistent_nonzero_triples(
         assert (await _recorded_at(db, total_only)) is None
         assert (await _recorded_at(db, all_zero)) is None
         assert (await _recorded_at(db, negative)) is None
+
+
+async def test_upgrade_067_to_069_commits_deferred_lineage_events_per_migration(
+    maker, migration_db
+):
+    """A populated 068 backfill must not leak deferred FK events into 069 DDL."""
+    cfg = migration_db["cfg"]
+    await asyncio.to_thread(_downgrade, cfg, "067_harness_key")
+
+    async with maker() as db:
+        await db.execute(sa.text(f"TRUNCATE {_SEED_TABLES} RESTART IDENTITY CASCADE"))
+        worker_profile_id = await _insert_worker_profile(db)
+        issue_id = await _insert_issue(db, worker_profile_id=worker_profile_id)
+        task_id = (
+            await db.execute(
+                sa.text(
+                    "INSERT INTO tasks (issue_id, project_id, user_prompt, trigger_source, "
+                    "status, session_mode, created_at) VALUES "
+                    "(:issue_id, 1, 'prompt', 'manual', 'completed', 'fresh', now()) "
+                    "RETURNING id"
+                ),
+                {"issue_id": issue_id},
+            )
+        ).scalar_one()
+        await db.execute(
+            sa.text(
+                "INSERT INTO task_worker_profile_snapshots (task_id, profile_name, image, "
+                "harness_key, model_endpoint_snapshot, "
+                "default_execute_run_instruction_template, "
+                "default_plan_run_instruction_template, "
+                "ci_auto_repair_run_instruction_template) "
+                "VALUES (:task_id, 'profile', 'img', 'claude', "
+                "CAST('{\"fingerprint\": \"f1\"}' AS json), '', '', '')"
+            ),
+            {"task_id": task_id},
+        )
+        await db.commit()
+
+    await asyncio.to_thread(_upgrade, cfg, "069_system_lifecycle_statistics")
+
+    async with maker() as db:
+        projected_reset_task_id = (
+            await db.execute(
+                sa.text("SELECT projected_reset_task_id FROM tasks WHERE id = :task_id"),
+                {"task_id": task_id},
+            )
+        ).scalar_one()
+        revision = (
+            await db.execute(sa.text("SELECT version_num FROM alembic_version"))
+        ).scalar_one()
+        assert projected_reset_task_id == task_id
+        assert revision == "069_system_lifecycle_statistics"
