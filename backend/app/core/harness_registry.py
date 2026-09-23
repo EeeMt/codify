@@ -75,7 +75,7 @@ SYSTEM_CAPABILITIES: dict[str, dict[str, Any]] = {
         "max_turns": False,
         "usage_tokens": True,
         "usage_cost": True,
-        "run_text": False,
+        "run_text": True,
         "codegraph": False,
         "sandbox_mode": "container-boundary",
     },

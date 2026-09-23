@@ -375,6 +375,77 @@ opencode_adapter_run() {
     timeout "${TASK_TIMEOUT:-1800}" "${CODIFY_HARNESS_COMMAND}" > "${result_file}"
 }
 
+opencode_adapter_run_text() {
+    local prompt_file="${1:-}"
+    local timeout_seconds="${2:-60}"
+    if [ -z "${prompt_file}" ] || [ ! -s "${prompt_file}" ]; then
+        echo "OpenCode run_text prompt file is missing: ${prompt_file}" >&2
+        return 1
+    fi
+    case "${timeout_seconds}" in
+        ''|*[!0-9]*)
+            echo "OpenCode run_text timeout must be an integer" >&2
+            return 1
+            ;;
+    esac
+
+    local model="${OPENCODE_MODEL:-}"
+    if [ -z "${model}" ]; then
+        echo "OpenCode run_text model is missing" >&2
+        return 1
+    fi
+    local cli="${CODIFY_OPENCODE_BIN:-}"
+    if [ -z "${cli}" ]; then
+        cli="$(codify_opencode_bin)" || {
+            echo "OpenCode CLI is unavailable for run_text" >&2
+            return 1
+        }
+    fi
+
+    # `opencode run` starts its own local Server. Give that one-shot request a
+    # disposable XDG data root so commit/MR text generation cannot pollute the
+    # resumable task session stored on the issue-shared volume.
+    local config_dir="${OPENCODE_CONFIG_DIR:-${CODIFY_RUNTIME_DIR}/opencode}"
+    local text_root
+    text_root="$(mktemp -d "${CODIFY_RUNTIME_DIR}/opencode-text.XXXXXX")" || return 1
+    mkdir -p "${text_root}/xdg-config" "${text_root}/xdg-data" \
+        "${text_root}/xdg-cache" "${text_root}/xdg-state"
+    chown -R "${CODIFY_RUN_UID:-1000}:${CODIFY_RUN_GID:-1000}" "${text_root}" 2>/dev/null || true
+
+    local provider="${OPENCODE_PROVIDER:-codify}"
+    local model_ref="${provider}/${model}"
+    local quoted_cli quoted_model quoted_prompt quoted_config quoted_home
+    local quoted_xdg_config quoted_xdg_data quoted_xdg_cache quoted_xdg_state
+    printf -v quoted_cli '%q' "${cli}"
+    printf -v quoted_model '%q' "${model_ref}"
+    printf -v quoted_prompt '%q' "${prompt_file}"
+    printf -v quoted_config '%q' "${config_dir}"
+    printf -v quoted_home '%q' "${config_dir}/home"
+    printf -v quoted_xdg_config '%q' "${text_root}/xdg-config"
+    printf -v quoted_xdg_data '%q' "${text_root}/xdg-data"
+    printf -v quoted_xdg_cache '%q' "${text_root}/xdg-cache"
+    printf -v quoted_xdg_state '%q' "${text_root}/xdg-state"
+
+    local variant_arg=""
+    if [ -n "${CODIFY_OPENCODE_VARIANT:-}" ]; then
+        local quoted_variant
+        printf -v quoted_variant '%q' "${CODIFY_OPENCODE_VARIANT}"
+        variant_arg=" --variant ${quoted_variant}"
+    fi
+
+    local result=0
+    # The default non-TTY output of `run` is the assistant text. Plan mode and
+    # --pure keep this helper read-only and independent of project plugins.
+    if codify_run_shell \
+        "cd /workspace && HOME=${quoted_home} XDG_CONFIG_HOME=${quoted_xdg_config} XDG_DATA_HOME=${quoted_xdg_data} XDG_CACHE_HOME=${quoted_xdg_cache} XDG_STATE_HOME=${quoted_xdg_state} OPENCODE_CONFIG_DIR=${quoted_config} OPENCODE_SERVER_PASSWORD= OPENCODE_DISABLE_PROJECT_CONFIG=true OPENCODE_DISABLE_MODELS_FETCH=1 OPENCODE_DISABLE_EXTERNAL_SKILLS=1 OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1 timeout ${timeout_seconds} ${quoted_cli} run --pure --format default --model ${quoted_model} --agent plan --dir /workspace${variant_arg} < ${quoted_prompt}"; then
+        result=0
+    else
+        result=$?
+    fi
+    rm -rf -- "${text_root}" 2>/dev/null || true
+    return "${result}"
+}
+
 opencode_adapter_stream_events() {
     local raw_file="$1"
     python3 "${CODIFY_OPENCODE_TRANSLATOR}" --raw-file "${raw_file}"
@@ -449,4 +520,5 @@ adapter_materialize_skills() { opencode_adapter_materialize_skills "$@"; }
 adapter_stream_events() { opencode_adapter_stream_events "$@"; }
 adapter_normalize_result() { opencode_adapter_normalize_result "$@"; }
 adapter_run() { opencode_adapter_run "$@"; }
+adapter_run_text() { opencode_adapter_run_text "$@"; }
 adapter_terminate() { opencode_adapter_terminate "$@"; }

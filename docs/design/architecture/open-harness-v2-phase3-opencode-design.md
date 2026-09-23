@@ -82,7 +82,7 @@ OpenAPI 3.1 作为协议事实源，但不在 Worker 中引入 Node runtime 或 
 | `task_skills` | 是 | OpenCode 官方加载路径物化 Managed Skills |
 | `usage_tokens` / `usage_cost` | 是 | message 事件携带 usage → 归一化 |
 | `steering` / `follow_up` | **否**（首发） | manifest `capabilities.steering=false/follow_up=false` |
-| `run_text` | 否 | 一致（与 Pi 相同，走公共 delivery） |
+| `run_text` | 是 | 通过 `opencode run` 的一次性文本模式走公共 delivery；失败仍使用确定性 fallback |
 | Agent / Command / model variant | 是 | 原生能力，但只允许 Snapshot 允许的变体 |
 | Abort | 是 | `POST /session/{id}/abort`（200 `true`，已实测） |
 
@@ -189,7 +189,7 @@ backend/tests/unit/test_opencode_harness_adapter.py
   "options_schema": "opencode/v1",
   "capabilities": {
     "resume": true, "task_skills": true, "max_turns": false,
-    "usage_tokens": true, "usage_cost": true, "run_text": false,
+    "usage_tokens": true, "usage_cost": true, "run_text": true,
     "steering": false, "follow_up": false,
     "sandbox_mode": "container-boundary"
   },

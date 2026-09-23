@@ -61,9 +61,25 @@ fi
 
 RUN_DIR=$(mktemp -d)
 SERVER_PID_FILE="${RUN_DIR}/opencode-server.pid"
+BRIDGE_PID=""
 trap 'cleanup' EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+
+stop_bridge() {
+    local pid="${BRIDGE_PID}"
+    [ -n "${pid}" ] || return 0
+    kill -TERM "${pid}" 2>/dev/null || true
+    wait "${pid}" 2>/dev/null || true
+    BRIDGE_PID=""
+}
+
+handle_signal() {
+    local exit_code="$1"
+    stop_bridge
+    exit "${exit_code}"
+}
+
+trap 'handle_signal 130' INT
+trap 'handle_signal 143' TERM
 
 cleanup() {
     stop_server || true
@@ -230,8 +246,11 @@ CODIFY_OPENCODE_EVENT_TRANSLATOR="${CODIFY_OPENCODE_EVENT_TRANSLATOR}" \
 CODIFY_OPENCODE_RAW_EVENT_JSONL="${CODIFY_OPENCODE_RAW_EVENT_JSONL}" \
 CODIFY_OPENCODE_HTTP_AUDIT_FILE="${CODIFY_OPENCODE_HTTP_AUDIT_FILE}" \
 PROMPT_FILE="${PROMPT_FILE}" \
-python3 "${CODIFY_OPENCODE_BRIDGE}" run
+python3 "${CODIFY_OPENCODE_BRIDGE}" run &
+BRIDGE_PID=$!
+wait "${BRIDGE_PID}"
 BRIDGE_RC=$?
+BRIDGE_PID=""
 set -e
 
 # 4. Terminate the Server with no-daemon convergence (TERM to process group,

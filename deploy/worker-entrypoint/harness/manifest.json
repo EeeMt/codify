@@ -75,7 +75,7 @@
         "artifact_sha256": "<computed at freeze>"
       },
       "adapter": {
-        "version": "2.1.1",
+        "version": "2.1.2",
         "digest": "<computed at bundle build>"
       },
       "cli_version": "0.84.2",
@@ -108,7 +108,7 @@
         "artifact_sha256": "<computed at freeze>"
       },
       "adapter": {
-        "version": "2.1.0",
+        "version": "2.1.1",
         "digest": "<computed at bundle build>"
       },
       "cli_version": "1.18.19",

@@ -38,7 +38,7 @@ send_command(command)     # 可选：按 capability 接受或拒绝；Pi 支持 
 wait()                    # 阻塞直到 Harness settled/failed（Pi agent_settled / OpenCode session.idle）
 normalize_result()        # 产出 codify.worker.result/v2
 terminate()
-run_text()?               # 可选，Claude/Codex 兼容路径
+run_text()?               # 可选；当前 Claude、Pi、OpenCode 提供，Codex 缺失时走 fallback
 ```
 
 **冻结要点**

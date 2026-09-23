@@ -406,6 +406,54 @@ pi_adapter_run() {
     timeout "${TASK_TIMEOUT:-1800}" "${CODIFY_HARNESS_COMMAND}" > "${result_file}"
 }
 
+pi_adapter_run_text() {
+    local prompt_file="${1:-}"
+    local timeout_seconds="${2:-60}"
+    if [ -z "${prompt_file}" ] || [ ! -s "${prompt_file}" ]; then
+        echo "Pi run_text prompt file is missing: ${prompt_file}" >&2
+        return 1
+    fi
+    case "${timeout_seconds}" in
+        ''|*[!0-9]*)
+            echo "Pi run_text timeout must be an integer" >&2
+            return 1
+            ;;
+    esac
+
+    local model
+    case "${CODIFY_MODEL_PROTOCOL:-anthropic_messages}" in
+        anthropic_messages) model="${ANTHROPIC_MODEL:-}" ;;
+        openai_responses|openai_chat_completions) model="${OPENAI_MODEL:-}" ;;
+        *)
+            echo "Pi does not support model protocol ${CODIFY_MODEL_PROTOCOL}" >&2
+            return 1
+            ;;
+    esac
+    if [ -z "${model}" ]; then
+        echo "Pi run_text model is missing" >&2
+        return 1
+    fi
+
+    local bin="${CODIFY_PI_BIN:-}"
+    if [ -z "${bin}" ]; then
+        bin="$(codify_pi_bin)" || {
+            echo "Pi CLI is unavailable for run_text" >&2
+            return 1
+        }
+    fi
+    local quoted_bin quoted_model quoted_prompt quoted_home
+    printf -v quoted_bin '%q' "${bin}"
+    printf -v quoted_model '%q' "${model}"
+    printf -v quoted_prompt '%q' "${prompt_file}"
+    printf -v quoted_home '%q' "${CODIFY_PI_CLI_HOME:-/home/codify}"
+
+    # Pi's print mode is a sessionless, text-only request. Disable all
+    # workspace/user extensions and tools so delivery metadata generation can
+    # never mutate the task workspace.
+    codify_run_shell \
+        "cd /workspace && export HOME=${quoted_home} PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0; unset PI_OFFLINE; timeout ${timeout_seconds} ${quoted_bin} --print --no-session --no-tools --no-extensions --no-skills --no-prompt-templates --no-context-files --provider codify --model ${quoted_model} < ${quoted_prompt}"
+}
+
 pi_adapter_stream_events() {
     local raw_file="$1"
     python3 "${CODIFY_PI_TRANSLATOR}" --raw-file "${raw_file}"
@@ -456,4 +504,5 @@ adapter_materialize_skills() { pi_adapter_materialize_skills "$@"; }
 adapter_stream_events() { pi_adapter_stream_events "$@"; }
 adapter_normalize_result() { pi_adapter_normalize_result "$@"; }
 adapter_run() { pi_adapter_run "$@"; }
+adapter_run_text() { pi_adapter_run_text "$@"; }
 adapter_terminate() { pi_adapter_terminate "$@"; }

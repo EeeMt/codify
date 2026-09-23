@@ -110,6 +110,10 @@ def test_capability_policy_codex_marks_codegraph_disabled():
     assert policy["codegraph"] is False
 
 
+def test_capability_policy_opencode_allows_run_text():
+    assert capability_policy("opencode")["run_text"] is True
+
+
 def test_protocol_compatibility():
     validate_protocol_compatibility("claude", "anthropic_messages")
     validate_protocol_compatibility("codex", "openai_responses")
