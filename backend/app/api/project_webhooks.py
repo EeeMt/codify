@@ -8,7 +8,7 @@ import secrets
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from gitlab.exceptions import GitlabError
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,6 +60,14 @@ class GitLabProjectWebhookStatusResponse(BaseModel):
     enable_ssl_verification: bool | None = None
     managed_secret_configured: bool
     secret_mode: str
+
+
+class GitLabProjectWebhookStatusesResponse(BaseModel):
+    items: list[GitLabProjectWebhookStatusResponse]
+    total: int | None
+    has_next: bool
+    page: int
+    page_size: int
 
 
 def _build_gitlab_webhook_target_url(settings: Settings) -> str:
@@ -258,22 +266,26 @@ async def get_gitlab_project_webhook_status(
     )
 
 
-@router.get("/config/gitlab/webhooks", response_model=list[GitLabProjectWebhookStatusResponse])
+@router.get("/config/gitlab/webhooks", response_model=GitLabProjectWebhookStatusesResponse)
 async def list_gitlab_project_webhook_statuses(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    search: str = Query("", max_length=200),
     db: AsyncSession = Depends(get_db),
     _current_user=Depends(require_admin_user),
 ):
-    """Inspect GitLab webhook status across all manageable projects."""
+    """Inspect GitLab webhook status for one page of manageable projects."""
     await load_runtime_config_from_db(db)
     settings = get_effective_settings()
     target_webhook_url = _validate_gitlab_webhook_ready(settings)
 
     client = GitLabClient(settings=settings, private_token=settings.gitlab_admin_token)
 
-    def collect_project_snapshots() -> list[dict[str, Any]]:
-        projects = sorted(
-            client.get_visible_projects(),
-            key=lambda project: str(project.get("path_with_namespace", "") or project.get("name", "")).lower(),
+    def collect_project_snapshots() -> tuple[list[dict[str, Any]], int | None, bool]:
+        projects, total, has_next = client.get_visible_projects(
+            page=page,
+            per_page=page_size,
+            search=search.strip() or None,
         )
         normalized_target = GitLabClient._normalize_hook_url(target_webhook_url)
         snapshots: list[dict[str, Any]] = []
@@ -303,10 +315,10 @@ async def list_gitlab_project_webhook_statuses(
                 "inspection_error": inspection_error,
             })
 
-        return snapshots
+        return snapshots, total, has_next
 
     try:
-        snapshots = await asyncio.to_thread(collect_project_snapshots)
+        snapshots, total, has_next = await asyncio.to_thread(collect_project_snapshots)
     except (GitlabError, httpx.HTTPError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -329,4 +341,10 @@ async def list_gitlab_project_webhook_statuses(
             )
         )
 
-    return statuses
+    return {
+        "items": statuses,
+        "total": total,
+        "has_next": has_next,
+        "page": page,
+        "page_size": page_size,
+    }

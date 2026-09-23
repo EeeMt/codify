@@ -97,6 +97,13 @@ vi.mock('naive-ui', () => ({
       })
     }
   },
+  NPagination: {
+    name: 'NPagination',
+    props: ['page', 'pageSize', 'pageCount', 'itemCount', 'disabled', 'pageSizes', 'showSizePicker'],
+    setup(_props: any) {
+      return () => h('div', { class: 'n-pagination' })
+    }
+  },
   NTag: {
     name: 'NTag',
     props: ['type', 'round', 'size'],
@@ -206,11 +213,18 @@ describe('GitLabSettingsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockConfigForm.isSectionDirty.mockReturnValue(false)
-    mockApi.listGitLabProjectWebhookStatuses.mockResolvedValue(mockWebhookStatuses)
+    mockApi.listGitLabProjectWebhookStatuses.mockResolvedValue({
+      items: mockWebhookStatuses,
+      total: 2,
+      has_next: false,
+      page: 1,
+      page_size: 10
+    })
   })
 
-  const mountComponent = () => {
+  const mountComponent = (props: Record<string, unknown> = {}) => {
     wrapper = mount(GitLabSettingsPanel, {
+      props,
       global: {
         stubs: {
           // Stub all naive-ui components to simplify rendering
@@ -273,11 +287,22 @@ describe('GitLabSettingsPanel', () => {
       await vi.waitFor(() => {})
       await wrapper.vm.fetchWebhookStatuses()
       expect(mockApi.listGitLabProjectWebhookStatuses).toHaveBeenCalledTimes(1)
+      expect(mockApi.listGitLabProjectWebhookStatuses).toHaveBeenCalledWith({
+        page: 1,
+        page_size: 10,
+        search: ''
+      })
     })
 
     it('should set webhookStatusLoading during fetch', async () => {
       mockApi.listGitLabProjectWebhookStatuses.mockImplementation(() =>
-        new Promise(resolve => setTimeout(() => resolve(mockWebhookStatuses), 100))
+        new Promise(resolve => setTimeout(() => resolve({
+          items: mockWebhookStatuses,
+          total: 2,
+          has_next: false,
+          page: 1,
+          page_size: 10
+        }), 100))
       )
       const wrapper = mountComponent()
       await vi.waitFor(() => {})
@@ -356,34 +381,45 @@ describe('GitLabSettingsPanel', () => {
     })
   })
 
-  describe('filteredWebhookStatuses', () => {
-    it('should return all statuses when search is empty', async () => {
+  describe('server-side pagination and search', () => {
+    it('should keep the current page returned by the server', async () => {
       const wrapper = mountComponent()
       await vi.waitFor(() => {})
-      wrapper.vm.webhookStatuses = [...mockWebhookStatuses]
-      wrapper.vm.webhookSearch = ''
-
-      expect(wrapper.vm.filteredWebhookStatuses).toHaveLength(2)
+      await wrapper.vm.fetchWebhookStatuses()
+      expect(wrapper.vm.webhookStatuses).toHaveLength(2)
+      expect(wrapper.vm.webhookTotal).toBe(2)
     })
 
-    it('should filter by project name', async () => {
+    it('should send the search term after refresh', async () => {
       const wrapper = mountComponent()
       await vi.waitFor(() => {})
-      wrapper.vm.webhookStatuses = [...mockWebhookStatuses]
       wrapper.vm.webhookSearch = 'test-project'
 
-      expect(wrapper.vm.filteredWebhookStatuses).toHaveLength(1)
-      expect(wrapper.vm.filteredWebhookStatuses[0].project_name).toBe('test-project')
+      await wrapper.vm.refreshWebhookStatuses()
+
+      expect(mockApi.listGitLabProjectWebhookStatuses).toHaveBeenLastCalledWith({
+        page: 1,
+        page_size: 10,
+        search: 'test-project'
+      })
     })
 
-    it('should filter by status', async () => {
-      const wrapper = mountComponent()
+    it('keeps pagination available when GitLab omits the total count', async () => {
+      mockApi.listGitLabProjectWebhookStatuses.mockResolvedValue({
+        items: mockWebhookStatuses,
+        total: null,
+        has_next: true,
+        page: 1,
+        page_size: 10
+      })
+      const wrapper = mountComponent({ isMobile: true })
       await vi.waitFor(() => {})
-      wrapper.vm.webhookStatuses = [...mockWebhookStatuses]
-      wrapper.vm.webhookSearch = 'missing'
+      await wrapper.vm.fetchWebhookStatuses()
 
-      expect(wrapper.vm.filteredWebhookStatuses).toHaveLength(1)
-      expect(wrapper.vm.filteredWebhookStatuses[0].status).toBe('missing')
+      expect(wrapper.vm.webhookTotal).toBeNull()
+      expect(wrapper.vm.webhookPageCount).toBe(2)
+      expect(wrapper.vm.webhookSummaryItems[0].value).toBe('—')
+      expect(wrapper.find('.n-pagination').exists()).toBe(true)
     })
   })
 
@@ -392,6 +428,7 @@ describe('GitLabSettingsPanel', () => {
       const wrapper = mountComponent()
       await vi.waitFor(() => {})
       wrapper.vm.webhookStatuses = [...mockWebhookStatuses]
+      wrapper.vm.webhookTotal = 2
 
       const summary = wrapper.vm.webhookSummaryItems
       expect(summary[0].value).toBe('2') // total

@@ -7,8 +7,9 @@ import Config from './Config.vue'
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 
-const { mockGetConfig, mockRouteQuery } = vi.hoisted(() => ({
+const { mockGetConfig, mockRouteQuery, mockFetchWebhookStatuses } = vi.hoisted(() => ({
   mockGetConfig: vi.fn(),
+  mockFetchWebhookStatuses: vi.fn(),
   // Plain object so the immediate watcher reads the right value during component setup
   mockRouteQuery: { tab: undefined as string | undefined }
 }))
@@ -215,7 +216,7 @@ const globalStubs = {
   RuntimeSettingsPanel: { template: '<div class="runtime-panel">Runtime</div>' },
   GitLabSettingsPanel: {
     template: '<div class="gitlab-panel">GitLab</div>',
-    methods: { fetchWebhookStatuses: () => {} }
+    methods: { fetchWebhookStatuses: mockFetchWebhookStatuses }
   },
   AuthSettingsPanel: { template: '<div class="auth-panel">Auth</div>' },
   MaintenancePanel: { template: '<div class="maintenance-panel">Maintenance</div>' },
@@ -297,6 +298,15 @@ describe('Config', () => {
     await flushPromises()
 
     expect(wrapper.vm.activeConfigTab).toBe('gitlab')
+  })
+
+  it('does not fetch webhook statuses while loading config', async () => {
+    mockRouteQuery.tab = 'gitlab'
+
+    wrapper = mount(Config, { global: { stubs: globalStubs } })
+    await flushPromises()
+
+    expect(mockFetchWebhookStatuses).not.toHaveBeenCalled()
   })
 
   it('selects tab from route.query.tab = "auth"', async () => {

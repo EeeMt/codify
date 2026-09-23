@@ -50,7 +50,7 @@
             </n-tab-pane>
 
             <n-tab-pane name="gitlab" :tab="t('config.gitlabTab')">
-              <GitLabSettingsPanel ref="gitlabPanelRef" :is-mobile="isMobile" />
+              <GitLabSettingsPanel :is-mobile="isMobile" />
             </n-tab-pane>
 
             <n-tab-pane name="ai-providers" :tab="t('config.providers.title')">
@@ -146,7 +146,6 @@ const {
 } = provideConfigForm()
 
 // Panel refs
-const gitlabPanelRef = ref<InstanceType<typeof GitLabSettingsPanel> | null>(null)
 const promptTemplatesPanelRef = ref<InstanceType<typeof PromptTemplatesPanel> | null>(null)
 const skillSettingsPanelRef = ref<InstanceType<typeof SkillSettingsPanel> | null>(null)
 const pageIsDirty = computed(
@@ -199,8 +198,6 @@ async function loadConfig() {
   try {
     const config = await getConfig()
     syncForm(config)
-    // Trigger webhook statuses fetch
-    gitlabPanelRef.value?.fetchWebhookStatuses()
     await fetchPromptTemplatesIfNeeded()
   } catch (error) {
     console.error('Failed to load config:', error)

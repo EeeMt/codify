@@ -164,9 +164,10 @@
               clearable
               :placeholder="t('config.webhookOverviewSearchPlaceholder')"
               style="width: 200px"
+              @keyup.enter="refreshWebhookStatuses"
             />
             <n-button
-              @click="fetchWebhookStatuses"
+              @click="refreshWebhookStatuses"
               :loading="webhookStatusLoading"
               :disabled="isGitLabBusy"
             >
@@ -187,20 +188,21 @@
         <div v-if="!isMobile" class="config-table-wrapper">
           <n-data-table
             :columns="webhookColumns"
-            :data="filteredWebhookStatuses"
+            :data="webhookStatuses"
             :loading="webhookStatusLoading"
             :bordered="false"
-            :pagination="{ pageSize: 10 }"
+            :remote="true"
+            :pagination="webhookTablePagination"
             :scroll-x="1100"
             :row-key="(row: GitLabProjectWebhookStatusResult) => row.project_id"
           />
         </div>
         <n-spin v-else :show="webhookStatusLoading">
-          <div v-if="!webhookStatusLoading && filteredWebhookStatuses.length === 0" class="config-webhook-mobile__empty">
+          <div v-if="!webhookStatusLoading && webhookStatuses.length === 0" class="config-webhook-mobile__empty">
             {{ t('config.noWebhookData') }}
           </div>
           <div
-            v-for="row in filteredWebhookStatuses"
+            v-for="row in webhookStatuses"
             :key="row.project_id"
             class="config-webhook-mobile__item"
           >
@@ -228,6 +230,18 @@
               {{ row.status_detail || row.hook_url || row.target_webhook_url }}
             </div>
           </div>
+          <n-pagination
+            v-if="webhookTotal === null || webhookTotal > 0"
+            :page="webhookPage"
+            :page-size="webhookPageSize"
+            :page-count="webhookPageCount"
+            :item-count="webhookTotal ?? undefined"
+            :disabled="webhookStatusLoading"
+            :page-sizes="[10, 20, 50]"
+            show-size-picker
+            @update:page="handleWebhookPageChange"
+            @update:page-size="handleWebhookPageSizeChange"
+          />
         </n-spin>
       </div>
 
@@ -265,6 +279,7 @@ import {
   NGi,
   NGrid,
   NInput,
+  NPagination,
   NSpace,
   NSpin,
   NTag,
@@ -308,6 +323,10 @@ const {
 const gitlabTesting = ref(false)
 const webhookStatusLoading = ref(false)
 const webhookStatuses = ref<GitLabProjectWebhookStatusResult[]>([])
+const webhookTotal = ref<number | null>(0)
+const webhookHasNext = ref(false)
+const webhookPage = ref(1)
+const webhookPageSize = ref(10)
 const webhookSearch = ref('')
 const projectCacheInvalidating = ref(false)
 const webhookActionProjectId = ref<number | null>(null)
@@ -334,38 +353,38 @@ const gitlabRules: FormRules = {
   }
 }
 
-// Filtered webhook statuses
-const filteredWebhookStatuses = computed(() => {
-  const keyword = webhookSearch.value.trim().toLowerCase()
-  if (!keyword) {
-    return webhookStatuses.value
-  }
-  return webhookStatuses.value.filter((row: GitLabProjectWebhookStatusResult) => {
-    const text = [
-      row.project_name,
-      row.project_path_with_namespace,
-      row.status,
-      row.secret_mode,
-      row.status_detail || ''
-    ]
-      .join(' ')
-      .toLowerCase()
-    return text.includes(keyword)
-  })
-})
-
 const webhookSummaryItems = computed(() => {
   const rows = webhookStatuses.value
   const configured = rows.filter((row: GitLabProjectWebhookStatusResult) => row.status === 'configured').length
   const attention = rows.filter((row: GitLabProjectWebhookStatusResult) => row.status === 'needs_attention').length
   const missingOrError = rows.filter((row: GitLabProjectWebhookStatusResult) => row.status === 'missing' || row.status === 'error').length
+  const currentPageLabel = t('config.webhookCurrentPage')
 
   return [
-    { label: t('config.webhookProjectsTotal'), value: String(rows.length) },
-    { label: t('config.webhookProjectsConfigured'), value: String(configured) },
-    { label: t('config.webhookProjectsAttention'), value: String(attention) },
-    { label: t('config.webhookProjectsMissing'), value: String(missingOrError) }
+    { label: t('config.webhookProjectsTotal'), value: webhookTotal.value === null ? '—' : String(webhookTotal.value || rows.length) },
+    { label: `${t('config.webhookProjectsConfigured')} (${currentPageLabel})`, value: String(configured) },
+    { label: `${t('config.webhookProjectsAttention')} (${currentPageLabel})`, value: String(attention) },
+    { label: `${t('config.webhookProjectsMissing')} (${currentPageLabel})`, value: String(missingOrError) }
   ]
+})
+
+const webhookTablePagination = computed(() => ({
+  page: webhookPage.value,
+  pageSize: webhookPageSize.value,
+  pageCount: webhookPageCount.value,
+  itemCount: webhookTotal.value ?? undefined,
+  disabled: webhookStatusLoading.value,
+  showSizePicker: true,
+  pageSizes: [10, 20, 50],
+  onUpdatePage: handleWebhookPageChange,
+  onUpdatePageSize: handleWebhookPageSizeChange
+}))
+
+const webhookPageCount = computed(() => {
+  if (webhookTotal.value === null) {
+    return webhookPage.value + (webhookHasNext.value ? 1 : 0)
+  }
+  return Math.max(1, Math.ceil(webhookTotal.value / webhookPageSize.value))
 })
 
 // Helper functions
@@ -478,18 +497,47 @@ async function fetchWebhookStatuses() {
   try {
     if (!formValue.value.gitlab_url.trim() || !formValue.value.gitlab_admin_token_configured) {
       webhookStatuses.value = []
+      webhookTotal.value = 0
+      webhookHasNext.value = false
       return
     }
     webhookStatusLoading.value = true
     webhookStatusState.value = null
-    webhookStatuses.value = await listGitLabProjectWebhookStatuses()
+    const result = await listGitLabProjectWebhookStatuses({
+      page: webhookPage.value,
+      page_size: webhookPageSize.value,
+      search: webhookSearch.value.trim()
+    })
+    webhookStatuses.value = result.items
+    webhookTotal.value = result.total
+    webhookHasNext.value = result.has_next
+    webhookPage.value = result.page
+    webhookPageSize.value = result.page_size
   } catch (error: any) {
     webhookStatuses.value = []
+    webhookTotal.value = 0
+    webhookHasNext.value = false
     const detail = error?.response?.data?.detail || t('config.projectWebhookStatusFailed')
     webhookStatusState.value = { type: 'error', message: detail }
   } finally {
     webhookStatusLoading.value = false
   }
+}
+
+async function refreshWebhookStatuses() {
+  webhookPage.value = 1
+  await fetchWebhookStatuses()
+}
+
+async function handleWebhookPageChange(page: number) {
+  webhookPage.value = page
+  await fetchWebhookStatuses()
+}
+
+async function handleWebhookPageSizeChange(pageSize: number) {
+  webhookPageSize.value = pageSize
+  webhookPage.value = 1
+  await fetchWebhookStatuses()
 }
 
 async function handleTestGitLab() {

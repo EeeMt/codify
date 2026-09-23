@@ -8,7 +8,7 @@ Tests cover:
 - _build_gitlab_project_webhook_status_response edge cases (SSL disabled)
 - setup_gitlab_project_webhook endpoint (POST)
 - get_gitlab_project_webhook_status endpoint (GET single)
-- list_gitlab_project_webhook_statuses endpoint (GET all)
+- list_gitlab_project_webhook_statuses endpoint (GET paged)
 """
 
 import os
@@ -590,7 +590,7 @@ class GetGitlabProjectWebhookStatusTests(unittest.TestCase):
         mock_client_instance.close.assert_called_once()
 
 # ---------------------------------------------------------------------------
-# list_gitlab_project_webhook_statuses endpoint (GET all)
+# list_gitlab_project_webhook_statuses endpoint (GET paged)
 # ---------------------------------------------------------------------------
 
 class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
@@ -611,10 +611,14 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
         target_url = "https://backend.example.com/api/webhook/gitlab"
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_visible_projects.return_value = [
-            {"id": 1, "name": "project-a", "path_with_namespace": "group/project-a"},
-            {"id": 2, "name": "project-b", "path_with_namespace": "group/project-b"},
-        ]
+        mock_client_instance.get_visible_projects.return_value = (
+            [
+                {"id": 1, "name": "project-a", "path_with_namespace": "group/project-a"},
+                {"id": 2, "name": "project-b", "path_with_namespace": "group/project-b"},
+            ],
+            22,
+            True,
+        )
         mock_client_instance.get_project_hooks.side_effect = [
             [
                 {
@@ -635,18 +639,27 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
                     MockClientClass.return_value = mock_client_instance
                     MockClientClass._normalize_hook_url = lambda url: url.rstrip("/")
                     with patch("app.api.project_webhooks.has_project_webhook_secret", new=AsyncMock(return_value=False)):
-                        response = client.get("/api/config/gitlab/webhooks")
+                        response = client.get("/api/config/gitlab/webhooks?page=2&page_size=20&search=project")
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(len(data), 2)
+        self.assertEqual(data["total"], 22)
+        self.assertTrue(data["has_next"])
+        self.assertEqual(data["page"], 2)
+        self.assertEqual(data["page_size"], 20)
+        self.assertEqual(len(data["items"]), 2)
 
-        pa = next(p for p in data if p["project_id"] == 1)
-        pb = next(p for p in data if p["project_id"] == 2)
+        pa = next(p for p in data["items"] if p["project_id"] == 1)
+        pb = next(p for p in data["items"] if p["project_id"] == 2)
         self.assertEqual(pa["status"], "configured")
         self.assertEqual(pa["project_name"], "project-a")
         self.assertEqual(pb["status"], "missing")
         self.assertEqual(pb["project_name"], "project-b")
+        mock_client_instance.get_visible_projects.assert_called_once_with(
+            page=2,
+            per_page=20,
+            search="project",
+        )
         mock_client_instance.close.assert_called_once()
 
     def test_list_empty_projects(self):
@@ -656,7 +669,7 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
         mock_settings = _make_mock_settings()
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_visible_projects.return_value = []
+        mock_client_instance.get_visible_projects.return_value = ([], 0, False)
 
         with patch("app.api.project_webhooks.load_runtime_config_from_db", new=AsyncMock()):
             with patch("app.api.project_webhooks.get_effective_settings", return_value=mock_settings):
@@ -666,7 +679,10 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
                     response = client.get("/api/config/gitlab/webhooks")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), [])
+        self.assertEqual(
+            response.json(),
+            {"items": [], "total": 0, "has_next": False, "page": 1, "page_size": 10},
+        )
         mock_client_instance.close.assert_called_once()
 
     def test_list_with_per_project_hook_inspection_error(self):
@@ -678,9 +694,11 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
         mock_settings = _make_mock_settings()
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_visible_projects.return_value = [
-            {"id": 1, "name": "project-a", "path_with_namespace": "group/project-a"},
-        ]
+        mock_client_instance.get_visible_projects.return_value = (
+            [{"id": 1, "name": "project-a", "path_with_namespace": "group/project-a"}],
+            1,
+            False,
+        )
         mock_client_instance.get_project_hooks.side_effect = GitlabError("Forbidden")
 
         with patch("app.api.project_webhooks.load_runtime_config_from_db", new=AsyncMock()):
@@ -693,9 +711,9 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["status"], "error")
-        self.assertIn("Forbidden", data[0]["status_detail"])
+        self.assertEqual(len(data["items"]), 1)
+        self.assertEqual(data["items"][0]["status"], "error")
+        self.assertIn("Forbidden", data["items"][0]["status_detail"])
 
     def test_list_gitlab_get_projects_error_returns_400(self):
         """GitLab error when fetching projects should return 400."""
@@ -727,9 +745,11 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
         target_url = "https://backend.example.com/api/webhook/gitlab"
 
         mock_client_instance = MagicMock()
-        mock_client_instance.get_visible_projects.return_value = [
-            {"id": 1, "name": "project-a", "path_with_namespace": "group/project-a"},
-        ]
+        mock_client_instance.get_visible_projects.return_value = (
+            [{"id": 1, "name": "project-a", "path_with_namespace": "group/project-a"}],
+            1,
+            False,
+        )
         mock_client_instance.get_project_hooks.return_value = [
             {"id": 10, "url": target_url, "note_events": True, "enable_ssl_verification": True},
         ]
@@ -744,9 +764,9 @@ class ListGitlabProjectWebhookStatusesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["secret_mode"], "project")
-        self.assertTrue(data[0]["managed_secret_configured"])
+        self.assertEqual(len(data["items"]), 1)
+        self.assertEqual(data["items"][0]["secret_mode"], "project")
+        self.assertTrue(data["items"][0]["managed_secret_configured"])
 
 
 if __name__ == "__main__":

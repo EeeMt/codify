@@ -434,16 +434,19 @@ class TestProjectWebhookStatus:
 
     @pytest.mark.asyncio
     async def test_list_project_webhook_statuses(self, admin_headers):
-        """GET /config/gitlab/webhooks returns webhook status for all projects."""
+        """GET /config/gitlab/webhooks returns one paged webhook status response."""
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
                 f"{BACKEND_URL}/api/config/gitlab/webhooks",
                 headers=admin_headers,
             )
-            # May return 200 with list, or 400/500 if GitLab unreachable in mock env
+            # May return 200 with a page response, or 400/500 if GitLab unreachable in mock env
             if resp.status_code == 200:
                 data = resp.json()
-                assert isinstance(data, list)
+                assert isinstance(data, dict)
+                assert isinstance(data.get("items"), list)
+                assert isinstance(data.get("total"), (int, type(None)))
+                assert isinstance(data.get("has_next"), bool)
             else:
                 assert resp.status_code in (400, 500, 502, 503), \
                     f"Unexpected status: {resp.status_code} {resp.text[:200]}"

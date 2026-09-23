@@ -292,11 +292,14 @@ class TestWebhookConfigManagement:
                 f"{BACKEND_URL}/api/config/gitlab/webhooks",
                 headers=admin_headers,
             )
-            # May return 200 (list) or 400 (GitLab not properly configured)
+            # May return 200 (paged response) or 400 (GitLab not properly configured)
             assert resp.status_code in (200, 400)
             if resp.status_code == 200:
                 data = resp.json()
-                assert isinstance(data, list)
+                assert isinstance(data, dict)
+                assert isinstance(data.get("items"), list)
+                assert isinstance(data.get("total"), (int, type(None)))
+                assert isinstance(data.get("has_next"), bool)
 
     @pytest.mark.asyncio
     async def test_get_project_webhook_status(self, admin_headers):

@@ -503,8 +503,14 @@ class GitLabClient:
             )
         return result
 
-    def get_visible_projects(self, per_page: int = 100) -> list:
-        """Get every project visible to the configured token (all of GitLab for admins).
+    def get_visible_projects(
+        self,
+        per_page: int = 100,
+        *,
+        page: int = 1,
+        search: str | None = None,
+    ) -> tuple[list, int | None, bool]:
+        """Get one page of projects visible to the configured token.
 
         Issues the plain /projects listing without membership/visibility
         filters: GitLab returns the whole instance for an instance-admin token —
@@ -517,13 +523,38 @@ class GitLabClient:
 
         Args:
             per_page: Number of projects per page
+            page: Page number, starting at 1
+            search: Optional GitLab project search across name, path, and description
 
         Returns:
-            List of project dicts with id, name, path_with_namespace
+            A tuple of project dicts, the total matching project count when GitLab
+            provides it, and whether another page exists
         """
-        logger.info("Fetching all visible projects")
+        logger.info(
+            "Fetching visible GitLab projects page=%s per_page=%s search=%r",
+            page,
+            per_page,
+            search,
+        )
+        query_parameters = {
+            "page": page,
+            "per_page": per_page,
+            "order_by": "path",
+            "sort": "asc",
+        }
+        normalized_search = (search or "").strip()
+        if normalized_search:
+            query_parameters["search"] = normalized_search
+            query_parameters["search_namespaces"] = True
+
         try:
-            page_results = self.gl.projects.list(per_page=per_page, all=True)
+            # Keep pagination in query_parameters because python-gitlab warns that
+            # page is ignored when passed alongside iterator=True.
+            page_results = self.gl.projects.list(
+                iterator=True,
+                get_next=False,
+                query_parameters=query_parameters,
+            )
         except Exception as exc:
             if isinstance(exc, (GitlabError, httpx.HTTPError)):
                 raise
@@ -544,7 +575,13 @@ class GitLabClient:
                     "description": getattr(p, "description", None) or "",
                 }
             )
-        return result
+        if isinstance(page_results, list):
+            total = len(result)
+            has_next = False
+        else:
+            total = getattr(page_results, "total", None)
+            has_next = getattr(page_results, "next_page", None) is not None
+        return result, total, has_next
 
     def get_branches(self, project_id: int) -> list:
         """Get list of branches for a project.

@@ -927,6 +927,14 @@ export interface GitLabProjectWebhookStatusResult {
   secret_mode: 'project' | 'none' | string
 }
 
+export interface GitLabProjectWebhookStatusesResponse {
+  items: GitLabProjectWebhookStatusResult[]
+  total: number | null
+  has_next: boolean
+  page: number
+  page_size: number
+}
+
 export interface WebhookEvent {
   id: number
   event_type: string
@@ -1247,8 +1255,12 @@ export async function getGitLabProjectWebhookStatus(
   return response.data
 }
 
-export async function listGitLabProjectWebhookStatuses(): Promise<GitLabProjectWebhookStatusResult[]> {
-  const response = await api.get('/config/gitlab/webhooks')
+export async function listGitLabProjectWebhookStatuses(params: {
+  page?: number
+  page_size?: number
+  search?: string
+} = {}): Promise<GitLabProjectWebhookStatusesResponse> {
+  const response = await api.get('/config/gitlab/webhooks', { params })
   return response.data
 }
 

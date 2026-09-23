@@ -805,9 +805,20 @@ class TestGetVisibleProjects(unittest.TestCase):
 
         client.gl.projects.list.return_value = [mock_p1, mock_p2]
 
-        result = client.get_visible_projects()
+        result, total, has_next = client.get_visible_projects()
 
-        client.gl.projects.list.assert_called_once_with(per_page=100, all=True)
+        client.gl.projects.list.assert_called_once_with(
+            iterator=True,
+            get_next=False,
+            query_parameters={
+                "page": 1,
+                "per_page": 100,
+                "order_by": "path",
+                "sort": "asc",
+            },
+        )
+        self.assertEqual(total, 2)
+        self.assertFalse(has_next)
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["id"], 1)
         self.assertEqual(result[0]["path_with_namespace"], "group/project-a")
@@ -835,8 +846,10 @@ class TestGetVisibleProjects(unittest.TestCase):
 
         client.gl.projects.list.return_value = [mock_active, mock_pending]
 
-        result = client.get_visible_projects()
+        result, total, has_next = client.get_visible_projects()
 
+        self.assertEqual(total, 1)
+        self.assertFalse(has_next)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["id"], 1)
 
@@ -845,9 +858,42 @@ class TestGetVisibleProjects(unittest.TestCase):
         client = _make_client()
         client.gl.projects.list.return_value = []
 
-        client.get_visible_projects(per_page=50)
+        client.get_visible_projects(per_page=50, page=3, search="group")
 
-        client.gl.projects.list.assert_called_once_with(per_page=50, all=True)
+        client.gl.projects.list.assert_called_once_with(
+            iterator=True,
+            get_next=False,
+            query_parameters={
+                "page": 3,
+                "per_page": 50,
+                "order_by": "path",
+                "sort": "asc",
+                "search": "group",
+                "search_namespaces": True,
+            },
+        )
+
+    def test_preserves_unknown_total_and_next_page(self):
+        """Keeps GitLab's pagination cursor when it omits totals above 10,000 projects."""
+        client = _make_client()
+        mock_project = MagicMock()
+        mock_project.id = 1
+        mock_project.name = "project-a"
+        mock_project.path_with_namespace = "group/project-a"
+        mock_project.default_branch = "main"
+        mock_project.marked_for_deletion_at = None
+
+        page_results = MagicMock()
+        page_results.__iter__.return_value = iter([mock_project])
+        page_results.total = None
+        page_results.next_page = 2
+        client.gl.projects.list.return_value = page_results
+
+        result, total, has_next = client.get_visible_projects()
+
+        self.assertEqual(len(result), 1)
+        self.assertIsNone(total)
+        self.assertTrue(has_next)
 
     def test_raises_on_listing_failure(self):
         """GitLab listing failure propagates instead of returning an empty list."""
