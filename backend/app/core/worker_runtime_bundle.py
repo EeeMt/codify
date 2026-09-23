@@ -342,7 +342,7 @@ def build_runtime_bundle_v2(manifest: Mapping[str, Any]) -> BuiltRuntimeBundleV2
 def _validate_evidence_adapter_identity(
     evidence: Mapping[str, Any], adapters: Mapping[str, Mapping[str, Any]]
 ) -> None:
-    """Bind evidence to the frozen Adapter bytes, keeping version drift advisory."""
+    """Bind evidence to the frozen Adapter, while keeping drift advisory."""
     harness_key = evidence.get("harness_key")
     if not isinstance(harness_key, str) or harness_key not in adapters:
         raise RuntimeError("V2 Runtime Bundle evidence Harness key has no frozen Adapter")
@@ -359,7 +359,13 @@ def _validate_evidence_adapter_identity(
             actual.get("version"),
         )
     if expected.get("digest") != actual.get("digest"):
-        raise RuntimeError("V2 Runtime Bundle evidence Adapter digest does not match frozen Adapter")
+        logger.warning(
+            "V2 Runtime Bundle evidence Adapter digest does not match frozen Adapter: "
+            "harness=%s evidence=%r frozen=%r",
+            harness_key,
+            expected.get("digest"),
+            actual.get("digest"),
+        )
 
 
 def default_runtime_source_dir() -> Path:

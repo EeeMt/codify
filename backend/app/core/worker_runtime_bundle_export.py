@@ -104,7 +104,14 @@ def _selected_task_evidence(task: Task, bundle: WorkerRuntimeBundle) -> None:
             adapter_identity.get("version"),
         )
     if adapter.get("digest") != adapter_identity.get("digest"):
-        raise RuntimeBundleExportError("Task selected Harness Adapter identity does not match Runtime Bundle")
+        logger.warning(
+            "Task selected Harness Adapter digest does not match Runtime Bundle: "
+            "task=%s harness=%s evidence=%r frozen=%r",
+            getattr(task, "id", None),
+            key,
+            adapter.get("digest"),
+            adapter_identity.get("digest"),
+        )
     identity = bundle.manifest.get("worker_image_identity")
     if evidence.get("image_identity") != identity:
         raise RuntimeBundleExportError("Task selected Harness image identity does not match Runtime Bundle")

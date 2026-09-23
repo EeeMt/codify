@@ -72,7 +72,9 @@ def _kit_identity() -> dict[str, str]:
     }
 
 
-async def _bound(session_factory, tmp_path: Path, key: str = "pi"):
+async def _bound(
+    session_factory, tmp_path: Path, key: str = "pi", *, stale_adapter_digest: bool = False
+):
     source = _source(tmp_path)
     identity = _worker_image_identity()
     kit_identity = _kit_identity()
@@ -85,6 +87,9 @@ async def _bound(session_factory, tmp_path: Path, key: str = "pi"):
         "verification_input_digest": "d" * 64, "image_identity": identity, "generation": 1,
         "verified_at": "2026-08-24T00:00:00+00:00",
     }
+    if stale_adapter_digest:
+        adapter_path = source / "deploy/worker-entrypoint/harness/adapters" / f"{key}.sh"
+        adapter_path.write_text(adapter_path.read_text() + "\n# changed after verification\n")
     async with session_factory() as db:
         bundle = await get_or_create_runtime_bundle_v2(
             db, source_dir=source, worker_image_identity=identity,
@@ -142,6 +147,17 @@ async def test_selectors_and_selected_adapter_evidence_fail_closed(session_facto
         await db.commit()
         with pytest.raises(RuntimeBundleExportError, match="selected Harness evidence"):
             await load_exportable_runtime_bundle(db, task_id=1)
+
+
+@pytest.mark.asyncio
+async def test_export_allows_stale_adapter_digest_evidence(session_factory, tmp_path, caplog):
+    digest = await _bound(session_factory, tmp_path, stale_adapter_digest=True)
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        async with session_factory() as db:
+            bundle = await load_exportable_runtime_bundle(db, task_id=1)
+    assert bundle.digest == digest
+    assert "Adapter digest does not match Runtime Bundle" in caplog.text
 
 
 @pytest.mark.asyncio
