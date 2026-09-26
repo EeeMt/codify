@@ -14,6 +14,7 @@ import os
 import sys
 import unittest
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models import TaskStatus
@@ -1284,6 +1285,85 @@ class RuntimeReadinessGateTests(unittest.IsolatedAsyncioTestCase):
         empty = MagicMock()
         empty.scalars.return_value.all.return_value = []
         return snapshot_result, empty
+
+    async def test_incomplete_v2_snapshot_is_promoted_to_identity_failure_gate(self) -> None:
+        from app.core.worker_runtime_readiness import (
+            FAILURE_WORKER_KIT_NOT_FOUND,
+            READINESS_UNAVAILABLE,
+            RuntimeReadiness,
+        )
+        from app.scheduler import Scheduler
+
+        scheduler = Scheduler()
+        snapshot = SimpleNamespace(
+            runtime_locator_fingerprint="fp-1",
+            runtime_contract_version="codify.worker.harness/v2",
+            harness_config_snapshot={},
+        )
+        candidate_result = MagicMock()
+        candidate_result.scalars.return_value.all.return_value = [77]
+        update_result = MagicMock(rowcount=0)
+        db = MagicMock()
+        db.execute = AsyncMock(side_effect=[candidate_result, update_result])
+        readiness = AsyncMock(
+            return_value=RuntimeReadiness(
+                status=READINESS_UNAVAILABLE,
+                failure_code=FAILURE_WORKER_KIT_NOT_FOUND,
+            )
+        )
+
+        with (
+            patch(
+                "app.scheduler.get_settings",
+                return_value=SimpleNamespace(harness_execution_mode="v2_only"),
+            ),
+            patch.object(scheduler, "_load_task_snapshot", new=AsyncMock(return_value=snapshot)),
+            patch("app.scheduler.read_runtime_readiness", new=readiness),
+        ):
+            await scheduler._promote_due_heads(db, datetime(2026, 1, 1))
+
+        self.assertEqual(db.execute.await_count, 2)
+        readiness.assert_awaited_once_with(
+            db,
+            "fp-1",
+            require_content_inventory=True,
+        )
+
+    async def test_incomplete_v2_snapshot_fails_before_missing_kit_can_park(self) -> None:
+        from app.core.worker_runtime_readiness import (
+            FAILURE_WORKER_KIT_NOT_FOUND,
+            READINESS_UNAVAILABLE,
+            RuntimeReadiness,
+        )
+        from app.scheduler import Scheduler
+
+        scheduler = Scheduler()
+        task = _claimable_task(5, 20)
+        snapshot_result, _ = self._snapshot_db()
+        snapshot = snapshot_result.scalar_one_or_none.return_value
+        snapshot.runtime_contract_version = "codify.worker.harness/v2"
+        snapshot.harness_config_snapshot = {}
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=snapshot_result)
+        db.commit = AsyncMock()
+        readiness = AsyncMock(
+            return_value=RuntimeReadiness(
+                status=READINESS_UNAVAILABLE,
+                failure_code=FAILURE_WORKER_KIT_NOT_FOUND,
+            )
+        )
+
+        with (
+            patch("app.scheduler.read_runtime_readiness", new=readiness),
+            patch("app.scheduler.maybe_update_issue_status", new=AsyncMock()),
+        ):
+            blocked = await scheduler._apply_runtime_readiness_gate(db, task)
+
+        self.assertTrue(blocked)
+        self.assertEqual(task.status, TaskStatus.FAILED)
+        self.assertIn("execution_contract_mismatch", task.error_message)
+        readiness.assert_not_awaited()
+        db.commit.assert_awaited_once()
 
     async def test_v1_cached_ready_runtime_skips_full_probe(self) -> None:
         from app.core.worker_runtime_readiness import READINESS_READY, RuntimeReadiness

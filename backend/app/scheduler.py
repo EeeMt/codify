@@ -1345,6 +1345,11 @@ class Scheduler:
                 if (
                     readiness.is_unavailable
                     and readiness.failure_code == FAILURE_WORKER_KIT_NOT_FOUND
+                    and (
+                        getattr(snapshot, "runtime_contract_version", None)
+                        != HARNESS_CONTRACT_VERSION_V2
+                        or _frozen_v2_snapshot_is_complete(snapshot)
+                    )
                 ):
                     continue
             promotable_ids.append(task_id)
@@ -1672,13 +1677,20 @@ class Scheduler:
         fingerprint = (
             getattr(snapshot, "runtime_locator_fingerprint", None) if snapshot is not None else None
         )
+        requires_full_content_identity = (
+            getattr(snapshot, "runtime_contract_version", None) == HARNESS_CONTRACT_VERSION_V2
+        )
+        if requires_full_content_identity and not _frozen_v2_snapshot_is_complete(snapshot):
+            await self._fail_task_for_execution_identity(
+                db,
+                task,
+                "V2 Task snapshot has no complete verified Worker Kit/CLI identity",
+            )
+            return True
         if not fingerprint:
             # baked-image target (or a pre-071 legacy snapshot): no host Kit to
             # locate, so no readiness gate applies.
             return False
-        requires_full_content_identity = (
-            getattr(snapshot, "runtime_contract_version", None) == HARNESS_CONTRACT_VERSION_V2
-        )
         readiness = await read_runtime_readiness(
             db,
             fingerprint,
@@ -1703,13 +1715,6 @@ class Scheduler:
             # not a reason to repeat the full Kit scan; the launcher performs a
             # lightweight manifest + selected-CLI check in the execution
             # container.  A partial snapshot is never allowed through.
-            if not _frozen_v2_snapshot_is_complete(snapshot):
-                await self._fail_task_for_execution_identity(
-                    db,
-                    task,
-                    "V2 Task snapshot has no complete verified Worker Kit/CLI identity",
-                )
-                return True
             return await self._harness_availability_gate(db, task, snapshot, readiness)
         if readiness.is_ready and not requires_full_content_identity:
             # V1 dual-canary keeps the legacy cached-ready path. Old V1 Kits do

@@ -873,7 +873,6 @@ async def verify_worker_profile_runtime(
     settings = get_effective_settings()
     runtime = _build_verification_runtime(profile, effective, settings)
     connection = runtime.docker_connection(settings)
-    verification_digest = _verification_digest(profile, effective, runtime, settings)
     v2_harness_keys = eligible_v2_harness_keys(profile)
     requires_v2_identity = bool(v2_harness_keys)
     # A newer explicit verification supersedes this attempt even if the
@@ -967,7 +966,12 @@ async def verify_worker_profile_runtime(
         )
 
     # Layer 2: profile-specific verification container.
+    # The Kit version is discovered by Layer 1, so it must be part of the
+    # immutable effective inputs used by candidate evidence and the persisted
+    # verification digest. New Profiles intentionally start without a version.
+    effective = replace(effective, worker_kit_version=observed_worker_kit_version)
     runtime = replace(runtime, worker_kit_version=observed_worker_kit_version)
+    verification_digest = _verification_digest(profile, effective, runtime, settings)
     try:
         validate_runtime_supports_skills(
             runtime,
@@ -1225,6 +1229,10 @@ async def verify_worker_profile_runtime(
         validate_effective_configuration(fresh_effective)
     except WorkerProfileValidationError as exc:
         raise _http_profile_error(exc) from exc
+    fresh_effective = replace(
+        fresh_effective,
+        worker_kit_version=observed_worker_kit_version,
+    )
     fresh_runtime = _build_verification_runtime(fresh_profile, fresh_effective, settings)
     fresh_digest = _verification_digest(fresh_profile, fresh_effective, fresh_runtime, settings)
     if fresh_digest != verification_digest:

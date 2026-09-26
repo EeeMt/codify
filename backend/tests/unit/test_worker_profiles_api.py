@@ -1421,7 +1421,7 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
     profile = _make_profile(id=31, name="Mixed V2")
     profile.image = "team/java21-maven:2026.08"
     profile.runtime_mode = "mounted_kit"
-    profile.worker_kit_version = "0.3.5"
+    profile.worker_kit_version = None
     profile.worker_kit_path = "/opt/codify/worker-kits/0.3.5-linux-amd64"
     profile.enabled_harnesses = ["claude", "pi", "opencode"]
     profile.default_harness_key = "claude"
@@ -1462,13 +1462,13 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
     }
     kit_identity = {
         "schema": "codify.worker.kit-identity/v1",
-        "kit_version": "0.3.5",
+        "kit_version": "0.4.0",
         "platform": "linux/amd64",
         "manifest_sha256": "d" * 64,
     }
     readiness = RuntimeReadiness(
         status="ready",
-        worker_kit_version="0.3.5",
+        worker_kit_version="0.4.0",
         harness_inventory={
             "pi": {
                 "availability": "present",
@@ -1505,6 +1505,12 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
         patch(
             "app.api.worker_profiles.build_v2_verification_candidate",
             return_value=({}, _candidate_archive(b'{"candidate":"pi"}')),
+        ),
+        patch(
+            "app.api.worker_profiles.current_runtime_verification_digest",
+            side_effect=lambda _profile, effective, _settings, harness_key=None: (
+                f"kit:{effective.worker_kit_version}:{harness_key or ''}"
+            ),
         ),
         patch(
             "app.api.worker_profiles.run_deterministic_kit_probe",
@@ -1547,6 +1553,15 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
     )
     evidence = profile.v2_harness_verification_evidence
     assert set(evidence) == {"claude", "opencode"}
+    assert response["verified_runtime_configuration_digest"] == "kit:0.4.0:"
+    assert profile.worker_kit_version == "0.4.0"
+    assert {
+        key: evidence[key]["verification_input_digest"]
+        for key in evidence
+    } == {
+        key: f"kit:0.4.0:{key}"
+        for key in evidence
+    }
     assert "pi" not in evidence
     assert evidence["opencode"]["adapter"] == {"version": "opencode-version", "digest": "o" * 64}
     assert (
