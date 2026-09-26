@@ -54,6 +54,7 @@ from app.core.usage_limits import UsageLimitExceeded, usage_limit_exceeded_detai
 from app.core.utcnow import utcnow
 from app.core.worker_profiles import WorkerProfileValidationError
 from app.core.worker_runtime_readiness import (
+    FAILURE_WORKER_KIT_NOT_FOUND,
     harness_cli_unavailable_detail,
     is_harness_available,
     read_runtime_readiness,
@@ -193,7 +194,7 @@ async def retry_task_record(
                 == HARNESS_CONTRACT_VERSION_V2
             ),
         )
-        if readiness.is_unavailable:
+        if readiness.is_unavailable and readiness.failure_code != FAILURE_WORKER_KIT_NOT_FOUND:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=runtime_unavailable_http_detail(readiness),
@@ -540,7 +541,7 @@ async def create_task_record(
         shared=shared,
         harness_key=harness_key,
     )
-    if readiness.is_unavailable:
+    if readiness.is_unavailable and readiness.failure_code != FAILURE_WORKER_KIT_NOT_FOUND:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=runtime_unavailable_http_detail(readiness),

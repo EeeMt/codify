@@ -80,7 +80,7 @@ def test_v2_candidate_verification_script_rejects_invalid_injected_manifest(tmp_
     adapter.parent.mkdir(parents=True)
     adapter.write_text("#!/bin/bash\n")
     manifest = orchestration / "manifest.json"
-    manifest.write_text("{\"schema\": \"not-v2\"}")
+    manifest.write_text('{"schema": "not-v2"}')
     kit = tmp_path / "kit"
     kit.mkdir()
     shutil.copy2(
@@ -651,7 +651,7 @@ async def test_create_mounted_worker_profile_persists_portable_kit_contract():
     await engine.dispose()
 
     assert response["runtime_mode"] == "mounted_kit"
-    assert response["worker_kit_version"] == "0.1.0"
+    assert response["worker_kit_version"] is None
     assert response["worker_kit_path"] == "/opt/codify/worker-kits/0.1.0-linux-amd64"
 
 
@@ -671,9 +671,7 @@ async def test_create_mounted_worker_profile_rejects_kit_mount_collision():
         runtime_mode="mounted_kit",
         worker_kit_version="0.1.0",
         worker_kit_path="/opt/codify/worker-kits/0.1.0-linux-amd64",
-        volume_mounts=[
-            {"host_path": "/tmp/override", "container_path": "/nix", "mode": "rw"}
-        ],
+        volume_mounts=[{"host_path": "/tmp/override", "container_path": "/nix", "mode": "rw"}],
         environment_variables=[],
         pre_script="",
         post_script="",
@@ -798,6 +796,8 @@ async def test_update_assigned_worker_allows_unchanged_docker_target_fields():
                 docker_tls_ca=profile.docker_tls_ca,
                 docker_tls_cert=profile.docker_tls_cert,
                 docker_tls_key=profile.docker_tls_key,
+                runtime_mode=profile.runtime_mode,
+                worker_kit_path=profile.worker_kit_path,
             ),
             db=db,
         )
@@ -811,6 +811,7 @@ async def test_update_assigned_worker_allows_unchanged_docker_target_fields():
     assert profile.v2_worker_image_identity_generation == 6
     assert profile.worker_kit_identity == {"kit_version": "0.3.5"}
     assert profile.worker_kit_identity_generation == 4
+    assert profile.worker_kit_version == "0.3.5"
     db.execute.assert_not_awaited()
     db.commit.assert_awaited_once()
 
@@ -1017,9 +1018,13 @@ async def test_force_disable_worker_profile_closes_active_issues():
 
             response = await force_disable_worker_profile(profile.id, db=db)
             issues = (
-                (await db.execute(
-                    select(Issue).where(Issue.worker_profile_id == profile.id).order_by(Issue.id)
-                ))
+                (
+                    await db.execute(
+                        select(Issue)
+                        .where(Issue.worker_profile_id == profile.id)
+                        .order_by(Issue.id)
+                    )
+                )
                 .scalars()
                 .all()
             )
@@ -1251,9 +1256,7 @@ async def test_verify_mounted_worker_profile_runs_preflight_on_profile_target():
     client = MagicMock()
     client.create_container.return_value = container
     client.wait_for_container.return_value = (0, "Worker kit verification passed")
-    client.resolve_image_repo_digest.return_value = (
-        "team/java21-maven@sha256:" + "c" * 64
-    )
+    client.resolve_image_repo_digest.return_value = "team/java21-maven@sha256:" + "c" * 64
 
     readiness = RuntimeReadiness(
         status="ready",
@@ -1296,9 +1299,7 @@ async def test_verify_mounted_worker_profile_runs_preflight_on_profile_target():
         ),
         patch(
             "app.api.worker_profiles.run_deterministic_kit_probe",
-            new=AsyncMock(
-                return_value=RuntimeProbeOutcome(readiness=readiness, committed=True)
-            ),
+            new=AsyncMock(return_value=RuntimeProbeOutcome(readiness=readiness, committed=True)),
         ),
     ):
         response = await verify_worker_profile_runtime(
@@ -1348,9 +1349,8 @@ async def test_verify_mounted_worker_profile_runs_preflight_on_profile_target():
 
 
 @pytest.mark.asyncio
-async def test_verify_rejects_harness_absent_from_kit_inventory_with_422():
-    """A Harness absent from the frozen Kit inventory is a deterministic
-    harness_cli_unavailable rejection, never an image/PATH fallback."""
+async def test_verify_reports_harness_absent_from_kit_inventory_without_container():
+    """An absent Harness is reported independently and never falls back to image/PATH."""
     profile = _make_profile(
         id=42,
         name="Degraded Kit",
@@ -1401,21 +1401,17 @@ async def test_verify_rejects_harness_absent_from_kit_inventory_with_422():
         ),
         patch(
             "app.api.worker_profiles.run_deterministic_kit_probe",
-            new=AsyncMock(
-                return_value=RuntimeProbeOutcome(readiness=readiness, committed=True)
-            ),
+            new=AsyncMock(return_value=RuntimeProbeOutcome(readiness=readiness, committed=True)),
         ),
     ):
-        with pytest.raises(HTTPException) as exc:
-            await verify_worker_profile_runtime(
-                42,
-                WorkerRuntimeVerificationRequest(),
-                db=db,
-            )
+        response = await verify_worker_profile_runtime(
+            42,
+            WorkerRuntimeVerificationRequest(),
+            db=db,
+        )
 
-    assert exc.value.status_code == 422
-    assert exc.value.detail["code"] == "harness_cli_unavailable"
-    assert exc.value.detail["reason_code"] == "not_selected"
+    assert response["harness_results"]["claude"]["status"] == "unavailable"
+    assert response["v2_harnesses_verified"] == []
     client.create_container.assert_not_called()
 
 
@@ -1437,27 +1433,38 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
     }
     profile.v2_worker_image_identity_generation = 0
     db = MagicMock()
-    db.get = AsyncMock(side_effect=lambda model, pk, **kwargs: profile if model is WorkerProfile else None)
+    db.get = AsyncMock(
+        side_effect=lambda model, pk, **kwargs: profile if model is WorkerProfile else None
+    )
     db.execute = AsyncMock(return_value=SimpleNamespace(rowcount=1))
     db.commit = AsyncMock()
     first, second, third = MagicMock(), MagicMock(), MagicMock()
+    containers = {"claude": first, "pi": second, "opencode": third}
     client = MagicMock()
-    client.create_container.side_effect = [first, second, third]
+    client.create_container.side_effect = lambda **kwargs: containers[
+        kwargs["environment"]["CODIFY_HARNESS_KEY"]
+    ]
     wait_barrier = threading.Barrier(3)
 
-    def wait_for_container(_container, *, timeout):
+    def wait_for_container(container, *, timeout):
         wait_barrier.wait(timeout=5)
+        if container is second:
+            return 17, "Pi Harness verification failed"
         return 0, "verified"
 
     client.wait_for_container.side_effect = wait_for_container
     identity = {
-        "schema": "codify.worker-image-identity/v1", "daemon_key": "daemon-key-31",
+        "schema": "codify.worker-image-identity/v1",
+        "daemon_key": "daemon-key-31",
         "image_reference": "team/java21-maven@sha256:" + "a" * 64,
-        "image_id": "sha256:" + "b" * 64, "runtime_platform": "linux/amd64",
+        "image_id": "sha256:" + "b" * 64,
+        "runtime_platform": "linux/amd64",
     }
     kit_identity = {
-        "schema": "codify.worker.kit-identity/v1", "kit_version": "0.3.5",
-        "platform": "linux/amd64", "manifest_sha256": "d" * 64,
+        "schema": "codify.worker.kit-identity/v1",
+        "kit_version": "0.3.5",
+        "platform": "linux/amd64",
+        "manifest_sha256": "d" * 64,
     }
     readiness = RuntimeReadiness(
         status="ready",
@@ -1499,13 +1506,18 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
             "app.api.worker_profiles.build_v2_verification_candidate",
             return_value=({}, _candidate_archive(b'{"candidate":"pi"}')),
         ),
-        patch("app.api.worker_profiles.run_deterministic_kit_probe", new=AsyncMock(
-            return_value=RuntimeProbeOutcome(readiness=readiness, committed=True)
-        )),
+        patch(
+            "app.api.worker_profiles.run_deterministic_kit_probe",
+            new=AsyncMock(return_value=RuntimeProbeOutcome(readiness=readiness, committed=True)),
+        ),
     ):
-        response = await verify_worker_profile_runtime(31, WorkerRuntimeVerificationRequest(), db=db)
+        response = await verify_worker_profile_runtime(
+            31, WorkerRuntimeVerificationRequest(), db=db
+        )
 
-    assert response["v2_harnesses_verified"] == ["claude", "pi", "opencode"]
+    assert response["v2_harnesses_verified"] == ["claude", "opencode"]
+    assert response["harness_results"]["pi"]["status"] == "verification_failed"
+    assert response["harness_results"]["claude"]["status"] == "verified"
     calls_by_harness = {
         call.kwargs["environment"]["CODIFY_HARNESS_KEY"]: call
         for call in client.create_container.call_args_list
@@ -1534,9 +1546,13 @@ async def test_verify_v2_profile_checks_each_enabled_v2_harness_and_records_sepa
         for call in calls_by_harness.values()
     )
     evidence = profile.v2_harness_verification_evidence
-    assert set(evidence) == {"claude", "pi", "opencode"}
-    assert evidence["pi"]["adapter"] == {"version": "pi-version", "digest": "p" * 64}
-    assert evidence["opencode"]["verification_input_digest"] != evidence["pi"]["verification_input_digest"]
+    assert set(evidence) == {"claude", "opencode"}
+    assert "pi" not in evidence
+    assert evidence["opencode"]["adapter"] == {"version": "opencode-version", "digest": "o" * 64}
+    assert (
+        evidence["opencode"]["verification_input_digest"]
+        != evidence["claude"]["verification_input_digest"]
+    )
     assert all(call.kwargs["start"] is False for call in calls_by_harness.values())
     assert client.put_archive.call_count == 3
     for put_call in client.put_archive.call_args_list:
@@ -1580,9 +1596,7 @@ async def test_verify_mounted_worker_profile_transient_daemon_returns_503():
             )
 
     assert exc_info.value.status_code == 503
-    assert (
-        exc_info.value.detail["code"] == "worker_runtime_verification_transient_failure"
-    )
+    assert exc_info.value.detail["code"] == "worker_runtime_verification_transient_failure"
 
 
 @pytest.mark.asyncio
@@ -1649,7 +1663,7 @@ async def test_verify_task_worker_runtime_runs_probe_and_returns_readiness():
     assert response["ok"] is True
     assert response["task_id"] == 12
     assert response["runtime_mode"] == "mounted_kit"
-    assert response["worker_kit_version"] == "0.3.5"
+    assert response["worker_kit_version"] is None
     assert response["runtime_locator_fingerprint"] is not None
     assert response["runtime_readiness"]["status"] == READINESS_READY
 

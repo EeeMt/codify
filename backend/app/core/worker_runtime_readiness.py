@@ -3,7 +3,7 @@
 Implements design §9.6, §10.3, §13.3-§13.6 and §19:
 
 - ``runtime_locator_fingerprint()`` hashes only the Kit locator (daemon identity,
-  ``runtime_mode``, ``worker_kit_version``, ``worker_kit_path``), so config edits
+  ``runtime_mode`` and ``worker_kit_path``), so config edits
   that do not move the Kit never produce a new fingerprint.
 - ``begin_runtime_check`` / ``finish_runtime_check`` implement the generation/CAS
   protocol: the check generation is incremented atomically before remote Docker
@@ -69,6 +69,8 @@ READINESS_STATUSES = frozenset({READINESS_UNKNOWN, READINESS_READY, READINESS_UN
 
 FAILURE_WORKER_KIT_NOT_FOUND = "worker_kit_not_found"
 FAILURE_WORKER_KIT_INVALID = "worker_kit_invalid"
+# Retained for historical readiness rows; current verification derives the
+# version from manifest.json and never compares it with the directory name.
 FAILURE_WORKER_KIT_VERSION_MISMATCH = "worker_kit_version_mismatch"
 
 LOCATOR_SCHEMA = "codify.worker-runtime-locator/v1"
@@ -194,7 +196,6 @@ def runtime_locator_fingerprint(
         "schema": LOCATOR_SCHEMA,
         "docker_daemon_key": docker_daemon_key,
         "runtime_mode": mode,
-        "worker_kit_version": worker_kit_version,
         "worker_kit_path": worker_kit_path,
     }
     normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -265,7 +266,6 @@ def runtime_verification_input_digest(
         "docker_daemon_key": docker_daemon_key,
         "image": image,
         "runtime_mode": (runtime_mode or BAKED_IMAGE_MODE).strip(),
-        "worker_kit_version": worker_kit_version,
         "worker_kit_path": worker_kit_path,
         "volume_mounts": sorted(
             (
@@ -515,7 +515,7 @@ async def begin_runtime_check(
             runtime_locator_fingerprint=readiness_fingerprint,
             docker_daemon_key=docker_daemon_key,
             runtime_mode=runtime_mode,
-            worker_kit_version=worker_kit_version,
+            worker_kit_version=None,
             worker_kit_path=worker_kit_path,
             status=READINESS_UNKNOWN,
             check_generation=0,
@@ -538,7 +538,8 @@ async def begin_runtime_check(
     row.check_started_at = utcnow()
     row.docker_daemon_key = docker_daemon_key
     row.runtime_mode = runtime_mode
-    row.worker_kit_version = worker_kit_version
+    # Preserve the last conclusion while this generation is in flight. A
+    # transient Docker/image failure must not erase valid readiness evidence.
     row.worker_kit_path = worker_kit_path
     await db.flush()
     return row.check_generation
@@ -554,6 +555,7 @@ async def finish_runtime_check(
     failure_message: str | None = None,
     harness_inventory: dict[str, Any] | None = None,
     kit_identity: dict[str, Any] | None = None,
+    worker_kit_version: str | None = None,
     require_content_inventory: bool = False,
 ) -> bool:
     """Write a check result only while the generation is still current (CAS).
@@ -588,6 +590,7 @@ async def finish_runtime_check(
             ready_until=None,
             harness_inventory=harness_inventory,
             kit_identity=kit_identity,
+            worker_kit_version=worker_kit_version,
         )
     )
     return result.rowcount == 1
@@ -855,6 +858,7 @@ def _content_inventory_from_archive(container: Any, root: str) -> list[dict[str,
                 }
                 entries.append(entry)
                 file_entries[relative] = entry
+
         def resolve_hardlink(relative: str, visiting: set[str]) -> dict[str, Any]:
             target_entry = file_entries.get(relative)
             if target_entry is not None:
@@ -878,6 +882,7 @@ def _content_inventory_from_archive(container: Any, root: str) -> list[dict[str,
 
         for relative in hardlink_targets:
             resolve_hardlink(relative, set())
+
         def resolve_symlink_target(path: str) -> str:
             pending = path.split("/")
             resolved: list[str] = []
@@ -922,7 +927,6 @@ def _inspect_kit_contents(
     client: DockerClientWrapper,
     container: Any,
     *,
-    worker_kit_version: str,
     worker_kit_path: str,
     root: str = KIT_PROBE_CONTAINER_PATH,
     require_content_inventory: bool = False,
@@ -963,16 +967,6 @@ def _inspect_kit_contents(
                 f"Kit manifest under {worker_kit_path!r}"
             ),
         )
-    declared_version = manifest.get("kit_version")
-    if declared_version != worker_kit_version:
-        return RuntimeCheckResult(
-            status=READINESS_UNAVAILABLE,
-            failure_code=FAILURE_WORKER_KIT_VERSION_MISMATCH,
-            failure_message=(
-                f"Worker Kit version mismatch: expected {worker_kit_version!r}, "
-                f"found {declared_version!r}"
-            ),
-        )
     for relative in ("launcher", "entrypoint.sh"):
         try:
             _read_archive_file(client, container, f"{root}/{relative}")
@@ -1005,8 +999,7 @@ def _inspect_kit_contents(
                 status=READINESS_UNAVAILABLE,
                 failure_code=FAILURE_WORKER_KIT_INVALID,
                 failure_message=(
-                    "Worker Kit install receipt is missing under "
-                    f"{worker_kit_path!r}"
+                    f"Worker Kit install receipt is missing under {worker_kit_path!r}"
                 ),
             )
     try:
@@ -1114,8 +1107,7 @@ def _validate_probe_mount_metadata(container: Any, worker_kit_path: str) -> None
         (
             mount
             for mount in mounts
-            if isinstance(mount, Mapping)
-            and mount.get("Destination") == KIT_PROBE_CONTAINER_PATH
+            if isinstance(mount, Mapping) and mount.get("Destination") == KIT_PROBE_CONTAINER_PATH
         ),
         None,
     )
@@ -1125,9 +1117,7 @@ def _validate_probe_mount_metadata(container: Any, worker_kit_path: str) -> None
         or kit_mount.get("Source") != worker_kit_path
         or bool(kit_mount.get("RW"))
     ):
-        raise HarnessInventoryError(
-            "Docker probe mount is not the exact read-only Worker Kit bind"
-        )
+        raise HarnessInventoryError("Docker probe mount is not the exact read-only Worker Kit bind")
 
 
 def probe_worker_kit(
@@ -1135,7 +1125,7 @@ def probe_worker_kit(
     *,
     image: str,
     runtime_mode: str,
-    worker_kit_version: str,
+    worker_kit_version: str | None,
     worker_kit_path: str,
     connect_timeout: int = 10,
     operation_timeout: int = 120,
@@ -1178,7 +1168,6 @@ def probe_worker_kit(
                 name=f"codify-kit-probe-{uuid.uuid4().hex[:8]}",
                 labels={
                     "codify.kit_probe": "true",
-                    "codify.worker_kit_version": worker_kit_version or "",
                 },
             )
         except docker.errors.APIError as exc:
@@ -1203,7 +1192,6 @@ def probe_worker_kit(
         return _inspect_kit_contents(
             client,
             container,
-            worker_kit_version=worker_kit_version,
             worker_kit_path=worker_kit_path,
             require_content_inventory=require_content_inventory,
         )
@@ -1226,7 +1214,7 @@ async def run_deterministic_kit_probe(
     connection: DockerConnectionConfig,
     image: str,
     runtime_mode: str,
-    worker_kit_version: str,
+    worker_kit_version: str | None,
     worker_kit_path: str,
     require_content_inventory: bool = False,
 ) -> RuntimeProbeOutcome:
@@ -1255,7 +1243,7 @@ async def run_deterministic_kit_probe(
         fingerprint=fingerprint,
         docker_daemon_key=_daemon_key_for_connection(connection),
         runtime_mode=runtime_mode,
-        worker_kit_version=worker_kit_version,
+        worker_kit_version=None,
         worker_kit_path=worker_kit_path,
         require_content_inventory=require_content_inventory,
     )
@@ -1266,7 +1254,7 @@ async def run_deterministic_kit_probe(
             connection,
             image=image,
             runtime_mode=runtime_mode,
-            worker_kit_version=worker_kit_version,
+            worker_kit_version=None,
             worker_kit_path=worker_kit_path,
             require_content_inventory=require_content_inventory,
         )
@@ -1287,6 +1275,11 @@ async def run_deterministic_kit_probe(
         failure_message=result.failure_message,
         harness_inventory=result.harness_inventory,
         kit_identity=result.kit_identity,
+        worker_kit_version=(
+            result.kit_identity.get("kit_version")
+            if isinstance(result.kit_identity, Mapping)
+            else None
+        ),
         require_content_inventory=require_content_inventory,
     )
     await db.commit()
@@ -1340,9 +1333,7 @@ FAILURE_HARNESS_CLI_UNAVAILABLE = "harness_cli_unavailable"
 FAILURE_WORKER_KIT_UNAVAILABLE = "worker_kit_unavailable"
 
 
-def is_harness_available(
-    readiness: RuntimeReadiness, harness_key: str
-) -> bool | None:
+def is_harness_available(readiness: RuntimeReadiness, harness_key: str) -> bool | None:
     """Return the observed availability of one Harness, or None when unknown.
 
     ``None`` means the last committed probe predates Kit inventory evidence or
@@ -1432,11 +1423,7 @@ class HarnessCliUnavailableError(RuntimeError):
         self.reason_code = reason_code
         self.kit_version = kit_version
         super().__init__(
-            message
-            or (
-                f"Harness {harness_key!r} is not available in Worker Kit "
-                f"{kit_version!r}"
-            )
+            message or (f"Harness {harness_key!r} is not available in Worker Kit {kit_version!r}")
         )
 
 

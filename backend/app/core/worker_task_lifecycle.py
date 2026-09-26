@@ -126,15 +126,79 @@ async def load_task_or_fail(db: AsyncSession, task_id: int) -> Task | None:
     return task
 
 
+async def _persist_adapter_runtime_warning(
+    db: AsyncSession,
+    *,
+    task_id: int,
+    harness_key: str,
+    verification_evidence: Any,
+    actual_adapter: Mapping[str, Any],
+) -> None:
+    """Persist advisory Adapter drift while retaining Bundle file integrity gates."""
+    baseline = (
+        verification_evidence.get("adapter") if isinstance(verification_evidence, Mapping) else None
+    )
+    if not isinstance(baseline, Mapping):
+        return
+    expected = {key: baseline.get(key) for key in ("version", "digest")}
+    actual = {key: actual_adapter.get(key) for key in ("version", "digest")}
+    reason_codes = []
+    if expected["version"] != actual["version"]:
+        reason_codes.append("worker_adapter_version_drift_warning")
+    if expected["digest"] != actual["digest"]:
+        reason_codes.append("worker_adapter_digest_drift_warning")
+    if not reason_codes:
+        return
+    message = "Runtime Bundle Adapter differs from the Profile verification baseline"
+    metadata = {
+        "code": "worker_adapter_runtime_drift_warning",
+        "harness_key": harness_key,
+        "reason_codes": reason_codes,
+        "baseline": expected,
+        "actual": actual,
+        "message": message,
+    }
+    existing = await db.execute(
+        select(TaskLog.log_metadata).where(
+            TaskLog.task_id == task_id,
+            TaskLog.log_type == "runtime_warning",
+        )
+    )
+    for raw in existing.scalars().all():
+        if not isinstance(raw, str):
+            continue
+        try:
+            logged = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(logged, Mapping)
+            and logged.get("code") == metadata["code"]
+            and logged.get("harness_key") == harness_key
+            and logged.get("reason_codes") == reason_codes
+            and logged.get("baseline") == expected
+            and logged.get("actual") == actual
+        ):
+            return
+    db.add(
+        TaskLog(
+            task_id=task_id,
+            log_level="WARNING",
+            message=message,
+            log_type="runtime_warning",
+            log_metadata=json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+        )
+    )
+    await db.commit()
+
+
 async def load_resume_task_or_fail(db: AsyncSession, task_id: int) -> Task | None:
     # The execution-policy gate reads the immutable snapshot directly.  Resume
     # runs in an AsyncSession, so leaving this relationship lazy would attempt
     # synchronous IO and raise MissingGreenlet before the worker can attach to
     # its retained container.
     result = await db.execute(
-        select(Task)
-        .where(Task.id == task_id)
-        .options(selectinload(Task.worker_profile_snapshot))
+        select(Task).where(Task.id == task_id).options(selectinload(Task.worker_profile_snapshot))
     )
     task = result.scalar_one_or_none()
     if not task:
@@ -186,10 +250,11 @@ async def mark_task_running_and_commit(
     *,
     settings: Any | None = None,
 ) -> None:
-    if task.status == TaskStatus.RUNNING and getattr(task, "execution_timeout_seconds", None) is None:
-        raise TaskTimeoutError(
-            f"Task {task.id} is RUNNING without execution_timeout_seconds"
-        )
+    if (
+        task.status == TaskStatus.RUNNING
+        and getattr(task, "execution_timeout_seconds", None) is None
+    ):
+        raise TaskTimeoutError(f"Task {task.id} is RUNNING without execution_timeout_seconds")
 
     started_at = task.started_at or utcnow()
     selected_tier: str | None = None
@@ -404,19 +469,27 @@ async def create_execute_container(
         frozen_snapshot = task.worker_profile_snapshot
         frozen_config = getattr(frozen_snapshot, "harness_config_snapshot", None)
         snapshot_identity = (
-            frozen_config.get("v2_worker_image_identity") if isinstance(frozen_config, dict) else None
+            frozen_config.get("v2_worker_image_identity")
+            if isinstance(frozen_config, dict)
+            else None
         )
         expected_identity = validate_v2_worker_image_identity(snapshot_identity)
         bundle_identity = validate_v2_worker_image_identity(
             runtime_bundle.manifest.get("worker_image_identity")
         )
         if bundle_identity != expected_identity:
-            raise RuntimeError("V2 Runtime Bundle Worker image identity does not match Task Snapshot")
+            raise RuntimeError(
+                "V2 Runtime Bundle Worker image identity does not match Task Snapshot"
+            )
         snapshot_evidence = (
-            frozen_config.get("v2_harness_verification_evidence") if isinstance(frozen_config, dict) else None
+            frozen_config.get("v2_harness_verification_evidence")
+            if isinstance(frozen_config, dict)
+            else None
         )
         if runtime_bundle.manifest.get("harness_verification_evidence") != snapshot_evidence:
-            raise RuntimeError("V2 Runtime Bundle Harness verification evidence does not match Task Snapshot")
+            raise RuntimeError(
+                "V2 Runtime Bundle Harness verification evidence does not match Task Snapshot"
+            )
         snapshot_kit_identity = (
             frozen_config.get("worker_kit_identity") if isinstance(frozen_config, dict) else None
         )
@@ -450,7 +523,9 @@ async def create_execute_container(
             "binary_digest": getattr(frozen_snapshot, "cli_binary_digest", None),
         }
         if frozen_cli != snapshot_cli_identity:
-            raise RuntimeError("V2 Task Snapshot CLI identity does not match its verification evidence")
+            raise RuntimeError(
+                "V2 Task Snapshot CLI identity does not match its verification evidence"
+            )
         worker_image = expected_identity["image_reference"]
         if not settings.worker_skip_image_pull:
             try:
@@ -475,9 +550,7 @@ async def create_execute_container(
     try:
         inspection = sa_inspect(task)
         if "worker_profile_snapshot" not in inspection.unloaded:
-            harness_key = (
-                getattr(task.worker_profile_snapshot, "harness_key", None) or "claude"
-            )
+            harness_key = getattr(task.worker_profile_snapshot, "harness_key", None) or "claude"
     except Exception:  # noqa: BLE001
         harness_key = "claude"
     adapter_meta = (runtime_bundle.manifest.get("adapters") or {}).get(harness_key) or {}
@@ -486,6 +559,13 @@ async def create_execute_container(
     if runtime_bundle.contract_version == "codify.worker.harness/v2":
         adapter_identity = dict(adapter_meta.get("adapter") or {})
         adapter_version = str(adapter_identity.get("version") or "1.0.0")
+        await _persist_adapter_runtime_warning(
+            db,
+            task_id=task.id,
+            harness_key=harness_key,
+            verification_evidence=evidence,
+            actual_adapter=adapter_identity,
+        )
     else:
         adapter_version = str(adapter_meta.get("version") or "1.0.0")
     control_supported = bool(
@@ -497,9 +577,7 @@ async def create_execute_container(
         task=task,
         harness_key=harness_key,
         adapter_version=adapter_version,
-        event_schema=str(
-            runtime_bundle.manifest.get("event_schema") or "codify.worker.event/v1"
-        ),
+        event_schema=str(runtime_bundle.manifest.get("event_schema") or "codify.worker.event/v1"),
         # Plan §4.7: command-capable attempts open in `starting`; the bridge
         # moves the gate to `accepting` once its control endpoint is ready.
         control_state="starting" if control_supported else "disabled",
@@ -530,14 +608,10 @@ async def create_execute_container(
     if runtime_bundle.contract_version == "codify.worker.harness/v2":
         if frozen_cli_source == "host_mount":
             if not isinstance(frozen_cli_path, str) or not frozen_cli_path.startswith("/"):
-                raise RuntimeError(
-                    "explicit V2 Task host_mount runtime has no absolute CLI path"
-                )
+                raise RuntimeError("explicit V2 Task host_mount runtime has no absolute CLI path")
             harness_cli_bin = frozen_cli_path
         else:
-            if not isinstance(frozen_cli_path, str) or not frozen_cli_path.startswith(
-                "/"
-            ):
+            if not isinstance(frozen_cli_path, str) or not frozen_cli_path.startswith("/"):
                 raise HarnessCliUnavailableError(
                     harness_key=harness_key,
                     reason_code="missing_verified_identity",
@@ -659,6 +733,15 @@ async def create_execute_container(
             frozen_snapshot = task.worker_profile_snapshot
             frozen_config = getattr(frozen_snapshot, "harness_config_snapshot", None)
             if isinstance(frozen_config, dict):
+                enabled_harnesses = frozen_config.get("enabled_harnesses")
+                if isinstance(enabled_harnesses, list) and all(
+                    isinstance(key, str) for key in enabled_harnesses
+                ):
+                    environment["CODIFY_PROFILE_ENABLED_HARNESSES_JSON"] = json.dumps(
+                        enabled_harnesses,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
                 sandbox_mode = frozen_config.get("sandbox_mode")
                 frozen_options = frozen_config.get("options")
                 selected_options = (
@@ -817,8 +900,7 @@ async def _persist_created_container_reference(
             worker.docker.remove_container(container, force=True)
         except Exception as cleanup_error:  # noqa: BLE001
             raise TaskContainerLookupError(
-                f"Could not clean up task {task_id} container after its reference "
-                "failed to persist"
+                f"Could not clean up task {task_id} container after its reference failed to persist"
             ) from cleanup_error
 
         try:
@@ -1201,24 +1283,18 @@ async def monitor_container_run(
             # The task/database timeout remains authoritative if the Docker
             # daemon closes the container race before the marker upload. Keep
             # the stop path best-effort and retain the evidence in the logs.
-            logger.warning(
-                f"[Task {task.id}] Could not persist timeout marker before stop: {exc}"
-            )
+            logger.warning(f"[Task {task.id}] Could not persist timeout marker before stop: {exc}")
         try:
             await asyncio.to_thread(container.stop, timeout=15)
             logger.info(
                 f"[Task {task.id}] Gracefully stopped container after log timeout{resume_prefix}"
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                f"[Task {task.id}] Graceful stop after log timeout failed: {exc}"
-            )
+            logger.warning(f"[Task {task.id}] Graceful stop after log timeout failed: {exc}")
             try:
                 await asyncio.to_thread(container.kill)
             except Exception as kill_exc:  # noqa: BLE001
-                logger.warning(
-                    f"[Task {task.id}] Force kill after log timeout failed: {kill_exc}"
-                )
+                logger.warning(f"[Task {task.id}] Force kill after log timeout failed: {kill_exc}")
 
     raw_logs_finalized = False
     for attempt in range(1, 4):
@@ -1346,8 +1422,10 @@ async def monitor_container_run(
         await db.commit()
 
     if (
-        task.status == TaskStatus.CANCELLED or cancellation_requested
-    ) and task.status != TaskStatus.COMPLETED and not timed_out:
+        (task.status == TaskStatus.CANCELLED or cancellation_requested)
+        and task.status != TaskStatus.COMPLETED
+        and not timed_out
+    ):
         if task.status != TaskStatus.CANCELLED:
             task.status = TaskStatus.CANCELLED
             task.completed_at = task.completed_at or utcnow()
@@ -1478,8 +1556,7 @@ async def monitor_container_run(
                 )
             )
     elif exit_code != 0 and not (
-        getattr(task, "_error_from_canonical", False)
-        and (task.error_message or "").strip()
+        getattr(task, "_error_from_canonical", False) and (task.error_message or "").strip()
     ):
         # Structured failure reasons (delivery.push.error from the canonical
         # finalizer, harness failure taxonomy, archived detail) survive the

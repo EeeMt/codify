@@ -7,7 +7,6 @@ an immutable, versioned host directory and mounted into the task container.
 from __future__ import annotations
 
 import os
-import re
 from pathlib import PurePosixPath
 from typing import Any, Mapping
 
@@ -22,28 +21,11 @@ KIT_STORE_CONTAINER_PATH = "/nix/store"
 KIT_ENTRYPOINT = f"{KIT_CONTAINER_PATH}/launcher"
 KIT_CONTAINER_USER = "0:0"
 
-_KIT_VERSION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_KIT_PATH_VERSION_PATTERN = re.compile(
-    r"^(?P<version>[A-Za-z0-9][A-Za-z0-9._-]{0,127})"
-    r"-linux-[A-Za-z0-9][A-Za-z0-9_.-]*(?:-[0-9a-f]{12})?$"
-)
 _PROTECTED_KIT_PATHS = (KIT_CONTAINER_PATH, KIT_STORE_CONTAINER_PATH)
 
 
 class WorkerKitValidationError(ValueError):
     """Raised when a mounted worker-kit configuration is invalid."""
-
-
-def worker_kit_version_from_path(worker_kit_path: str) -> str:
-    """Derive the display/runtime version from an installed Kit directory."""
-    basename = os.path.basename(os.path.normpath(worker_kit_path))
-    match = _KIT_PATH_VERSION_PATTERN.fullmatch(basename)
-    version = match.group("version") if match else basename
-    if not _KIT_VERSION_PATTERN.fullmatch(version):
-        raise WorkerKitValidationError(
-            "worker_kit_path must end with a valid Worker Kit directory name"
-        )
-    return version
 
 
 def validate_worker_kit_config(
@@ -77,10 +59,11 @@ def validate_worker_kit_config(
         raise WorkerKitValidationError(
             "worker_kit_path must not be the Docker host filesystem root"
         )
-    # The path is the only editable Kit coordinate. The installed manifest is
-    # checked by runtime verification; the content-addressed directory name is
-    # the value available while saving the profile.
-    return mode, worker_kit_version_from_path(normalized_path), normalized_path
+    # The path only locates the Kit on the selected Docker host. The version is
+    # an observation from manifest.json and must never be inferred from the
+    # directory name while saving or resolving a Profile.
+    version = (worker_kit_version or "").strip() or None
+    return mode, version, normalized_path
 
 
 def validate_worker_kit_write_config(
@@ -88,7 +71,7 @@ def validate_worker_kit_write_config(
     runtime_mode: str | None,
     worker_kit_version: str | None,
     worker_kit_path: str | None,
-) -> tuple[str, str, str]:
+) -> tuple[str, str | None, str]:
     """Validate the mounted-kit-only shape accepted by write APIs."""
     mode = (runtime_mode or MOUNTED_KIT_MODE).strip()
     if mode != MOUNTED_KIT_MODE:
@@ -100,7 +83,8 @@ def validate_worker_kit_write_config(
         worker_kit_version=worker_kit_version,
         worker_kit_path=worker_kit_path,
     )
-    assert version is not None and path is not None
+    if path is None:  # pragma: no cover - validate_worker_kit_config guards this
+        raise WorkerKitValidationError("mounted_kit mode requires a Worker Kit path")
     return normalized_mode, version, path
 
 

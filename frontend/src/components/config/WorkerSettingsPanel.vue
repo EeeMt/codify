@@ -236,12 +236,6 @@
                       </n-space>
                     </n-form-item>
                   </n-gi>
-                  <n-gi v-if="sharedFormValue.runtime_mode === 'mounted_kit'">
-                    <n-form-item :label="t('config.workerKitVersion')">
-                      <code>{{ detectedSharedWorkerKitVersion || '—' }}</code>
-                      <template #feedback>{{ t('config.workerKitVersionDetectedHint') }}</template>
-                    </n-form-item>
-                  </n-gi>
                   <n-gi v-if="sharedFormValue.runtime_mode === 'mounted_kit'" :span="isMobile ? 1 : 2">
                     <n-form-item :label="t('config.workerKitPath')">
                       <n-input
@@ -596,6 +590,44 @@
                     </template>
                   </span>
                 </div>
+                <div
+                  v-if="workerFormValue.runtime_readiness.harness_verification"
+                  class="worker-runtime-status__inventory"
+                >
+                  <span
+                    v-for="(entry, harnessKey) in workerFormValue.runtime_readiness.harness_verification"
+                    :key="`verified-${harnessKey}`"
+                    class="worker-runtime-status__harness"
+                    :class="{
+                      'worker-runtime-status__harness--unavailable': entry.status !== 'verified',
+                    }"
+                  >
+                    {{ harnessKey }}: {{ harnessVerificationLabel(entry.status) }}
+                  </span>
+                </div>
+                <div
+                  v-if="latestRuntimeVerification?.harness_results"
+                  class="worker-runtime-status__inventory"
+                >
+                  <span
+                    v-for="(entry, harnessKey) in latestRuntimeVerification.harness_results"
+                    :key="`latest-${harnessKey}`"
+                    class="worker-runtime-status__harness"
+                    :class="{
+                      'worker-runtime-status__harness--unavailable': entry.status !== 'verified',
+                    }"
+                  >
+                    {{ harnessKey }}: {{ harnessVerificationLabel(entry.status) }}
+                  </span>
+                </div>
+                <div
+                  v-if="latestRuntimeVerification?.warnings?.length"
+                  class="worker-runtime-status__error"
+                >
+                  <div v-for="(warning, index) in latestRuntimeVerification.warnings" :key="index">
+                    {{ warning.harness_key }}: {{ warning.message }}
+                  </div>
+                </div>
               </div>
               <n-button
                 v-if="effectiveRuntimeMode === 'mounted_kit'"
@@ -637,7 +669,6 @@
                 <div class="inherited-value-card">
                   <span class="source-label source-label--system">{{ t('config.sourceSystem') }}</span>
                   <strong>{{ runtimeModeLabel(effectiveRuntimeMode) }}</strong>
-                  <code v-if="effectiveRuntimeMode === 'mounted_kit'">{{ effectiveWorkerKitVersion || '—' }}</code>
                   <code v-if="effectiveRuntimeMode === 'mounted_kit'">{{ effectiveWorkerKitPath || '—' }}</code>
                 </div>
               </n-gi>
@@ -1236,6 +1267,7 @@ import {
   type WorkerProfileMount,
   type WorkerProfilePayload,
   type WorkerProfileRuntimeVerification,
+  type WorkerRuntimeVerificationResult,
   type WorkerRuntimeReadiness,
   type WorkerSharedConfiguration,
   type WorkerSharedConfigurationPayload
@@ -1327,6 +1359,7 @@ const loading = ref(false)
 const workerSaving = ref(false)
 const sharedSaving = ref(false)
 const runtimeVerifying = ref(false)
+const latestRuntimeVerification = ref<WorkerRuntimeVerificationResult | null>(null)
 const dockerTesting = ref(false)
 const dockerTestResult = ref<DockerConnectionTestResult | null>(null)
 const builtIns = ref<RunInstructionTemplateBuiltIns | null>(null)
@@ -1464,24 +1497,10 @@ const effectiveWorkerKitPath = computed(() =>
     ? sharedFormValue.value.worker_kit_path
     : workerFormValue.value.worker_kit_path
 )
-function detectWorkerKitVersion(path: string): string {
-  const basename = path.trim().replace(/\/+$/, '').split('/').pop() || ''
-  return basename.match(/^(.+)-linux-[A-Za-z0-9][A-Za-z0-9_.-]*(?:-[0-9a-f]{12})?$/)?.[1] || basename
-}
-const detectedSharedWorkerKitVersion = computed(() =>
-  sharedFormValue.value.runtime_mode === 'mounted_kit'
-    ? detectWorkerKitVersion(sharedFormValue.value.worker_kit_path)
-    : ''
-)
-const detectedProfileWorkerKitVersion = computed(() =>
-  effectiveRuntimeMode.value === 'mounted_kit'
-    ? detectWorkerKitVersion(effectiveWorkerKitPath.value)
-    : ''
-)
 const effectiveWorkerKitVersion = computed(() =>
-  workerFormValue.value.worker_kit_source === 'system'
-    ? detectedSharedWorkerKitVersion.value
-    : detectedProfileWorkerKitVersion.value
+  effectiveRuntimeMode.value === 'mounted_kit'
+    ? workerFormValue.value.runtime_readiness.kit_identity?.kit_version || ''
+    : ''
 )
 const piSubagentsEnabled = computed({
   get: () => harnessOptionRecord(workerFormValue.value.harness_options.pi).subagents === true,
@@ -2121,6 +2140,15 @@ function readinessTagType(
   return 'warning'
 }
 
+function harnessVerificationLabel(
+  status: 'verified' | 'unverified' | 'unavailable' | 'verification_failed'
+): string {
+  if (status === 'verified') return t('config.harnessVerificationPassed')
+  if (status === 'unavailable') return t('config.harnessUnavailable')
+  if (status === 'verification_failed') return t('config.runtimeVerificationFailed')
+  return t('config.profileRuntimeUnverified')
+}
+
 function runtimeModeLabel(mode: 'baked_image' | 'mounted_kit'): string {
   return mode === 'mounted_kit'
     ? t('config.workerRuntimeModeMountedKit')
@@ -2300,6 +2328,7 @@ function resetSharedConfiguration() {
 async function handleVerifyProfileRuntime() {
   if (selectedProfileId.value === null) return
   runtimeVerifying.value = true
+  latestRuntimeVerification.value = null
   workerFormValue.value.runtime_verification = emptyRuntimeVerification()
   const selectedProfile = workerProfiles.value.find(
     (profile) => profile.id === selectedProfileId.value
@@ -2308,9 +2337,15 @@ async function handleVerifyProfileRuntime() {
     selectedProfile.runtime_verification = emptyRuntimeVerification()
   }
   try {
-    await verifyWorkerProfileRuntime(selectedProfileId.value)
+    latestRuntimeVerification.value = await verifyWorkerProfileRuntime(selectedProfileId.value)
     await refreshAdminProfiles()
-    message.success(t('config.runtimeVerificationSucceeded'))
+    if (Object.values(latestRuntimeVerification.value.harness_results || {}).some(
+      (result) => result.status !== 'verified'
+    )) {
+      message.warning(t('config.runtimeVerificationPartial'))
+    } else {
+      message.success(t('config.runtimeVerificationSucceeded'))
+    }
   } catch (error: any) {
     const detail = error?.response?.data?.detail
     if (detail && typeof detail === 'object' && detail.code === 'worker_runtime_unavailable') {
@@ -2339,6 +2374,10 @@ async function handleVerifyProfileRuntime() {
     runtimeVerifying.value = false
   }
 }
+
+watch(selectedProfileId, () => {
+  latestRuntimeVerification.value = null
+})
 
 function replaceLoadedProfile(profile: WorkerProfile) {
   const index = workerProfiles.value.findIndex((item) => item.id === profile.id)

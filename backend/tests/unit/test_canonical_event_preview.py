@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EVENT_WRITER = REPO_ROOT / "deploy/worker-entrypoint/harness/events.py"
 
@@ -103,6 +102,28 @@ def test_preview_failure_does_not_lose_durable_event(tmp_path: Path, monkeypatch
     monkeypatch.setattr(module.sys, "stderr", BrokenStderr())
     event = module.emit("run.started", {}, None)
     assert event["seq"] == 1
+def test_launcher_warnings_are_flushed_after_run_started(tmp_path: Path):
+    warning_path = tmp_path / "runtime-warnings.jsonl"
+    warning_path.write_text(
+        json.dumps(
+            {
+                "code": "optional_runtime_tool_missing",
+                "tool": "codegraph",
+                "message": "Optional CodeGraph CLI is unavailable.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _emit(tmp_path, "run.started")
+
+    events = [json.loads(line) for line in (tmp_path / "event.jsonl").read_text().splitlines()]
+    assert [event["type"] for event in events] == ["run.started", "diagnostic"]
+    assert events[1]["seq"] == 2
+    assert events[1]["payload"]["code"] == "optional_runtime_tool_missing"
+    assert not warning_path.exists()
+
     assert (tmp_path / "event.jsonl").read_text().count("run.started") == 1
 
 

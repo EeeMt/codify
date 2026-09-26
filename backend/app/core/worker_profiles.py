@@ -59,7 +59,6 @@ from app.core.worker_kit import (
     validate_worker_kit_write_config,
     worker_kit_environment,
     worker_kit_mounts,
-    worker_kit_version_from_path,
 )
 from app.core.worker_kit_inventory import validate_worker_kit_identity
 from app.core.worker_runtime_readiness import (
@@ -84,9 +83,7 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
-_LEGACY_IGNORED_RUNTIME_ENVIRONMENT_KEYS = frozenset(
-    {"CODIFY_RUNTIME_DIR", "CODIFY_ARTIFACT_DIR"}
-)
+_LEGACY_IGNORED_RUNTIME_ENVIRONMENT_KEYS = frozenset({"CODIFY_RUNTIME_DIR", "CODIFY_ARTIFACT_DIR"})
 _V2_IMAGE_IDENTITY_KEY = "v2_worker_image_identity"
 _V2_HARNESS_EVIDENCE_KEY = "v2_harness_verification_evidence"
 _V2_KIT_IDENTITY_KEY = "worker_kit_identity"
@@ -106,19 +103,31 @@ def _linux_platform(value: object) -> bool:
 def validate_v2_worker_image_identity(identity: object) -> dict[str, str]:
     """Validate the non-secret image identity frozen for an explicit V2 Task."""
     if not isinstance(identity, Mapping) or identity.get("schema") != _V2_IMAGE_IDENTITY_SCHEMA:
-        raise WorkerProfileValidationError("explicit V2 Profile has no verified Worker image identity")
+        raise WorkerProfileValidationError(
+            "explicit V2 Profile has no verified Worker image identity"
+        )
     required = ("daemon_key", "image_reference", "image_id", "runtime_platform")
     normalized = {key: identity.get(key) for key in required}
     if not all(isinstance(value, str) and value for value in normalized.values()):
-        raise WorkerProfileValidationError("explicit V2 Profile has an incomplete Worker image identity")
+        raise WorkerProfileValidationError(
+            "explicit V2 Profile has an incomplete Worker image identity"
+        )
     if any(character.isspace() for character in normalized["daemon_key"]):
-        raise WorkerProfileValidationError("explicit V2 Worker image identity has an invalid daemon key")
+        raise WorkerProfileValidationError(
+            "explicit V2 Worker image identity has an invalid daemon key"
+        )
     if _IMAGE_REFERENCE_RE.fullmatch(normalized["image_reference"]) is None:
-        raise WorkerProfileValidationError("explicit V2 Worker image identity is not repository-digest pinned")
+        raise WorkerProfileValidationError(
+            "explicit V2 Worker image identity is not repository-digest pinned"
+        )
     if _IMAGE_ID_RE.fullmatch(normalized["image_id"]) is None:
-        raise WorkerProfileValidationError("explicit V2 Worker image identity has an invalid image ID")
+        raise WorkerProfileValidationError(
+            "explicit V2 Worker image identity has an invalid image ID"
+        )
     if not _linux_platform(normalized["runtime_platform"]):
-        raise WorkerProfileValidationError("explicit V2 Worker image identity has an invalid platform")
+        raise WorkerProfileValidationError(
+            "explicit V2 Worker image identity has an invalid platform"
+        )
     return {"schema": _V2_IMAGE_IDENTITY_SCHEMA, **normalized}
 
 
@@ -189,11 +198,17 @@ def current_runtime_verification_digest(
         docker_tls_key=getattr(profile, "docker_tls_key", None),
     )
     return runtime_verification_input_digest(
-        docker_daemon_key=docker_daemon_key(connection), image=effective.image,
-        runtime_mode=effective.runtime_mode, worker_kit_version=effective.worker_kit_version,
-        worker_kit_path=effective.worker_kit_path, volume_mounts=list(effective.volume_mounts),
-        environment_variables=[{"key": str(item.get("key") or ""), "value": str(item.get("value") or "")}
-            for item in effective.environment_variables if not bool(item.get("is_secret"))],
+        docker_daemon_key=docker_daemon_key(connection),
+        image=effective.image,
+        runtime_mode=effective.runtime_mode,
+        worker_kit_version=effective.worker_kit_version,
+        worker_kit_path=effective.worker_kit_path,
+        volume_mounts=list(effective.volume_mounts),
+        environment_variables=[
+            {"key": str(item.get("key") or ""), "value": str(item.get("value") or "")}
+            for item in effective.environment_variables
+            if not bool(item.get("is_secret"))
+        ],
         harness_key=harness_key or getattr(profile, "default_harness_key", None) or "claude",
         enabled_harnesses=list(getattr(profile, "enabled_harnesses", None) or ["claude"]),
         harness_constraints=dict(getattr(profile, "harness_constraints", None) or {}),
@@ -218,17 +233,27 @@ def validate_v2_harness_evidence(
 ) -> dict[str, Any]:
     """Validate one frozen per-Harness V2 verification record fail-closed."""
     if not isinstance(evidence, Mapping) or evidence.get("schema") != _V2_HARNESS_EVIDENCE_SCHEMA:
-        raise WorkerProfileValidationError(f"explicit V2 Profile has no verified evidence for Harness {harness_key!r}")
+        raise WorkerProfileValidationError(
+            f"explicit V2 Profile has no verified evidence for Harness {harness_key!r}"
+        )
     if evidence.get("harness_key") != harness_key:
-        raise WorkerProfileValidationError("explicit V2 Profile verification evidence has the wrong Harness key")
+        raise WorkerProfileValidationError(
+            "explicit V2 Profile verification evidence has the wrong Harness key"
+        )
     if evidence.get("contract_version") != HARNESS_CONTRACT_VERSION_V2:
-        raise WorkerProfileValidationError("explicit V2 Profile verification evidence has the wrong contract")
+        raise WorkerProfileValidationError(
+            "explicit V2 Profile verification evidence has the wrong contract"
+        )
     if evidence.get("verification_input_digest") != verification_digest:
         raise WorkerProfileValidationError("explicit V2 Profile verification evidence is stale")
     if evidence.get("generation") != generation:
-        raise WorkerProfileValidationError("explicit V2 Profile verification evidence generation is stale")
+        raise WorkerProfileValidationError(
+            "explicit V2 Profile verification evidence generation is stale"
+        )
     if evidence.get("image_identity") != dict(image_identity):
-        raise WorkerProfileValidationError("explicit V2 Profile verification evidence image identity is stale")
+        raise WorkerProfileValidationError(
+            "explicit V2 Profile verification evidence image identity is stale"
+        )
     adapter = evidence.get("adapter")
     if (
         not isinstance(adapter, Mapping)
@@ -237,16 +262,22 @@ def validate_v2_harness_evidence(
         or not isinstance(adapter.get("digest"), str)
         or _SHA256_RE.fullmatch(adapter["digest"]) is None
     ):
-        raise WorkerProfileValidationError("explicit V2 Profile verification evidence has an invalid Adapter identity")
+        raise WorkerProfileValidationError(
+            "explicit V2 Profile verification evidence has an invalid Adapter identity"
+        )
     if not isinstance(evidence.get("verified_at"), str) or not evidence["verified_at"]:
-        raise WorkerProfileValidationError("explicit V2 Profile verification evidence has no verification time")
+        raise WorkerProfileValidationError(
+            "explicit V2 Profile verification evidence has no verification time"
+        )
     cli = validate_v2_cli_identity(evidence.get("cli"), harness_key=harness_key)
     normalized = dict(evidence)
     normalized["cli"] = cli
     return normalized
 
 
-def inspect_v2_worker_image_identity(connection: DockerConnectionConfig, image: str) -> dict[str, str]:
+def inspect_v2_worker_image_identity(
+    connection: DockerConnectionConfig, image: str
+) -> dict[str, str]:
     """Read the selected daemon image's immutable identity fail-closed.
 
     The record covers the repository digest, image ID and platform of the
@@ -258,7 +289,9 @@ def inspect_v2_worker_image_identity(connection: DockerConnectionConfig, image: 
     try:
         image_obj = client.client.images.get(image)
         attrs = image_obj.attrs or {}
-        repo_digests = [str(item) for item in (attrs.get("RepoDigests") or []) if "@sha256:" in str(item)]
+        repo_digests = [
+            str(item) for item in (attrs.get("RepoDigests") or []) if "@sha256:" in str(item)
+        ]
         expected_repo = _repository_name(image)
         candidates = [item for item in repo_digests if _repository_name(item) == expected_repo]
         if len(candidates) != 1:
@@ -269,7 +302,9 @@ def inspect_v2_worker_image_identity(connection: DockerConnectionConfig, image: 
         image_id = attrs.get("Id")
         platform = f"{attrs.get('Os')}/{attrs.get('Architecture')}"
         if not isinstance(image_id, str) or not image_id or not _linux_platform(platform):
-            raise WorkerProfileValidationError("explicit V2 Worker image has no immutable ID or linux platform")
+            raise WorkerProfileValidationError(
+                "explicit V2 Worker image has no immutable ID or linux platform"
+            )
         identity = {
             "schema": _V2_IMAGE_IDENTITY_SCHEMA,
             "daemon_key": docker_daemon_key(connection),
@@ -342,7 +377,12 @@ class TaskWorkerRuntime:
             raise WorkerProfileValidationError(str(exc)) from exc
         if mode != MOUNTED_KIT_MODE:
             return {"volumes": {}, "environment": {}, "entrypoint": None, "user": None}
-        assert kit_version is not None and kit_path is not None
+        if kit_version is None:
+            raise WorkerProfileValidationError(
+                "mounted_kit runtime requires a Worker Kit version observed by runtime verification"
+            )
+        if kit_path is None:  # pragma: no cover - validator guards this
+            raise WorkerProfileValidationError("mounted_kit runtime requires a Worker Kit path")
         try:
             validate_no_worker_kit_mount_collision(self.volume_mounts)
         except WorkerKitValidationError as exc:
@@ -382,21 +422,16 @@ def validate_worker_profile_docker_target(
     """Normalize and validate one optional profile-scoped Docker target."""
     host = (docker_host or "").strip() or None
     tls_values = tuple(
-        (value or "").strip() or None
-        for value in (docker_tls_ca, docker_tls_cert, docker_tls_key)
+        (value or "").strip() or None for value in (docker_tls_ca, docker_tls_cert, docker_tls_key)
     )
     if host is None:
         if any(tls_values):
-            raise WorkerProfileValidationError(
-                "Docker TLS paths require a profile Docker host"
-            )
+            raise WorkerProfileValidationError("Docker TLS paths require a profile Docker host")
         return None, None, None, None
 
     parsed = urlparse(host)
     if parsed.scheme not in {"unix", "tcp", "https"}:
-        raise WorkerProfileValidationError(
-            "docker_host must use unix, tcp, or https"
-        )
+        raise WorkerProfileValidationError("docker_host must use unix, tcp, or https")
 
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise WorkerProfileValidationError(
@@ -412,9 +447,7 @@ def validate_worker_profile_docker_target(
         if parsed.path not in {"", "/"}:
             raise WorkerProfileValidationError("docker_host must not include a URL path")
     elif not parsed.path or not os.path.isabs(parsed.path):
-        raise WorkerProfileValidationError(
-            "unix docker_host must include an absolute socket path"
-        )
+        raise WorkerProfileValidationError("unix docker_host must include an absolute socket path")
 
     configured_tls_paths = sum(value is not None for value in tls_values)
     if configured_tls_paths not in {0, 3}:
@@ -452,23 +485,18 @@ def validate_worker_profile_mounts(raw_mounts: Any) -> list[dict[str, str]]:
         container_path = str(mount.get("container_path") or "").strip()
         mode = str(mount.get("mode") or "ro").strip().lower()
         if not host_path or not container_path:
-            raise WorkerProfileValidationError(
-                "volume mounts require host_path and container_path"
-            )
+            raise WorkerProfileValidationError("volume mounts require host_path and container_path")
         if not os.path.isabs(host_path):
             raise WorkerProfileValidationError("volume mount host_path must be absolute")
         if not os.path.isabs(container_path):
-            raise WorkerProfileValidationError(
-                "volume mount container_path must be absolute"
-            )
+            raise WorkerProfileValidationError("volume mount container_path must be absolute")
         host_path = os.path.normpath(host_path)
         container_path = os.path.normpath(container_path)
         destination = PurePosixPath(container_path)
         for system_root in _SYSTEM_MOUNT_ROOTS:
             hides_system_root = destination == system_root or destination in system_root.parents
             enters_sealed_root = (
-                system_root in _SEALED_SYSTEM_MOUNT_ROOTS
-                and system_root in destination.parents
+                system_root in _SEALED_SYSTEM_MOUNT_ROOTS and system_root in destination.parents
             )
             if hides_system_root or enters_sealed_root:
                 raise WorkerProfileValidationError(
@@ -478,18 +506,12 @@ def validate_worker_profile_mounts(raw_mounts: Any) -> list[dict[str, str]]:
         if mode not in {"ro", "rw"}:
             raise WorkerProfileValidationError("volume mount mode must be ro or rw")
         if host_path in seen_host_paths:
-            raise WorkerProfileValidationError(
-                f"duplicate host mount path: {host_path}"
-            )
+            raise WorkerProfileValidationError(f"duplicate host mount path: {host_path}")
         if container_path in seen_container_paths:
-            raise WorkerProfileValidationError(
-                f"duplicate container mount path: {container_path}"
-            )
+            raise WorkerProfileValidationError(f"duplicate container mount path: {container_path}")
         seen_host_paths.add(host_path)
         seen_container_paths.add(container_path)
-        normalized.append(
-            {"host_path": host_path, "container_path": container_path, "mode": mode}
-        )
+        normalized.append({"host_path": host_path, "container_path": container_path, "mode": mode})
     return normalized
 
 
@@ -530,13 +552,9 @@ def validate_worker_profile_mount_masks(
     for raw_path in raw_masks:
         container_path = str(raw_path or "").strip()
         if not container_path:
-            raise WorkerProfileValidationError(
-                "volume mount masks require a container_path"
-            )
+            raise WorkerProfileValidationError("volume mount masks require a container_path")
         if not os.path.isabs(container_path):
-            raise WorkerProfileValidationError(
-                "volume mount mask container_path must be absolute"
-            )
+            raise WorkerProfileValidationError("volume mount mask container_path must be absolute")
         container_path = os.path.normpath(container_path)
         if container_path in seen:
             raise WorkerProfileValidationError(
@@ -593,11 +611,6 @@ def serialize_worker_profile_for_api(
     runtime_mode = getattr(profile, "runtime_mode", BAKED_IMAGE_MODE)
     worker_kit_path = getattr(profile, "worker_kit_path", None)
     worker_kit_version = getattr(profile, "worker_kit_version", None)
-    if runtime_mode == MOUNTED_KIT_MODE and worker_kit_path:
-        try:
-            worker_kit_version = worker_kit_version_from_path(worker_kit_path)
-        except WorkerKitValidationError:
-            pass
     payload = {
         "id": profile.id,
         "name": profile.name,
@@ -787,9 +800,7 @@ async def resolve_provider_for_issue(
     if candidate_id is not None:
         provider = await db.get(AIProvider, candidate_id)
         if provider is None:
-            raise WorkerProfileValidationError(
-                f"configured AI provider {candidate_id} not found"
-            )
+            raise WorkerProfileValidationError(f"configured AI provider {candidate_id} not found")
     elif allow_system_default:
         provider = await get_default_provider(db)
     else:
@@ -873,6 +884,10 @@ def snapshot_from_profile(
     """
     effective = resolve_effective_configuration(profile, shared_configuration)
     validate_effective_configuration(effective)
+    if effective.runtime_mode == MOUNTED_KIT_MODE and not effective.worker_kit_version:
+        raise WorkerProfileValidationError(
+            "mounted_kit task snapshots require a Worker Kit version observed by runtime verification"
+        )
     connection = (
         resolve_docker_connection(
             settings,
@@ -884,9 +899,7 @@ def snapshot_from_profile(
         if settings is not None
         else None
     )
-    resolved_harness_key = (
-        harness_key or getattr(profile, "default_harness_key", None) or "claude"
-    )
+    resolved_harness_key = harness_key or getattr(profile, "default_harness_key", None) or "claude"
     effective_capabilities = capability_policy(
         resolved_harness_key,
         getattr(profile, "harness_constraints", None) or {},
@@ -895,14 +908,14 @@ def snapshot_from_profile(
     v2_image_identity = validate_v2_worker_image_identity(
         getattr(profile, "v2_worker_image_identity", None)
     )
-    v2_kit_identity = validate_v2_worker_kit_identity(
-        getattr(profile, "worker_kit_identity", None)
-    )
+    v2_kit_identity = validate_v2_worker_kit_identity(getattr(profile, "worker_kit_identity", None))
     current_digest = current_runtime_verification_digest(
         profile, effective, settings or get_effective_settings(), harness_key=resolved_harness_key
     )
     evidence_by_key = getattr(profile, "v2_harness_verification_evidence", None)
-    evidence = evidence_by_key.get(resolved_harness_key) if isinstance(evidence_by_key, Mapping) else None
+    evidence = (
+        evidence_by_key.get(resolved_harness_key) if isinstance(evidence_by_key, Mapping) else None
+    )
     v2_harness_evidence = validate_v2_harness_evidence(
         evidence,
         harness_key=resolved_harness_key,
@@ -953,15 +966,16 @@ def snapshot_from_profile(
             effective.default_execute_run_instruction_template
         ),
         default_plan_run_instruction_template=effective.default_plan_run_instruction_template,
-        ci_auto_repair_run_instruction_template=(
-            effective.ci_auto_repair_run_instruction_template
-        ),
+        ci_auto_repair_run_instruction_template=(effective.ci_auto_repair_run_instruction_template),
         harness_key=resolved_harness_key,
         harness_config_snapshot={
             "requested_runtime_contract_version": requested_contract,
             **({_V2_IMAGE_IDENTITY_KEY: v2_image_identity} if v2_image_identity else {}),
             **({_V2_KIT_IDENTITY_KEY: v2_kit_identity} if v2_kit_identity else {}),
             **({_V2_HARNESS_EVIDENCE_KEY: v2_harness_evidence} if v2_harness_evidence else {}),
+            "enabled_harnesses": list(
+                getattr(profile, "enabled_harnesses", None) or [resolved_harness_key]
+            ),
             "capabilities": effective_capabilities,
             "sandbox_mode": effective_capabilities.get("sandbox_mode"),
             "constraints": dict(getattr(profile, "harness_constraints", None) or {}),
@@ -982,9 +996,7 @@ def snapshot_from_profile(
     # The digest covers the full frozen execution truth including the resolved
     # Docker target and harness decision; skill references are empty here and are
     # folded in by the caller once skills are attached (§10.1).
-    snapshot.effective_configuration_digest = snapshot_effective_configuration_digest(
-        snapshot
-    )
+    snapshot.effective_configuration_digest = snapshot_effective_configuration_digest(snapshot)
     return snapshot
 
 
@@ -1150,6 +1162,10 @@ async def load_task_worker_runtime(db: AsyncSession, task: Task) -> TaskWorkerRu
             worker_kit_version=getattr(snapshot, "worker_kit_version", None),
             worker_kit_path=getattr(snapshot, "worker_kit_path", None),
         )
+        if kit_version is None:
+            raise WorkerProfileValidationError(
+                "mounted_kit task snapshots require a Worker Kit version observed by runtime verification"
+            )
         mounts = parse_worker_profile_mounts(snapshot.volume_mounts)
         validate_worker_kit_mounts(runtime_mode, mounts)
         validate_runtime_supports_skills(snapshot, hydrated_skills)
@@ -1198,9 +1214,7 @@ async def replace_profile_environment_variables(
     for item in items:
         key = _validate_environment_key(str(_profile_value(item, "key") or "").strip())
         if key in seen_keys:
-            raise WorkerProfileValidationError(
-                f"Duplicate worker environment variable key: {key}"
-            )
+            raise WorkerProfileValidationError(f"Duplicate worker environment variable key: {key}")
         seen_keys.add(key)
 
         operation = str(_profile_value(item, "operation", "set") or "set").strip().lower()

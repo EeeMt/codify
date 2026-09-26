@@ -229,7 +229,9 @@ def resolve_effective_configuration(
                 "configuration"
             )
         raw_runtime_mode = shared_row.runtime_mode or MOUNTED_KIT_MODE
-        raw_kit_version = shared_row.worker_kit_version
+        # The shared layer owns only the path. The manifest observed by a
+        # Profile's Docker host is the source of that Profile's version.
+        raw_kit_version = _profile_value(profile, "worker_kit_version", None)
         raw_kit_path = shared_row.worker_kit_path
     else:
         raw_runtime_mode = _profile_value(profile, "runtime_mode", MOUNTED_KIT_MODE)

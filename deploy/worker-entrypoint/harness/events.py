@@ -319,6 +319,28 @@ def _write_event_preview(event: dict) -> None:
         return
 
 
+def _flush_runtime_warnings() -> None:
+    """Append launcher warnings after run.started so the event order stays valid."""
+    runtime_dir = Path(os.getenv("CODIFY_RUNTIME_DIR", "/tmp/codify-runtime"))
+    warning_path = runtime_dir / "runtime-warnings.jsonl"
+    try:
+        warning_lines = warning_path.read_text(encoding="utf-8").splitlines()
+        warning_path.unlink()
+    except OSError:
+        return
+    for line in warning_lines:
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and payload.get("code") in {
+            "worker_kit_runtime_drift_warning",
+            "optional_harness_unavailable",
+            "optional_runtime_tool_missing",
+        }:
+            emit("diagnostic", payload, None)
+
+
 def emit(event_type: str, payload: dict, raw_ref: dict | None) -> dict:
     if event_type not in KNOWN_TYPES:
         if event_type.startswith("run."):
@@ -442,6 +464,8 @@ def emit(event_type: str, payload: dict, raw_ref: dict | None) -> dict:
             output.flush()
             os.fsync(output.fileno())
     _write_event_preview(event)
+    if event_type == "run.started":
+        _flush_runtime_warnings()
     return event
 
 

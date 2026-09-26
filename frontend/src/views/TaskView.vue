@@ -264,6 +264,17 @@
                 </p>
               </n-card>
               <n-card
+                v-if="runtimeWarnings.length"
+                class="task-card task-runtime-warnings"
+                :bordered="false"
+                data-testid="task-runtime-warnings"
+              >
+                <strong>{{ t('taskView.runtimeCompatibilityWarnings') }}</strong>
+                <ul>
+                  <li v-for="warning in runtimeWarnings" :key="warning.id">{{ warning.message }}</li>
+                </ul>
+              </n-card>
+              <n-card
                 v-if="task && !isTerminal"
                 class="task-card task-execution-overview"
                 :class="`task-execution-overview--${task.status}`"
@@ -713,6 +724,43 @@ const {
   loadScheduleContext,
 } = useTaskScheduleContext()
 const taskLogs = ref<TaskLog[]>([])
+const runtimeWarnings = computed(() =>
+  taskLogs.value
+    .filter((log) => log.log_type === 'runtime_warning')
+    .map((log) => {
+      const metadata = log.metadata && typeof log.metadata === 'object'
+        ? log.metadata as Record<string, any>
+        : {}
+      if (metadata.code === 'worker_kit_runtime_drift_warning') {
+        const baseline = metadata.baseline || {}
+        const actual = metadata.actual || {}
+        return {
+          id: log.id,
+          message: t('taskView.workerKitRuntimeDriftWarning', {
+            baselineVersion: baseline.kit_version || '—',
+            actualVersion: actual.kit_version || '—',
+            baselineDigest: baseline.manifest_sha256 || '—',
+            actualDigest: actual.manifest_sha256 || '—'
+          })
+        }
+      }
+      if (metadata.code === 'worker_adapter_runtime_drift_warning') {
+        const baseline = metadata.baseline || {}
+        const actual = metadata.actual || {}
+        return {
+          id: log.id,
+          message: t('taskView.workerAdapterRuntimeDriftWarning', {
+            harness: metadata.harness_key || '—',
+            baselineVersion: baseline.version || '—',
+            actualVersion: actual.version || '—',
+            baselineDigest: baseline.digest || '—',
+            actualDigest: actual.digest || '—'
+          })
+        }
+      }
+      return { id: log.id, message: log.message }
+    })
+)
 const activeRetryTask = ref<Task | null>(null)
 const issueTasks = ref<Task[]>([])
 const issueDescription = ref<string | undefined>(undefined)
@@ -1427,6 +1475,17 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border: 1px solid rgba(220, 38, 38, 0.18);
   box-shadow: inset 3px 0 0 #dc2626;
+}
+
+.task-runtime-warnings {
+  border: 1px solid var(--warning-color);
+  color: var(--warning-color);
+}
+
+.task-runtime-warnings ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--text-color-2);
 }
 
 .worker-runtime-blocker__heading {

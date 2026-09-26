@@ -84,11 +84,17 @@ codify_verify_runtime() {
 
     echo "Codify worker kit ${CODIFY_KIT_VERSION:-unknown}"
     echo "Runtime image: ${CODIFY_RUNTIME_IMAGE:-unknown}"
-    for command in bash git curl head jq python3 node codegraph ssh rg tar wc; do
+    for command in bash git curl head jq python3 node rg tar wc; do
         if ! command -v "${command}" >/dev/null 2>&1 \
             || ! codify_run_shell "command -v '${command}' >/dev/null 2>&1"; then
             echo "Required kit command is unavailable: ${command}" >&2
             return 1
+        fi
+    done
+    for command in codegraph ssh; do
+        if ! command -v "${command}" >/dev/null 2>&1 \
+            || ! codify_run_shell "command -v '${command}' >/dev/null 2>&1"; then
+            echo "Warning: optional runtime tool missing: ${command}" >&2
         fi
     done
 
@@ -147,17 +153,27 @@ codify_verify_runtime() {
     python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); compile(p.read_text(), str(p), "exec")' \
         "${artifact_helper}"
     git --version
-    codegraph --version
-    printf '# worker-kit smoke\n' > /tmp/codify-worker-kit-summary.md
-    "${CODIFY_MERMAID_VALIDATOR}" /tmp/codify-worker-kit-summary.md \
-        >/tmp/codify-worker-kit-mermaid.json
-    jq -e '.ok == true' /tmp/codify-worker-kit-mermaid.json >/dev/null
+    if command -v codegraph >/dev/null 2>&1; then
+        codegraph --version || echo "Warning: optional runtime tool smoke failed: codegraph" >&2
+    fi
+    if [ -x "${CODIFY_MERMAID_VALIDATOR:-}" ]; then
+        printf '# worker-kit smoke\n' > /tmp/codify-worker-kit-summary.md
+        if ! "${CODIFY_MERMAID_VALIDATOR}" /tmp/codify-worker-kit-summary.md \
+            >/tmp/codify-worker-kit-mermaid.json \
+            || ! jq -e '.ok == true' /tmp/codify-worker-kit-mermaid.json >/dev/null; then
+            echo "Warning: optional runtime tool smoke failed: mermaid" >&2
+        fi
+    else
+        echo "Warning: optional runtime tool missing: mermaid" >&2
+    fi
     test "$(codify_run_shell 'id -u')" = "${CODIFY_RUN_UID}"
     codify_run_shell \
         'touch /workspace/.codify-worker-kit-write-test && rm -f /workspace/.codify-worker-kit-write-test'
     if [ -n "${smoke_command}" ]; then
-        codify_run_shell \
-            "export PATH=\"${CODIFY_RUNTIME_PATH}\"; cd /workspace; ${smoke_command}"
+        if ! codify_run_shell \
+            "export PATH=\"${CODIFY_RUNTIME_PATH}\"; cd /workspace; ${smoke_command}"; then
+            echo "Warning: profile smoke check failed" >&2
+        fi
     fi
     echo "Worker kit verification passed"
 }

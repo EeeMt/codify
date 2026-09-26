@@ -135,7 +135,7 @@ async def test_create_system_kit_profile_inherits_shared_runtime(db_factory):
 
     assert response["worker_kit_source"] == "system"
     assert effective.runtime_mode == "mounted_kit"
-    assert effective.worker_kit_version == "0.4.0"
+    assert effective.worker_kit_version is None
     assert effective.worker_kit_path == "/opt/codify/worker-kits/0.4.0"
 
 
@@ -154,7 +154,7 @@ async def test_create_profile_defaults_to_system_kit_and_inherits_shared(db_fact
 
     assert response["worker_kit_source"] == "system"
     assert effective.runtime_mode == "mounted_kit"
-    assert effective.worker_kit_version == "0.4.0"
+    assert effective.worker_kit_version is None
     assert effective.worker_kit_path == "/opt/codify/worker-kits/0.4.0"
 
 
@@ -360,6 +360,7 @@ async def test_duplicate_preserves_inheritance_intent(db_factory):
         env_by_key = {row.key: row for row in copy.environment_variables}
 
     assert copy.worker_kit_source == "system"
+    assert copy.worker_kit_version is None
     assert copy.volume_mount_masks == ["/shared"]
     assert env_by_key["SHARED_A"].operation == ENV_OPERATION_MASK
     assert env_by_key["PROFILE_ONLY"].operation == ENV_OPERATION_SET

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tarfile
@@ -332,24 +333,24 @@ def test_mounted_kit_is_the_new_default_and_requires_coordinates():
         )
 
 
-def test_mounted_mode_derives_version_and_requires_absolute_docker_host_path():
+def test_mounted_mode_does_not_derive_version_from_path():
     assert validate_worker_kit_config(
         runtime_mode=MOUNTED_KIT_MODE,
         worker_kit_version=None,
         worker_kit_path="/opt/codify/worker-kits/0.1.0-linux-amd64/../0.1.0-linux-amd64",
     ) == (
         MOUNTED_KIT_MODE,
-        "0.1.0",
+        None,
         "/opt/codify/worker-kits/0.1.0-linux-amd64",
     )
     assert validate_worker_kit_write_config(
         runtime_mode=MOUNTED_KIT_MODE,
-        worker_kit_version="manually-entered-value",
-        worker_kit_path="/opt/codify/worker-kits/0.6.19-linux-amd64-423899206f3b",
+        worker_kit_version="0.7.0",
+        worker_kit_path="/opt/codify/worker-kits/current-kit",
     ) == (
         MOUNTED_KIT_MODE,
-        "0.6.19",
-        "/opt/codify/worker-kits/0.6.19-linux-amd64-423899206f3b",
+        "0.7.0",
+        "/opt/codify/worker-kits/current-kit",
     )
 
     with pytest.raises(WorkerKitValidationError, match="absolute"):
@@ -439,7 +440,7 @@ def test_worker_kit_and_runtime_bundle_manifests_have_distinct_launcher_contract
     verifier = (root / "deploy/worker-kit/verify-runtime.sh").read_text()
     validator = (root / "deploy/worker-kit/validate-runtime-manifest.py").read_text()
 
-    assert 'ManifestKind         string               `json:"manifest_kind"`' in launcher
+    assert re.search(r'ManifestKind\s+string\s+`json:"manifest_kind"`', launcher)
     assert '"codify.worker.kit-manifest/v1"' in launcher
     assert 'runtime.Schema != "codify.worker.runtime-bundle/v1"' in launcher
     assert 'runtime.Schema != "codify.worker.runtime-bundle/v2"' in launcher

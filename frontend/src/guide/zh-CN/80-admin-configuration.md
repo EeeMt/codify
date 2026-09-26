@@ -168,7 +168,7 @@ MR 事件未开启时，Issue 自动关闭不能工作。总览不加载时，�
 
 Worker Profile 定义镜像、运行时交付方式、挂载、环境变量、脚本、CodeGraph、Harness、默认 Harness、Skills 和各模式运行指令。
 
-「挂载 Worker Kit」是支持的交付方式；「镜像内置（已过时）」不支持 Skills。Worker Kit 版本和路径属于同一组，路径是 Docker 主机上的绝对路径，容器内挂载到 /opt/codify-kit。
+「挂载 Worker Kit」是支持的交付方式；「镜像内置（已过时）」不支持 Skills。这里只配置 Docker 主机上的绝对路径，容器内挂载到 /opt/codify-kit；Worker Kit 版本由「验证运行时」读取 manifest.json 后显示，不从目录名推断。
 
 环境变量名必须符合平台格式，不能使用 ANTHROPIC_、CLAUDE_、CODEX_、CODIFY_、OPENAI_、OPENCODE_ 或 PI_ 等运行时保留前缀。密文变量会加密保存。前置脚本在 checkout 后运行，后置脚本在 AI 成功后、提交前运行。
 

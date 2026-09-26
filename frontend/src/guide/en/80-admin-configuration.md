@@ -170,7 +170,7 @@ Saving shared configuration validates enabled profiles as a group. If another ad
 
 A Worker Profile defines the image, runtime delivery, mounts, environment, scripts, CodeGraph, Harnesses, Default Harness, Skills, and mode-specific run instructions.
 
-Mounted Worker Kit is the supported delivery mode. Baked-image delivery is deprecated and does not support Skills. Worker Kit version and path form one setting group; the path is an absolute Docker-host path mounted in the container at /opt/codify-kit.
+Mounted Worker Kit is the supported delivery mode. Baked-image delivery is deprecated and does not support Skills. Configure only the absolute Docker-host path, which is mounted at /opt/codify-kit; runtime verification reads the Worker Kit version from manifest.json instead of inferring it from the directory name.
 
 Profile environment names must match the platform pattern and cannot use reserved runtime namespaces such as ANTHROPIC_, CLAUDE_, CODEX_, CODIFY_, OPENAI_, OPENCODE_, or PI_. Secret variables are stored encrypted. Pre Script runs after checkout; Post Script runs after a successful AI execution and before commit.
 

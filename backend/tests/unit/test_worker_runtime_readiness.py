@@ -27,7 +27,6 @@ from app.core.worker_kit_inventory import (
 from app.core.worker_runtime_readiness import (
     FAILURE_WORKER_KIT_INVALID,
     FAILURE_WORKER_KIT_NOT_FOUND,
-    FAILURE_WORKER_KIT_VERSION_MISMATCH,
     KIT_PROBE_CONTAINER_PATH,
     READINESS_READY,
     READINESS_UNAVAILABLE,
@@ -278,7 +277,14 @@ def test_fingerprint_is_deterministic_for_mounted_kit():
         worker_kit_version="0.3.5",
         worker_kit_path="/opt/kit",
     )
+    different_observation = runtime_locator_fingerprint(
+        docker_daemon_key="daemon-a",
+        runtime_mode="mounted_kit",
+        worker_kit_version="0.4.0",
+        worker_kit_path="/opt/kit",
+    )
     assert a == b
+    assert a == different_observation
     assert len(a) == 64
 
 
@@ -731,7 +737,7 @@ def test_probe_missing_bind_source_is_worker_kit_not_found():
     assert result.failure_code == FAILURE_WORKER_KIT_NOT_FOUND
 
 
-def test_probe_version_mismatch_is_deterministic_unavailable():
+def test_probe_uses_manifest_version_instead_of_expected_path_version():
     client = _make_probe_client(manifest=_valid_manifest(version="0.4.0"))
     with patch(
         "app.core.worker_runtime_readiness.DockerClientWrapper", return_value=client
@@ -743,8 +749,8 @@ def test_probe_version_mismatch_is_deterministic_unavailable():
             worker_kit_version="0.3.5",
             worker_kit_path="/opt/kit",
         )
-    assert result.status == READINESS_UNAVAILABLE
-    assert result.failure_code == FAILURE_WORKER_KIT_VERSION_MISMATCH
+    assert result.status == READINESS_READY
+    assert result.kit_identity["kit_version"] == "0.4.0"
 
 
 def test_probe_missing_manifest_is_worker_kit_invalid():
@@ -921,7 +927,10 @@ async def test_run_deterministic_kit_probe_persists_ready_through_cas():
     try:
         with patch(
             "app.core.worker_runtime_readiness.probe_worker_kit",
-            return_value=RuntimeCheckResult(status=READINESS_READY),
+            return_value=RuntimeCheckResult(
+                status=READINESS_READY,
+                kit_identity={"kit_version": "0.4.0"},
+            ),
         ):
             async with session_factory() as db:
                 outcome = await run_deterministic_kit_probe(
@@ -934,10 +943,12 @@ async def test_run_deterministic_kit_probe_persists_ready_through_cas():
                 )
         assert outcome.committed is True
         assert outcome.readiness.status == READINESS_READY
+        assert outcome.readiness.worker_kit_version == "0.4.0"
         assert outcome.readiness.ready_until is None
         async with session_factory() as db:
             stored = await read_runtime_readiness(db, fingerprint)
         assert stored.status == READINESS_READY
+        assert stored.worker_kit_version == "0.4.0"
         assert stored.check_generation == 1
     finally:
         await engine.dispose()

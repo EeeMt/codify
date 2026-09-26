@@ -1391,6 +1391,43 @@ class TestEntrypointCommitAttribution(unittest.TestCase):
         self.assertIn("STATUS:skipped", result.stdout)
         self.assertNotIn("UNEXPECTED_", result.stdout)
 
+    def test_codegraph_missing_optional_cli_warns_and_continues(self):
+        script = (
+            Path(__file__).resolve().parents[3] / "deploy" / "worker-entrypoint" / "codegraph.sh"
+        )
+        with tempfile.TemporaryDirectory() as runtime_dir:
+            harness = textwrap.dedent(
+                """
+                set -u
+                CODIFY_HARNESS_KEY=claude
+                CODIFY_CODEGRAPH_ENABLED=true
+                CODIFY_RUNTIME_DIR="$2"
+                PATH=/usr/bin:/bin
+                command() {
+                    if [ "$1" = "-v" ] && [ "$2" = "codegraph" ]; then return 1; fi
+                    builtin command "$@"
+                }
+                codify_run_shell() { printf 'UNEXPECTED_CODEGRAPH_CALL\\n'; return 99; }
+                . "$1"
+                prepare_codegraph
+                printf 'STATUS:%s\\n' "${CODEGRAPH_STARTUP_STATUS}"
+                """
+            )
+            result = subprocess.run(
+                ["bash", "-c", harness, "--", str(script), runtime_dir],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            warning_path = Path(runtime_dir) / "runtime-warnings.jsonl"
+            warnings = [json.loads(line) for line in warning_path.read_text().splitlines()]
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("STATUS:skipped", result.stdout)
+        self.assertNotIn("UNEXPECTED_CODEGRAPH_CALL", result.stdout)
+        self.assertEqual(warnings[0]["code"], "optional_runtime_tool_missing")
+        self.assertEqual(warnings[0]["tool"], "codegraph")
+
     def test_codegraph_disabled_profile_skips_without_cleanup(self):
         script = (
             Path(__file__).resolve().parents[3]

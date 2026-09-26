@@ -71,6 +71,7 @@ from app.core.worker_profiles import (
     validate_v2_worker_kit_identity,
 )
 from app.core.worker_runtime_readiness import (
+    FAILURE_WORKER_KIT_NOT_FOUND,
     RuntimeProbeTransientError,
     RuntimeReadiness,
     harness_cli_unavailable_detail,
@@ -88,6 +89,7 @@ from app.models import (
     IssueStatus,
     Task,
     TaskHarnessAttempt,
+    TaskLog,
     TaskRunArchive,
     TaskStatus,
     TaskWorkerProfileSnapshot,
@@ -122,9 +124,7 @@ def _frozen_v2_snapshot_is_complete(snapshot: TaskWorkerProfileSnapshot | None) 
     if snapshot is None or not isinstance(config, Mapping):
         return False
     try:
-        image_identity = validate_v2_worker_image_identity(
-            config.get("v2_worker_image_identity")
-        )
+        image_identity = validate_v2_worker_image_identity(config.get("v2_worker_image_identity"))
         evidence = config.get("v2_harness_verification_evidence")
         if not isinstance(evidence, Mapping):
             return False
@@ -1288,40 +1288,29 @@ class Scheduler:
         """Promote the due active head of each unlocked Issue from PENDING to QUEUED."""
         task_alias = aliased(Task)
         blocked_issue_ids = list(self._running_issues) if self._running_issues else []
-
-        stmt = (
-            update(Task)
-            .where(
-                Task.status == TaskStatus.PENDING,
-                Task.issue_sequence.is_not(None),
-                (Task.scheduled_at.is_(None)) | (Task.scheduled_at <= now),
-                ~exists(
-                    select(1).where(
-                        task_alias.issue_id == Task.issue_id,
-                        task_alias.status.in_(ACTIVE_STATUSES),
-                        task_alias.issue_sequence.is_(None),
-                    )
-                ),
-                ~exists(
-                    select(1).where(
-                        task_alias.issue_id == Task.issue_id,
-                        task_alias.status.in_(ACTIVE_STATUSES),
-                        task_alias.issue_sequence.is_not(None),
-                        task_alias.issue_sequence < Task.issue_sequence,
-                    )
-                ),
-                ~exists(select(1).where(IssueExecutionLock.issue_id == Task.issue_id)),
-                # Runtime readiness is verified by the authoritative
-                # pre-execution gate. Do not filter here: legacy V1 readiness
-                # rows and V2 full-content rows intentionally have different
-                # verification scopes, while this SQL update only carries the
-                # historical locator fingerprint and cannot safely distinguish
-                # them (§13.2).
-            )
-            .values(status=TaskStatus.QUEUED)
-        )
+        eligible = [
+            Task.status == TaskStatus.PENDING,
+            Task.issue_sequence.is_not(None),
+            (Task.scheduled_at.is_(None)) | (Task.scheduled_at <= now),
+            ~exists(
+                select(1).where(
+                    task_alias.issue_id == Task.issue_id,
+                    task_alias.status.in_(ACTIVE_STATUSES),
+                    task_alias.issue_sequence.is_(None),
+                )
+            ),
+            ~exists(
+                select(1).where(
+                    task_alias.issue_id == Task.issue_id,
+                    task_alias.status.in_(ACTIVE_STATUSES),
+                    task_alias.issue_sequence.is_not(None),
+                    task_alias.issue_sequence < Task.issue_sequence,
+                )
+            ),
+            ~exists(select(1).where(IssueExecutionLock.issue_id == Task.issue_id)),
+        ]
         if get_settings().harness_execution_mode == "v2_only":
-            stmt = stmt.where(
+            eligible.append(
                 exists(
                     select(WorkerRuntimeBundle.id).where(
                         WorkerRuntimeBundle.id == Task.runtime_bundle_id,
@@ -1330,7 +1319,42 @@ class Scheduler:
                 )
             )
         if blocked_issue_ids:
-            stmt = stmt.where((Task.issue_id.is_(None)) | (~Task.issue_id.in_(blocked_issue_ids)))
+            eligible.append((Task.issue_id.is_(None)) | (~Task.issue_id.in_(blocked_issue_ids)))
+
+        # A known missing Kit is an administrator-recovery wait. Keep it in
+        # PENDING until explicit Verify changes readiness, instead of cycling
+        # it through QUEUED on every scheduler tick.
+        candidate_ids = (await db.execute(select(Task.id).where(*eligible))).scalars().all()
+        promotable_ids = []
+        for task_id in candidate_ids:
+            snapshot = await self._load_task_snapshot(db, task_id)
+            fingerprint = (
+                getattr(snapshot, "runtime_locator_fingerprint", None)
+                if snapshot is not None
+                else None
+            )
+            if fingerprint:
+                readiness = await read_runtime_readiness(
+                    db,
+                    fingerprint,
+                    require_content_inventory=(
+                        getattr(snapshot, "runtime_contract_version", None)
+                        == HARNESS_CONTRACT_VERSION_V2
+                    ),
+                )
+                if (
+                    readiness.is_unavailable
+                    and readiness.failure_code == FAILURE_WORKER_KIT_NOT_FOUND
+                ):
+                    continue
+            promotable_ids.append(task_id)
+        if not promotable_ids:
+            return
+        stmt = (
+            update(Task)
+            .where(*eligible, Task.id.in_(promotable_ids))
+            .values(status=TaskStatus.QUEUED)
+        )
         result = await db.execute(stmt)
         if result.rowcount > 0:
             await db.commit()
@@ -1660,14 +1684,18 @@ class Scheduler:
             fingerprint,
             require_content_inventory=requires_full_content_identity,
         )
+        await self._warn_if_frozen_kit_version_mismatch(db, task, snapshot, readiness)
         if readiness.is_unavailable:
-            await self._park_tasks_for_unavailable_runtime(
-                db,
-                task,
-                fingerprint,
-                readiness,
-                require_content_inventory=requires_full_content_identity,
-            )
+            if readiness.failure_code == FAILURE_WORKER_KIT_NOT_FOUND:
+                await self._park_tasks_for_unavailable_runtime(
+                    db,
+                    task,
+                    fingerprint,
+                    readiness,
+                    require_content_inventory=requires_full_content_identity,
+                )
+            else:
+                await self._fail_task_for_runtime_check(db, task, readiness)
             return True
         if requires_full_content_identity:
             # A V2 Task carries the result of the explicit Profile verification
@@ -1699,7 +1727,7 @@ class Scheduler:
                 connection=connection,
                 image=snapshot.image,
                 runtime_mode=snapshot.runtime_mode,
-                worker_kit_version=snapshot.worker_kit_version or "",
+                worker_kit_version=None,
                 worker_kit_path=snapshot.worker_kit_path or "",
                 require_content_inventory=requires_full_content_identity,
             )
@@ -1715,28 +1743,13 @@ class Scheduler:
             )
             return True
         if outcome.is_ready:
-            return await self._harness_availability_gate(
-                db, task, snapshot, outcome.readiness
-            )
+            await self._warn_if_frozen_kit_version_mismatch(db, task, snapshot, outcome.readiness)
+            return await self._harness_availability_gate(db, task, snapshot, outcome.readiness)
         if outcome.is_unavailable:
-            if outcome.committed:
-                # Deterministic unavailable conclusion from a live probe that
-                # this probe committed: fail the probed task and park unclaimed
-                # same-fingerprint tasks (§13.4).
-                await self._fail_task_for_runtime_check(db, task, outcome.readiness)
-                await self._park_other_queued_tasks(
-                    db,
-                    task,
-                    fingerprint,
-                    outcome.readiness,
-                    require_content_inventory=requires_full_content_identity,
-                )
-            else:
-                # The probe was superseded by a concurrent check that concluded
-                # unavailable (§13.3 CAS). §13.3/§13.5: a late probe must not
-                # fail the current task — park it back to PENDING so it recovers
-                # once the Kit becomes available instead of requiring a manual
-                # retry (§24.13).
+            if outcome.readiness.failure_code == FAILURE_WORKER_KIT_NOT_FOUND:
+                # A previously verified identity with a missing mounted Kit
+                # waits in PENDING until an administrator restores and verifies
+                # the Kit, whether this or a concurrent probe made the finding.
                 await self._park_tasks_for_unavailable_runtime(
                     db,
                     task,
@@ -1744,12 +1757,92 @@ class Scheduler:
                     outcome.readiness,
                     require_content_inventory=requires_full_content_identity,
                 )
+            else:
+                # A malformed Kit or other deterministic integrity failure is
+                # a hard gate even when another probe committed the conclusion.
+                await self._fail_task_for_runtime_check(db, task, outcome.readiness)
             return True
         # unknown: the probe result was superseded by a concurrent check or no
         # conclusion is stored yet (§13.3/§19). A late/superseded generation
         # must never change readiness or Task state, so leave the Task QUEUED
         # and re-evaluate next cycle instead of failing it.
         return True
+
+    async def _warn_if_frozen_kit_version_mismatch(
+        self,
+        db: AsyncSession,
+        task: Task,
+        snapshot: TaskWorkerProfileSnapshot,
+        readiness: RuntimeReadiness,
+    ) -> None:
+        """Persist a warning and continue when the known Kit differs from its baseline."""
+        identity = readiness.kit_identity if isinstance(readiness.kit_identity, Mapping) else {}
+        expected_identity = None
+        config = getattr(snapshot, "harness_config_snapshot", None)
+        if isinstance(config, Mapping):
+            expected_identity = config.get("worker_kit_identity")
+        expected_identity = expected_identity if isinstance(expected_identity, Mapping) else {}
+        expected_version = getattr(snapshot, "worker_kit_version", None)
+        observed_version = readiness.worker_kit_version
+        expected_digest = expected_identity.get("manifest_sha256")
+        observed_digest = identity.get("manifest_sha256")
+        reason_codes = []
+        if expected_version and observed_version and expected_version != observed_version:
+            reason_codes.append("worker_kit_version_drift_warning")
+        if expected_digest and observed_digest and expected_digest != observed_digest:
+            reason_codes.append("worker_kit_manifest_drift_warning")
+        if not readiness.is_ready or not reason_codes:
+            return
+        message = "Worker Kit differs from the verification baseline"
+        metadata = {
+            "code": "worker_kit_runtime_drift_warning",
+            "reason_codes": reason_codes,
+            "message": message,
+            "baseline": {
+                "kit_version": expected_version,
+                "manifest_sha256": expected_digest,
+            },
+            "actual": {
+                "kit_version": observed_version,
+                "manifest_sha256": observed_digest,
+            },
+        }
+        existing = await db.execute(
+            select(TaskLog.log_metadata).where(
+                TaskLog.task_id == task.id,
+                TaskLog.log_type == "runtime_warning",
+                TaskLog.message == message,
+            )
+        )
+        if any(
+            isinstance(parsed := json.loads(value or "{}"), dict)
+            and parsed.get("code") == metadata["code"]
+            and parsed.get("reason_codes") == metadata["reason_codes"]
+            and parsed.get("baseline") == metadata["baseline"]
+            and parsed.get("actual") == metadata["actual"]
+            for value in existing.scalars().all()
+            if isinstance(value, str)
+        ):
+            return
+        db.add(
+            TaskLog(
+                task_id=task.id,
+                log_level="WARNING",
+                message=message,
+                log_type="runtime_warning",
+                log_metadata=json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+            )
+        )
+        await db.commit()
+        self._emit_event(
+            "worker_kit_runtime_drift_warning",
+            reason=reason_codes[0],
+            issue_id=task.issue_id,
+            task_id=task.id,
+            reason_codes=reason_codes,
+            baseline=metadata["baseline"],
+            actual=metadata["actual"],
+        )
 
     async def _harness_availability_gate(
         self,
@@ -1768,9 +1861,7 @@ class Scheduler:
         Returns True when the task must not be claimed this cycle.
         """
         config = (
-            getattr(snapshot, "harness_config_snapshot", None)
-            if snapshot is not None
-            else None
+            getattr(snapshot, "harness_config_snapshot", None) if snapshot is not None else None
         )
         requested_contract = (
             config.get("requested_runtime_contract_version")
@@ -2137,9 +2228,9 @@ class Scheduler:
                         sort_keys=True,
                     )[:2000]
                 else:
-                    task.error_message = sanitize_sensitive_data(
-                        f"Worker failed to start: {exc}"
-                    )[:2000]
+                    task.error_message = sanitize_sensitive_data(f"Worker failed to start: {exc}")[
+                        :2000
+                    ]
                 task.completed_at = utcnow()
                 if getattr(task, "container_id", None) is None:
                     task.raw_logs_finalized_at = (

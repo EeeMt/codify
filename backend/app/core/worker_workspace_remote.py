@@ -24,6 +24,10 @@ from app.core.worker_kit import (
     worker_kit_environment,
     worker_kit_mounts,
 )
+from app.core.worker_shared_configuration import (
+    WORKER_KIT_SOURCE_SYSTEM,
+    load_shared_configuration,
+)
 from app.core.worker_workspace import build_issue_workspace_paths, configured_workspace_root
 from app.models import Issue, WorkerProfile
 
@@ -64,6 +68,7 @@ def _profile_connection(profile: WorkerProfile, settings: Any) -> DockerConnecti
 async def _run_maintenance_container(
     *,
     docker: DockerClientWrapper,
+    db: AsyncSession,
     profile: WorkerProfile,
     workspace_root: str,
     environment: dict[str, str],
@@ -119,14 +124,35 @@ async def _run_maintenance_container(
                 "not found in $path",
             )
         )
-        runtime_mode, kit_version, kit_path = validate_worker_kit_config(
-            runtime_mode=getattr(profile, "runtime_mode", None),
-            worker_kit_version=getattr(profile, "worker_kit_version", None),
-            worker_kit_path=getattr(profile, "worker_kit_path", None),
-        )
-        if not missing_command or runtime_mode != MOUNTED_KIT_MODE:
+        if not missing_command:
             raise
-        assert kit_version is not None and kit_path is not None
+        shared = (
+            await load_shared_configuration(db)
+            if getattr(profile, "worker_kit_source", None) == WORKER_KIT_SOURCE_SYSTEM
+            else None
+        )
+        shared_row = shared.row if shared is not None else None
+        runtime_mode, kit_version, kit_path = validate_worker_kit_config(
+            runtime_mode=(
+                shared_row.runtime_mode
+                if shared_row is not None
+                else getattr(profile, "runtime_mode", None)
+            ),
+            # The shared layer owns only the path. The version belongs to the
+            # Profile because it was observed on that Profile's host.
+            worker_kit_version=getattr(profile, "worker_kit_version", None),
+            worker_kit_path=(
+                shared_row.worker_kit_path
+                if shared_row is not None
+                else getattr(profile, "worker_kit_path", None)
+            ),
+        )
+        if runtime_mode != MOUNTED_KIT_MODE:
+            raise
+        if kit_version is None or kit_path is None:
+            raise RuntimeError(
+                "mounted_kit maintenance requires a Worker Kit version observed by runtime verification"
+            )
         raw = await asyncio.to_thread(
             run,
             command=["--maintenance-shell", script],
@@ -166,6 +192,7 @@ async def inspect_issue_workspace(
     try:
         payload = await _run_maintenance_container(
             docker=docker,
+            db=db,
             profile=profile,
             workspace_root=root,
             environment={
@@ -211,6 +238,7 @@ async def remove_issue_workspace_remote(
     try:
         payload = await _run_maintenance_container(
             docker=docker,
+            db=db,
             profile=profile,
             workspace_root=root,
             environment={

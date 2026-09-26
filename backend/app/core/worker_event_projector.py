@@ -54,6 +54,33 @@ def _dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _runtime_warning_key(value: Any) -> tuple[Any, ...] | None:
+    """Build a stable dedupe key shared by Scheduler and launcher warnings."""
+    if not isinstance(value, dict):
+        return None
+    code = value.get("code")
+    if code == "worker_kit_runtime_drift_warning":
+        return (
+            code,
+            tuple(value.get("reason_codes") or ()),
+            _dumps(value.get("baseline") or {}),
+            _dumps(value.get("actual") or {}),
+        )
+    if code == "optional_harness_unavailable":
+        return (code, value.get("harness_key"), value.get("reason_code"))
+    if code == "optional_runtime_tool_missing":
+        return (code, value.get("tool"))
+    if code == "worker_adapter_runtime_drift_warning":
+        return (
+            code,
+            value.get("harness_key"),
+            tuple(value.get("reason_codes") or ()),
+            _dumps(value.get("baseline") or {}),
+            _dumps(value.get("actual") or {}),
+        )
+    return None
+
+
 def _preview(text: str, limit: int = _PREVIEW_LIMIT) -> tuple[str, bool]:
     normalized = " ".join(text.split())
     return normalized[:limit], len(normalized) > limit
@@ -202,11 +229,7 @@ class WorkerEventProjector:
         poll interval.
         """
         lines = chunk.splitlines(keepends=True)
-        complete_lines = (
-            lines
-            if not lines or lines[-1].endswith("\n")
-            else lines[:-1]
-        )
+        complete_lines = lines if not lines or lines[-1].endswith("\n") else lines[:-1]
         if not complete_lines:
             return chunk, ""
 
@@ -437,10 +460,7 @@ class WorkerEventProjector:
         )
         for log in result.scalars():
             metadata = self._message_metadata(log)
-            if (
-                metadata.get("attempt_id") != attempt_id
-                or metadata.get("streaming") is not True
-            ):
+            if metadata.get("attempt_id") != attempt_id or metadata.get("streaming") is not True:
                 continue
             metadata.update({"streaming": False, "interrupted": True})
             log.log_metadata = _dumps(metadata)
@@ -558,11 +578,7 @@ class WorkerEventProjector:
                     "char_count": 0,
                 }
             )
-        duration = (
-            _duration_ms(started_at, occurred_at)
-            if isinstance(started_at, str)
-            else None
-        )
+        duration = _duration_ms(started_at, occurred_at) if isinstance(started_at, str) else None
         metadata.update(
             {
                 "status": _THINKING_STATUS_COMPLETED,
@@ -772,19 +788,13 @@ class WorkerEventProjector:
             else "observed"
         )
         started_at = metadata.get("started_at")
-        duration = (
-            _duration_ms(started_at, ended_at)
-            if isinstance(started_at, str)
-            else None
-        )
+        duration = _duration_ms(started_at, ended_at) if isinstance(started_at, str) else None
         if duration is not None:
             metadata["duration_ms"] = duration
         if payload.get("exit_code") is not None:
             metadata["exit_code"] = payload["exit_code"]
         if payload.get("error_message"):
-            metadata["error_message"] = self._sanitize_sensitive_data(
-                str(payload["error_message"])
-            )
+            metadata["error_message"] = self._sanitize_sensitive_data(str(payload["error_message"]))
         pending.log_metadata = _dumps(metadata)
 
     async def _command_display_fields(
@@ -824,18 +834,21 @@ class WorkerEventProjector:
             )
             return {}
         command = (
-            await db.execute(
-                select(TaskHarnessCommand).where(
-                    TaskHarnessCommand.task_id == task_id,
-                    TaskHarnessCommand.attempt_id == attempt_id,
-                    TaskHarnessCommand.sequence_no == sequence_no,
+            (
+                await db.execute(
+                    select(TaskHarnessCommand).where(
+                        TaskHarnessCommand.task_id == task_id,
+                        TaskHarnessCommand.attempt_id == attempt_id,
+                        TaskHarnessCommand.sequence_no == sequence_no,
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if command is None or command.payload_digest != payload_digest:
             logger.warning(
-                "[Task %s] control command event matches no command "
-                "(attempt=%s sequence_no=%s)",
+                "[Task %s] control command event matches no command (attempt=%s sequence_no=%s)",
                 task_id,
                 attempt_id,
                 sequence_no,
@@ -1018,9 +1031,7 @@ class WorkerEventProjector:
                 if not text:
                     orphan_metadata: dict[str, Any] = {
                         "code": "reasoning_start_missing",
-                        "reasoning_id": reasoning_id
-                        if isinstance(reasoning_id, str)
-                        else None,
+                        "reasoning_id": reasoning_id if isinstance(reasoning_id, str) else None,
                     }
                     if agent is not None:
                         orphan_metadata["agent"] = agent
@@ -1217,15 +1228,41 @@ class WorkerEventProjector:
                     command_id=payload.get("command_id"),
                     native_id=payload.get("native_id"),
                 )
-            db.add(
-                TaskLog(
-                    task_id=task_id,
-                    log_level="WARNING",
-                    message=str(payload.get("message") or payload.get("code") or "diagnostic"),
-                    log_type="diagnostic",
-                    log_metadata=_dumps(payload),
+            warning_key = _runtime_warning_key(payload)
+            if warning_key is not None:
+                existing = await db.execute(
+                    select(TaskLog.log_metadata).where(
+                        TaskLog.task_id == task_id,
+                        TaskLog.log_type == "runtime_warning",
+                    )
                 )
-            )
+                if not any(
+                    _runtime_warning_key(json.loads(value or "{}")) == warning_key
+                    for value in existing.scalars().all()
+                    if isinstance(value, str)
+                ):
+                    message = str(
+                        payload.get("message") or payload.get("code") or "Runtime warning"
+                    )
+                    db.add(
+                        TaskLog(
+                            task_id=task_id,
+                            log_level="WARNING",
+                            message=message,
+                            log_type="runtime_warning",
+                            log_metadata=_dumps(payload),
+                        )
+                    )
+            else:
+                db.add(
+                    TaskLog(
+                        task_id=task_id,
+                        log_level="WARNING",
+                        message=str(payload.get("message") or payload.get("code") or "diagnostic"),
+                        log_type="diagnostic",
+                        log_metadata=_dumps(payload),
+                    )
+                )
         return True
 
     async def ingest_event_records_from_chunk(
@@ -1312,7 +1349,9 @@ class WorkerEventProjector:
             return
         try:
             with tarfile.open(archive_path, "r:gz") as archive:
-                member = next((item for item in archive.getmembers() if item.name == "event.jsonl"), None)
+                member = next(
+                    (item for item in archive.getmembers() if item.name == "event.jsonl"), None
+                )
                 if member is None:
                     return
                 extracted = archive.extractfile(member)
@@ -1340,7 +1379,9 @@ class WorkerEventProjector:
             return
         try:
             with tarfile.open(archive_path, "r:gz") as archive:
-                member = next((item for item in archive.getmembers() if item.name == "console.log"), None)
+                member = next(
+                    (item for item in archive.getmembers() if item.name == "console.log"), None
+                )
                 if member is None:
                     return
                 extracted = archive.extractfile(member)

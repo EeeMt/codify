@@ -210,9 +210,23 @@ def test_kit_source_system_inherits_kit_from_shared():
     )
 
     assert effective.runtime_mode == MOUNTED_KIT_MODE
-    assert effective.worker_kit_version == "0.4.0"
+    assert effective.worker_kit_version is None
     assert effective.worker_kit_path == "/opt/codify/worker-kits/0.4.0"
     assert effective.shared_configuration_revision == 3
+
+
+def test_kit_source_system_keeps_profile_observed_version_and_shared_path():
+    effective = resolve_effective_configuration(
+        _profile(
+            worker_kit_source=WORKER_KIT_SOURCE_SYSTEM,
+            worker_kit_version="0.7.0",
+            worker_kit_path="/profile/path/is_ignored",
+        ),
+        _shared(),
+    )
+
+    assert effective.worker_kit_version == "0.7.0"
+    assert effective.worker_kit_path == "/opt/codify/worker-kits/0.4.0"
 
 
 def test_kit_source_system_requires_shared_baseline():

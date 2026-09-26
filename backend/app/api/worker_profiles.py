@@ -9,6 +9,7 @@ import inspect
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC
 from types import SimpleNamespace
 from typing import Any, Mapping
@@ -44,7 +45,6 @@ from app.core.worker_kit import (
     MOUNTED_KIT_MODE,
     WorkerKitValidationError,
     validate_worker_kit_write_config,
-    worker_kit_version_from_path,
 )
 from app.core.worker_profiles import (
     TaskWorkerRuntime,
@@ -76,6 +76,7 @@ from app.core.worker_runtime_bundle import (
     v2_launcher_manifest_bytes,
 )
 from app.core.worker_runtime_readiness import (
+    FAILURE_WORKER_KIT_NOT_FOUND,
     READINESS_UNKNOWN,
     RuntimeProbeTransientError,
     RuntimeReadiness,
@@ -140,9 +141,7 @@ class WorkerProfileRequestBase(BaseModel):
 
     @field_validator("volume_mount_masks")
     @classmethod
-    def validate_volume_mount_masks_type(
-        cls, value: list[str] | None
-    ) -> list[str] | None:
+    def validate_volume_mount_masks_type(cls, value: list[str] | None) -> list[str] | None:
         if value is None:
             return None
         if any(not isinstance(item, str) for item in value):
@@ -509,18 +508,12 @@ async def _profile_api_sections(
         effective = None
 
     kit_source = (
-        str(getattr(profile, "worker_kit_source", WORKER_KIT_SOURCE_PROFILE) or "")
-        .strip()
+        str(getattr(profile, "worker_kit_source", WORKER_KIT_SOURCE_PROFILE) or "").strip()
         or WORKER_KIT_SOURCE_PROFILE
     )
     profile_runtime_mode = getattr(profile, "runtime_mode", None)
     profile_kit_path = getattr(profile, "worker_kit_path", None)
     profile_kit_version = getattr(profile, "worker_kit_version", None)
-    if profile_runtime_mode == MOUNTED_KIT_MODE and profile_kit_path:
-        try:
-            profile_kit_version = worker_kit_version_from_path(profile_kit_path)
-        except WorkerKitValidationError:
-            pass
     overrides = {
         "worker_kit": (
             None
@@ -534,9 +527,7 @@ async def _profile_api_sections(
         "pre_script": getattr(profile, "pre_script", None),
         "post_script": getattr(profile, "post_script", None),
         "volume_mounts": list(getattr(profile, "volume_mounts", None) or []),
-        "masked_volume_mount_paths": list(
-            getattr(profile, "volume_mount_masks", None) or []
-        ),
+        "masked_volume_mount_paths": list(getattr(profile, "volume_mount_masks", None) or []),
         "environment_variables": [
             serialize_profile_environment_variable_for_api(row)
             for row in (getattr(profile, "environment_variables", None) or [])
@@ -551,9 +542,7 @@ async def _profile_api_sections(
         else {"worker_kit_version": None, "worker_kit_path": None}
     )
     sources = {
-        "worker_kit": (
-            "system" if kit_source == WORKER_KIT_SOURCE_SYSTEM else "profile_override"
-        ),
+        "worker_kit": ("system" if kit_source == WORKER_KIT_SOURCE_SYSTEM else "profile_override"),
         "pre_script": _profile_scalar_source(profile, "pre_script"),
         "post_script": _profile_scalar_source(profile, "post_script"),
     }
@@ -592,6 +581,27 @@ async def _profile_api_sections(
         except Exception:  # noqa: BLE001 - unresolvable locator is never a known state
             readiness = RuntimeReadiness(status=READINESS_UNKNOWN)
 
+    harness_inventory = readiness.harness_inventory or {}
+    harness_evidence = getattr(profile, "v2_harness_verification_evidence", None)
+    harness_evidence = harness_evidence if isinstance(harness_evidence, Mapping) else {}
+    enabled_harnesses = getattr(profile, "enabled_harnesses", None)
+    if not isinstance(enabled_harnesses, list) or not enabled_harnesses:
+        enabled_harnesses = [getattr(profile, "default_harness_key", None) or "claude"]
+    harness_verification = {
+        key: {
+            "status": (
+                "verified"
+                if key in harness_evidence
+                else "unavailable"
+                if isinstance(harness_inventory.get(key), Mapping)
+                and harness_inventory[key].get("availability") == "absent"
+                else "unverified"
+            )
+        }
+        for key in enabled_harnesses
+        if isinstance(key, str)
+    }
+
     return {
         "overrides": overrides,
         "effective": effective_section,
@@ -606,6 +616,9 @@ async def _profile_api_sections(
             "status": readiness.status,
             "checked_at": readiness.checked_at.isoformat() if readiness.checked_at else None,
             "ready_until": None,
+            "harness_inventory": readiness.harness_inventory,
+            "kit_identity": readiness.kit_identity,
+            "harness_verification": harness_verification,
         },
     }
 
@@ -619,9 +632,7 @@ async def _admin_profile_payload(
 ) -> dict[str, Any]:
     """Admin Profile response: the flat fields plus the §16.2 sections."""
     payload = serialize_worker_profile_for_api(profile, include_docker_target=True)
-    payload.update(
-        await _profile_api_sections(db, profile, settings=settings, shared=shared)
-    )
+    payload.update(await _profile_api_sections(db, profile, settings=settings, shared=shared))
     return payload
 
 
@@ -646,10 +657,9 @@ async def _clear_profile_verification(
     db: AsyncSession, profile: WorkerProfile, *, expected_generation: int | None = None
 ) -> None:
     """Clear the profile's verification state after a deterministic failure."""
-    generation = int(getattr(profile, "v2_worker_image_identity_generation", 0) or 0)
     where = WorkerProfile.id == profile.id
     if expected_generation is not None:
-        where = where & (WorkerProfile.v2_worker_image_identity_generation == expected_generation)
+        where = where & (WorkerProfile.worker_kit_identity_generation == expected_generation)
     result = await db.execute(
         update(WorkerProfile)
         .where(where)
@@ -658,13 +668,17 @@ async def _clear_profile_verification(
             verified_runtime_configuration_digest=None,
             v2_worker_image_identity=None,
             v2_harness_verification_evidence=None,
-            v2_worker_image_identity_generation=generation + 1,
+            worker_kit_version=None,
+            v2_worker_image_identity_generation=WorkerProfile.v2_worker_image_identity_generation
+            + 1,
             worker_kit_identity=None,
-            worker_kit_identity_generation=generation + 1,
+            worker_kit_identity_generation=WorkerProfile.worker_kit_identity_generation + 1,
         )
     )
     if expected_generation is not None and result.rowcount != 1:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="worker_profile_verification_superseded")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="worker_profile_verification_superseded"
+        )
     await db.commit()
 
 
@@ -673,9 +687,15 @@ def _profile_explicitly_requests_v2(profile: WorkerProfile) -> bool:
 
 
 def _v2_harness_evidence(
-    profile: WorkerProfile, *, harness_key: str, verification_digest: str,
-    image_identity: dict[str, str], adapter_identity: dict[str, str],
-    cli_identity: Mapping[str, str], generation: int, verified_at,
+    profile: WorkerProfile,
+    *,
+    harness_key: str,
+    verification_digest: str,
+    image_identity: dict[str, str],
+    adapter_identity: dict[str, str],
+    cli_identity: Mapping[str, str],
+    generation: int,
+    verified_at,
 ) -> dict[str, Any]:
     return {
         "schema": "codify.worker-harness-verification/v1",
@@ -697,7 +717,9 @@ def _v2_harness_evidence(
 
 
 def _verification_cli_identity(
-    readiness: Any, profile: WorkerProfile, harness_key: str,
+    readiness: Any,
+    profile: WorkerProfile,
+    harness_key: str,
 ) -> dict[str, str]:
     """Resolve the exact container CLI path for one verification container.
 
@@ -707,6 +729,7 @@ def _verification_cli_identity(
     declared executable path. An absent Kit entry is a deterministic
     ``harness_cli_unavailable`` rejection — there is no image/PATH fallback.
     """
+
     def validate(identity: Mapping[str, Any]) -> dict[str, str]:
         try:
             return validate_v2_cli_identity(identity, harness_key=harness_key)
@@ -726,8 +749,7 @@ def _verification_cli_identity(
                 detail={
                     "code": "harness_cli_unavailable",
                     "message": (
-                        f"host_mount runtime for {harness_key!r} has no absolute "
-                        "executable_path"
+                        f"host_mount runtime for {harness_key!r} has no absolute executable_path"
                     ),
                 },
             )
@@ -775,7 +797,9 @@ def _verification_cli_identity(
 
 
 def _verification_cli_bin(
-    readiness: Any, profile: WorkerProfile, harness_key: str,
+    readiness: Any,
+    profile: WorkerProfile,
+    harness_key: str,
 ) -> str:
     """Return the selected CLI path for V1 and compatibility callers."""
     runtime = (getattr(profile, "harness_runtimes", None) or {}).get(harness_key)
@@ -858,27 +882,27 @@ async def verify_worker_profile_runtime(
     # Every verify attempt, including V1, owns one Profile epoch before any
     # Docker I/O.  Shared/Profile invalidation increments the same epoch, so a
     # slow V1 success cannot write stale values back after a configuration edit.
-    prior_generation = int(getattr(profile, "v2_worker_image_identity_generation", 0) or 0)
+    prior_generation = int(getattr(profile, "worker_kit_identity_generation", 0) or 0)
     result = await db.execute(
         update(WorkerProfile)
         .where(
             WorkerProfile.id == profile.id,
-            WorkerProfile.v2_worker_image_identity_generation == prior_generation,
+            WorkerProfile.worker_kit_identity_generation == prior_generation,
         )
         .values(
-            verified_at=None,
-            verified_runtime_configuration_digest=None,
-            v2_worker_image_identity=None,
-            v2_harness_verification_evidence=None,
-                       v2_worker_image_identity_generation=prior_generation + 1,
-            worker_kit_identity=None,
+            # Keep the last successful identity usable while this attempt is
+            # in flight. Only a deterministic Kit integrity failure or a real
+            # configuration edit invalidates it.
             worker_kit_identity_generation=prior_generation + 1,
         )
     )
     if result.rowcount != 1:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="worker_profile_verification_superseded")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="worker_profile_verification_superseded"
+        )
     identity_generation = prior_generation + 1
     await db.commit()
+    profile.worker_kit_identity_generation = identity_generation
     started_at = time.monotonic()
 
     # Layer 1: strict Kit probe through the generation/CAS readiness service.
@@ -888,7 +912,7 @@ async def verify_worker_profile_runtime(
             connection=connection,
             image=runtime.image,
             runtime_mode=runtime.runtime_mode,
-            worker_kit_version=runtime.worker_kit_version or "",
+            worker_kit_version=None,
             worker_kit_path=runtime.worker_kit_path or "",
             require_content_inventory=requires_v2_identity,
         )
@@ -901,6 +925,8 @@ async def verify_worker_profile_runtime(
             },
         ) from exc
     if outcome.is_unavailable:
+        if outcome.readiness.failure_code != FAILURE_WORKER_KIT_NOT_FOUND:
+            await _clear_profile_verification(db, profile, expected_generation=identity_generation)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_runtime_unavailable_detail(
@@ -917,6 +943,19 @@ async def verify_worker_profile_runtime(
         if isinstance(outcome.readiness.kit_identity, Mapping)
         else None
     )
+    observed_worker_kit_version = outcome.readiness.worker_kit_version
+    if not observed_worker_kit_version and worker_kit_identity is not None:
+        observed_worker_kit_version = worker_kit_identity.get("kit_version")
+    if not isinstance(observed_worker_kit_version, str) or not observed_worker_kit_version.strip():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "worker_kit_version_missing",
+                "message": "The Worker Kit manifest did not provide a valid kit_version; "
+                "re-run verification against a valid Worker Kit",
+            },
+        )
+    observed_worker_kit_version = observed_worker_kit_version.strip()
     if requires_v2_identity and worker_kit_identity is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -928,6 +967,21 @@ async def verify_worker_profile_runtime(
         )
 
     # Layer 2: profile-specific verification container.
+    runtime = replace(runtime, worker_kit_version=observed_worker_kit_version)
+    try:
+        validate_runtime_supports_skills(
+            runtime,
+            [
+                skill
+                for skill in (getattr(profile, "default_skills", None) or [])
+                if bool(getattr(skill, "enabled", False))
+            ],
+        )
+    except SkillValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
     overrides = runtime.container_overrides()
     verification_volumes = build_worker_profile_volume_map(runtime.volume_mounts)
     verification_volumes.update(overrides["volumes"])
@@ -938,6 +992,7 @@ async def verify_worker_profile_runtime(
     if smoke_command:
         base_command.extend(["--smoke", smoke_command])
     candidate_evidence_by_key: dict[str, dict[str, Any]] = {}
+    harness_results: dict[str, dict[str, Any]] = {}
     candidate_verified_at = utcnow()
 
     def verify_runtime() -> tuple[int, str, str, dict[str, str] | None, dict[str, str]]:
@@ -956,7 +1011,7 @@ async def verify_worker_profile_runtime(
 
         def verify_harness(
             harness_key: str,
-        ) -> tuple[int, str, dict[str, Any] | None, str]:
+        ) -> tuple[int, str, dict[str, Any] | None, str, str | None]:
             # Docker SDK clients are kept private to each worker thread.
             # The checks are independent, but sharing one client would
             # make its underlying HTTP session a concurrency boundary.
@@ -967,11 +1022,20 @@ async def verify_worker_profile_runtime(
                 candidate_evidence: dict[str, Any] | None = None
                 candidate_archive = None
                 candidate_manifest: dict[str, Any] | None = None
-                cli_identity = (
-                    _verification_cli_identity(outcome.readiness, profile, harness_key)
-                    if requires_v2_identity
-                    else None
-                )
+                try:
+                    cli_identity = (
+                        _verification_cli_identity(outcome.readiness, profile, harness_key)
+                        if requires_v2_identity
+                        else None
+                    )
+                except HTTPException as exc:
+                    detail = exc.detail
+                    message = (
+                        detail.get("message", str(detail))
+                        if isinstance(detail, Mapping)
+                        else str(detail)
+                    )
+                    return 1, message, None, harness_repo_digest, "unavailable"
                 if requires_v2_identity:
                     adapter_identity = frozen_v2_adapter_identity(
                         harness_key,
@@ -1079,7 +1143,13 @@ async def verify_worker_profile_runtime(
                     client.put_archive(container, "/tmp", candidate_archive)
                     client.start_container(container)
                 exit_code, logs = client.wait_for_container(container, timeout=180)
-                return exit_code, logs, candidate_evidence, harness_repo_digest
+                return (
+                    exit_code,
+                    logs,
+                    candidate_evidence,
+                    harness_repo_digest,
+                    None if exit_code == 0 else "verification_failed",
+                )
             finally:
                 if container is not None:
                     with contextlib.suppress(Exception):
@@ -1097,25 +1167,31 @@ async def verify_worker_profile_runtime(
         if repo_digest is None:
             repo_digest = results[0][3]
         logs_by_key = {
-            harness_key: result[1]
-            for harness_key, result in zip(keys, results, strict=True)
+            harness_key: result[1] for harness_key, result in zip(keys, results, strict=True)
         }
+        harness_results.update(
+            {
+                harness_key: {
+                    "status": "verified"
+                    if result[0] == 0
+                    else (result[4] or "verification_failed"),
+                    "message": result[1][-1000:] if result[0] != 0 else None,
+                    "warnings": [
+                        line.strip()
+                        for line in result[1].splitlines()
+                        if line.strip().lower().startswith("warning:")
+                    ],
+                }
+                for harness_key, result in zip(keys, results, strict=True)
+            }
+        )
         candidate_evidence_by_key.update(
             {
                 harness_key: result[2]
                 for harness_key, result in zip(keys, results, strict=True)
-                if result[2] is not None
+                if result[0] == 0 and result[2] is not None
             }
         )
-        failure = next((result for result in results if result[0] != 0), None)
-        if failure is not None:
-            return (
-                failure[0],
-                "\n".join(logs_by_key.values()),
-                repo_digest,
-                image_identity,
-                logs_by_key,
-            )
         return 0, "\n".join(logs_by_key.values()), repo_digest, image_identity, logs_by_key
 
     try:
@@ -1136,17 +1212,9 @@ async def verify_worker_profile_runtime(
                 "message": f"Worker runtime verification could not start: {exc}",
             },
         ) from exc
-    if exit_code != 0:
-        # Deterministic profile-specific failure: clear verification (§15.1).
+    if exit_code != 0:  # pragma: no cover - core Kit failures return above
         await _clear_profile_verification(db, profile, expected_generation=identity_generation)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={
-                "message": "Worker runtime verification failed",
-                "exit_code": exit_code,
-                "logs": logs[-8000:],
-            },
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="worker_kit_invalid")
 
     # Reload profile+shared and recompute the digest: if the verification
     # inputs changed while verifying, the result is superseded (§15.1).
@@ -1164,17 +1232,17 @@ async def verify_worker_profile_runtime(
             status_code=status.HTTP_409_CONFLICT,
             detail="worker_profile_verification_superseded",
         )
-    where = (
-        (WorkerProfile.id == profile.id)
-        & (WorkerProfile.v2_worker_image_identity_generation == identity_generation)
+    where = (WorkerProfile.id == profile.id) & (
+        WorkerProfile.worker_kit_identity_generation == identity_generation
     )
     # Persist the completion time, not the timestamp used while constructing
     # the verification candidate. A Profile must never appear older than the
     # verification operation that actually established its identity.
     verified_at = utcnow()
+    # Each Harness owns its own execution evidence. A failure for one enabled
+    # Harness must not discard the successful evidence produced for another.
+    # Missing keys remain a hard gate when a Task selects that Harness.
     evidence_by_key = dict(candidate_evidence_by_key)
-    if requires_v2_identity and set(evidence_by_key) != set(v2_harness_keys):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="worker_profile_verification_superseded")
     result = await db.execute(
         update(WorkerProfile)
         .where(where)
@@ -1183,21 +1251,30 @@ async def verify_worker_profile_runtime(
             verified_runtime_configuration_digest=verification_digest,
             image_digest=repo_digest,
             v2_worker_image_identity=image_identity if requires_v2_identity else None,
-                        v2_harness_verification_evidence=evidence_by_key if requires_v2_identity else None,
-            worker_kit_identity=(
-                worker_kit_identity if requires_v2_identity else None
+            v2_harness_verification_evidence=evidence_by_key if requires_v2_identity else None,
+            v2_worker_image_identity_generation=(
+                identity_generation
+                if requires_v2_identity
+                else WorkerProfile.v2_worker_image_identity_generation
             ),
+            worker_kit_version=observed_worker_kit_version,
+            worker_kit_identity=(worker_kit_identity if requires_v2_identity else None),
             worker_kit_identity_generation=identity_generation,
         )
     )
     if result.rowcount != 1:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="worker_profile_verification_superseded")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="worker_profile_verification_superseded"
+        )
     await db.commit()
 
     profile.verified_at = verified_at
     profile.verified_runtime_configuration_digest = verification_digest
     profile.image_digest = repo_digest
-    profile.v2_worker_image_identity = image_identity if requires_v2_identity else None
+    profile.worker_kit_version = observed_worker_kit_version
+    if requires_v2_identity:
+        profile.v2_worker_image_identity_generation = identity_generation
+        profile.v2_worker_image_identity = image_identity
     profile.v2_harness_verification_evidence = evidence_by_key if requires_v2_identity else None
     profile.worker_kit_identity = worker_kit_identity if requires_v2_identity else None
     profile.worker_kit_identity_generation = identity_generation
@@ -1208,7 +1285,7 @@ async def verify_worker_profile_runtime(
         "image_digest": repo_digest,
         "verified_at": profile.verified_at.isoformat() if profile.verified_at else None,
         "verified_runtime_configuration_digest": verification_digest,
-        "worker_kit_version": runtime.worker_kit_version,
+        "worker_kit_version": observed_worker_kit_version,
         "docker_host": connection.host,
         "elapsed_ms": round((time.monotonic() - started_at) * 1000),
         "omitted_secret_environment_keys": sorted(
@@ -1218,7 +1295,13 @@ async def verify_worker_profile_runtime(
         ),
         "logs": logs[-8000:],
         "runtime_readiness": serialize_runtime_readiness(outcome.readiness),
-        "v2_harnesses_verified": list(v2_harness_keys),
+        "v2_harnesses_verified": list(evidence_by_key),
+        "harness_results": harness_results,
+        "warnings": [
+            {"harness_key": key, "message": warning}
+            for key, result in harness_results.items()
+            for warning in result["warnings"]
+        ],
     }
 
 
@@ -1275,9 +1358,7 @@ async def create_worker_profile(
         )
         if kit_source == WORKER_KIT_SOURCE_SYSTEM:
             if request.runtime_mode != MOUNTED_KIT_MODE:
-                raise WorkerKitValidationError(
-                    "worker profile writes require mounted_kit mode"
-                )
+                raise WorkerKitValidationError("worker profile writes require mounted_kit mode")
             # The effective system Kit is resolved below. Profile-local Kit
             # coordinates are intentionally empty when the source is shared.
             runtime_mode, kit_version, kit_path = MOUNTED_KIT_MODE, None, None
@@ -1353,9 +1434,7 @@ async def create_worker_profile(
             profile,
             attribute_names=["environment_variables", "default_skills"],
         )
-        return await _admin_profile_payload(
-            db, profile, settings=get_effective_settings()
-        )
+        return await _admin_profile_payload(db, profile, settings=get_effective_settings())
     except HTTPException:
         await _rollback(db)
         raise
@@ -1383,9 +1462,7 @@ async def update_worker_profile(
     )
     profile = await _load_profile_or_404(db, profile_id, for_update=True)
     settings = get_effective_settings()
-    stored_verification_digest = getattr(
-        profile, "verified_runtime_configuration_digest", None
-    )
+    stored_verification_digest = getattr(profile, "verified_runtime_configuration_digest", None)
     previous_verification_digest: str | None = None
     try:
         previous_effective = resolve_effective_configuration(profile, shared)
@@ -1405,9 +1482,7 @@ async def update_worker_profile(
             profile.description = request.description
         if "enabled" in fields and request.enabled is not None:
             if profile.is_default and request.enabled is False:
-                raise WorkerProfileValidationError(
-                    "Default worker profile cannot be disabled"
-                )
+                raise WorkerProfileValidationError("Default worker profile cannot be disabled")
             if request.enabled is False:
                 await _ensure_profile_can_stop_serving_issues(db, profile)
             profile.enabled = request.enabled
@@ -1419,8 +1494,7 @@ async def update_worker_profile(
             kit_source = request.worker_kit_source or WORKER_KIT_SOURCE_SYSTEM
             if kit_source not in WORKER_KIT_SOURCES:
                 raise WorkerProfileValidationError(
-                    "worker_kit_source must be one of: "
-                    + ", ".join(sorted(WORKER_KIT_SOURCES))
+                    "worker_kit_source must be one of: " + ", ".join(sorted(WORKER_KIT_SOURCES))
                 )
             profile.worker_kit_source = kit_source
         else:
@@ -1432,7 +1506,11 @@ async def update_worker_profile(
         # A full-form save may still carry stale local Kit coordinates while
         # the Profile follows the shared Kit. They are not editable overrides.
         if kit_fields & fields and kit_source == WORKER_KIT_SOURCE_PROFILE:
-            runtime_mode, kit_version, kit_path = validate_worker_kit_write_config(
+            previous_runtime_mode = (
+                getattr(profile, "runtime_mode", BAKED_IMAGE_MODE) or BAKED_IMAGE_MODE
+            )
+            previous_kit_path = getattr(profile, "worker_kit_path", None)
+            runtime_mode, _, kit_path = validate_worker_kit_write_config(
                 runtime_mode=(
                     request.runtime_mode
                     if "runtime_mode" in fields
@@ -1446,8 +1524,12 @@ async def update_worker_profile(
                 ),
             )
             profile.runtime_mode = runtime_mode
-            profile.worker_kit_version = kit_version
             profile.worker_kit_path = kit_path
+            if (runtime_mode, kit_path) != (previous_runtime_mode, previous_kit_path):
+                # The version is an observation from the mounted manifest. A
+                # same-coordinate form save must not erase that observation;
+                # only a real Kit coordinate change requires verification again.
+                profile.worker_kit_version = None
         harness_fields = {
             "enabled_harnesses",
             "default_harness_key",
@@ -1461,20 +1543,16 @@ async def update_worker_profile(
             # can never end up outside enabled_harnesses.
             merged_enabled = (
                 list(request.enabled_harnesses)
-                if "enabled_harnesses" in fields
-                and request.enabled_harnesses is not None
+                if "enabled_harnesses" in fields and request.enabled_harnesses is not None
                 else list(getattr(profile, "enabled_harnesses", None) or ["claude"])
             )
             merged_default = (
                 request.default_harness_key
-                if "default_harness_key" in fields
-                and request.default_harness_key
+                if "default_harness_key" in fields and request.default_harness_key
                 else getattr(profile, "default_harness_key", None) or "claude"
             )
             try:
-                validate_enabled_harnesses(
-                    merged_enabled, default_harness_key=merged_default
-                )
+                validate_enabled_harnesses(merged_enabled, default_harness_key=merged_default)
             except HarnessRegistryError as exc:
                 raise WorkerProfileValidationError(str(exc)) from exc
             if "enabled_harnesses" in fields:
@@ -1501,9 +1579,7 @@ async def update_worker_profile(
                     request.docker_host if "docker_host" in fields else profile.docker_host
                 ),
                 docker_tls_ca=(
-                    request.docker_tls_ca
-                    if "docker_tls_ca" in fields
-                    else profile.docker_tls_ca
+                    request.docker_tls_ca if "docker_tls_ca" in fields else profile.docker_tls_ca
                 ),
                 docker_tls_cert=(
                     request.docker_tls_cert
@@ -1511,9 +1587,7 @@ async def update_worker_profile(
                     else profile.docker_tls_cert
                 ),
                 docker_tls_key=(
-                    request.docker_tls_key
-                    if "docker_tls_key" in fields
-                    else profile.docker_tls_key
+                    request.docker_tls_key if "docker_tls_key" in fields else profile.docker_tls_key
                 ),
             )
             settings = get_effective_settings()
@@ -1619,9 +1693,7 @@ async def update_worker_profile(
             shared,
             default_skills=getattr(profile, "default_skills", None) or [],
         )
-        next_verification_digest = current_runtime_verification_digest(
-            profile, effective, settings
-        )
+        next_verification_digest = current_runtime_verification_digest(profile, effective, settings)
         verification_inputs_changed = bool(stored_verification_digest) and (
             previous_verification_digest is None
             or stored_verification_digest != previous_verification_digest
@@ -1637,6 +1709,7 @@ async def update_worker_profile(
             profile.verified_runtime_configuration_digest = None
             profile.v2_worker_image_identity = None
             profile.v2_harness_verification_evidence = None
+            profile.worker_kit_version = None
             profile.v2_worker_image_identity_generation = (
                 int(getattr(profile, "v2_worker_image_identity_generation", 0) or 0) + 1
             )
@@ -1650,9 +1723,7 @@ async def update_worker_profile(
             profile,
             attribute_names=["environment_variables", "default_skills"],
         )
-        return await _admin_profile_payload(
-            db, profile, settings=get_effective_settings()
-        )
+        return await _admin_profile_payload(db, profile, settings=get_effective_settings())
     except HTTPException:
         await _rollback(db)
         raise
@@ -1676,9 +1747,7 @@ async def set_default_worker_profile_endpoint(
             profile,
             attribute_names=["environment_variables", "default_skills"],
         )
-        return await _admin_profile_payload(
-            db, profile, settings=get_effective_settings()
-        )
+        return await _admin_profile_payload(db, profile, settings=get_effective_settings())
     except WorkerProfileValidationError as exc:
         await _rollback(db)
         raise _http_profile_error(exc) from exc
@@ -1702,9 +1771,7 @@ async def disable_worker_profile(
             profile,
             attribute_names=["environment_variables", "default_skills"],
         )
-        return await _admin_profile_payload(
-            db, profile, settings=get_effective_settings()
-        )
+        return await _admin_profile_payload(db, profile, settings=get_effective_settings())
     except WorkerProfileValidationError as exc:
         await _rollback(db)
         raise _http_profile_error(exc) from exc
@@ -1728,9 +1795,7 @@ async def force_disable_worker_profile(
             profile,
             attribute_names=["environment_variables", "default_skills"],
         )
-        payload = await _admin_profile_payload(
-            db, profile, settings=get_effective_settings()
-        )
+        payload = await _admin_profile_payload(db, profile, settings=get_effective_settings())
         payload["closed_issue_count"] = closed_issue_count
         return payload
     except WorkerProfileValidationError as exc:
@@ -1796,7 +1861,9 @@ async def duplicate_worker_profile(
             image=source.image,
             worker_kit_source=getattr(source, "worker_kit_source", WORKER_KIT_SOURCE_PROFILE),
             runtime_mode=getattr(source, "runtime_mode", BAKED_IMAGE_MODE),
-            worker_kit_version=getattr(source, "worker_kit_version", None),
+            # A duplicate has a new verification lifecycle. The source's
+            # observed manifest version is not copied across hosts/architectures.
+            worker_kit_version=None,
             worker_kit_path=getattr(source, "worker_kit_path", None),
             docker_host=getattr(source, "docker_host", None),
             docker_tls_ca=getattr(source, "docker_tls_ca", None),

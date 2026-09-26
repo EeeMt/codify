@@ -360,6 +360,7 @@ export interface WorkerRuntimeReadiness {
     platform: string
     manifest_sha256: string
   } | null
+  harness_verification?: Record<string, { status: 'verified' | 'unverified' | 'unavailable' }> | null
 }
 
 export interface WorkerSharedConfiguration {
@@ -399,6 +400,11 @@ export interface WorkerRuntimeVerificationResult {
   worker_kit_version?: string | null
   verified_at?: string | null
   runtime_readiness: WorkerRuntimeReadiness
+  harness_results?: Record<
+    string,
+    { status: 'verified' | 'verification_failed' | 'unavailable'; message: string | null; warnings: string[] }
+  >
+  warnings?: Array<{ harness_key: string; message: string }>
 }
 
 export interface WorkerProfilePayload {

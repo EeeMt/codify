@@ -1292,18 +1292,26 @@ class RuntimeReadinessGateTests(unittest.IsolatedAsyncioTestCase):
         scheduler = Scheduler()
         task = _claimable_task(5, 20)
         snapshot_result, _ = self._snapshot_db()
+        existing_logs = MagicMock()
+        existing_logs.scalars.return_value.all.return_value = []
         db = MagicMock()
-        db.execute = AsyncMock(side_effect=[snapshot_result])
+        db.execute = AsyncMock(side_effect=[snapshot_result, existing_logs])
         db.commit = AsyncMock()
         probe = AsyncMock()
         readiness = AsyncMock(
-            return_value=RuntimeReadiness(status=READINESS_READY)
+            return_value=RuntimeReadiness(
+                status=READINESS_READY,
+                worker_kit_version="0.3.5",
+            )
         )
 
-        with patch(
-            "app.scheduler.read_runtime_readiness",
-            new=readiness,
-        ), patch("app.scheduler.run_deterministic_kit_probe", new=probe):
+        with (
+            patch(
+                "app.scheduler.read_runtime_readiness",
+                new=readiness,
+            ),
+            patch("app.scheduler.run_deterministic_kit_probe", new=probe),
+        ):
             blocked = await scheduler._apply_runtime_readiness_gate(db, task)
 
         self.assertFalse(blocked)
@@ -1313,6 +1321,50 @@ class RuntimeReadinessGateTests(unittest.IsolatedAsyncioTestCase):
             "fp-1",
             require_content_inventory=False,
         )
+
+    async def test_cached_ready_runtime_with_new_manifest_version_warns_and_runs(self) -> None:
+        from app.core.worker_runtime_readiness import (
+            READINESS_READY,
+            RuntimeReadiness,
+        )
+        from app.scheduler import Scheduler
+
+        scheduler = Scheduler()
+        task = _claimable_task(5, 20)
+        snapshot_result, existing_logs = self._snapshot_db()
+        db = MagicMock()
+        db.execute = AsyncMock(side_effect=[snapshot_result, existing_logs])
+        db.commit = AsyncMock()
+
+        with (
+            patch(
+                "app.scheduler.read_runtime_readiness",
+                new=AsyncMock(
+                    return_value=RuntimeReadiness(
+                        status=READINESS_READY,
+                        worker_kit_version="0.4.0",
+                    )
+                ),
+            ),
+            patch.object(scheduler, "_emit_event") as emit_event,
+        ):
+            blocked = await scheduler._apply_runtime_readiness_gate(db, task)
+
+        self.assertFalse(blocked)
+        self.assertEqual(task.status, TaskStatus.QUEUED)
+        emit_event.assert_called_once()
+        self.assertEqual(
+            emit_event.call_args.args[0],
+            "worker_kit_runtime_drift_warning",
+        )
+        self.assertEqual(
+            emit_event.call_args.kwargs["reason"],
+            "worker_kit_version_drift_warning",
+        )
+        db.commit.assert_awaited_once()
+        warning = db.add.call_args.args[0]
+        self.assertEqual(warning.log_type, "runtime_warning")
+        self.assertIn("worker_kit_version_drift_warning", warning.log_metadata)
 
     async def test_v2_cached_runtime_uses_frozen_identity_without_probe(self) -> None:
         from app.core.worker_runtime_readiness import READINESS_READY, RuntimeReadiness
@@ -1367,10 +1419,13 @@ class RuntimeReadinessGateTests(unittest.IsolatedAsyncioTestCase):
         db.commit = AsyncMock()
         probe = AsyncMock()
 
-        with patch(
-            "app.scheduler.read_runtime_readiness",
-            new=AsyncMock(return_value=RuntimeReadiness(status=READINESS_READY)),
-        ), patch("app.scheduler.run_deterministic_kit_probe", new=probe):
+        with (
+            patch(
+                "app.scheduler.read_runtime_readiness",
+                new=AsyncMock(return_value=RuntimeReadiness(status=READINESS_READY)),
+            ),
+            patch("app.scheduler.run_deterministic_kit_probe", new=probe),
+        ):
             blocked = await scheduler._apply_runtime_readiness_gate(db, task)
 
         self.assertFalse(blocked)
@@ -1387,20 +1442,30 @@ class RuntimeReadinessGateTests(unittest.IsolatedAsyncioTestCase):
         scheduler = Scheduler()
         task = _claimable_task(5, 20)
         snapshot_result, _ = self._snapshot_db()
+        existing_logs = MagicMock()
+        existing_logs.scalars.return_value.all.return_value = []
         db = MagicMock()
-        db.execute = AsyncMock(side_effect=[snapshot_result])
+        db.execute = AsyncMock(side_effect=[snapshot_result, existing_logs])
         db.commit = AsyncMock()
 
-        with patch(
-            "app.scheduler.read_runtime_readiness",
-            new=AsyncMock(return_value=RuntimeReadiness(status=READINESS_READY)),
-        ), patch(
-            "app.scheduler.run_deterministic_kit_probe",
-            new=AsyncMock(
-                return_value=RuntimeProbeOutcome(
-                    readiness=RuntimeReadiness(status=READINESS_READY),
-                    committed=True,
-                )
+        with (
+            patch(
+                "app.scheduler.read_runtime_readiness",
+                new=AsyncMock(
+                    return_value=RuntimeReadiness(
+                        status=READINESS_READY,
+                        worker_kit_version="0.3.5",
+                    )
+                ),
+            ),
+            patch(
+                "app.scheduler.run_deterministic_kit_probe",
+                new=AsyncMock(
+                    return_value=RuntimeProbeOutcome(
+                        readiness=RuntimeReadiness(status=READINESS_READY),
+                        committed=True,
+                    )
+                ),
             ),
         ):
             blocked = await scheduler._apply_runtime_readiness_gate(db, task)
@@ -1438,6 +1503,40 @@ class RuntimeReadinessGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task.status, TaskStatus.PENDING)
         db.commit.assert_awaited()
 
+    async def test_invalid_runtime_fails_task_instead_of_waiting(self) -> None:
+        from app.core.worker_runtime_readiness import (
+            FAILURE_WORKER_KIT_INVALID,
+            READINESS_UNAVAILABLE,
+            RuntimeReadiness,
+        )
+        from app.scheduler import Scheduler
+
+        scheduler = Scheduler()
+        task = _claimable_task(5, 20)
+        snapshot_result, _ = self._snapshot_db()
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=snapshot_result)
+        db.commit = AsyncMock()
+
+        with (
+            patch(
+                "app.scheduler.read_runtime_readiness",
+                new=AsyncMock(
+                    return_value=RuntimeReadiness(
+                        status=READINESS_UNAVAILABLE,
+                        failure_code=FAILURE_WORKER_KIT_INVALID,
+                    )
+                ),
+            ),
+            patch("app.scheduler.maybe_update_issue_status", new=AsyncMock()),
+        ):
+            blocked = await scheduler._apply_runtime_readiness_gate(db, task)
+
+        self.assertTrue(blocked)
+        self.assertEqual(task.status, TaskStatus.FAILED)
+        self.assertIn("worker_runtime_check_failed", task.error_message)
+        db.commit.assert_awaited()
+
     async def test_unknown_runtime_probes_and_ready_proceeds(self) -> None:
         from app.core.worker_runtime_readiness import (
             READINESS_READY,
@@ -1451,7 +1550,7 @@ class RuntimeReadinessGateTests(unittest.IsolatedAsyncioTestCase):
         task = _claimable_task(5, 20)
         snapshot_result, _ = self._snapshot_db()
         db = MagicMock()
-        db.execute = AsyncMock(side_effect=[snapshot_result])
+        db.execute = AsyncMock(return_value=snapshot_result)
         db.commit = AsyncMock()
 
         with (
@@ -1473,6 +1572,56 @@ class RuntimeReadinessGateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(blocked)
         self.assertEqual(task.status, TaskStatus.QUEUED)
+
+    async def test_unknown_probe_with_new_manifest_version_warns_and_runs(self) -> None:
+        from app.core.worker_runtime_readiness import (
+            READINESS_READY,
+            READINESS_UNKNOWN,
+            RuntimeProbeOutcome,
+            RuntimeReadiness,
+        )
+        from app.scheduler import Scheduler
+
+        scheduler = Scheduler()
+        task = _claimable_task(5, 20)
+        snapshot_result, existing_logs = self._snapshot_db()
+        db = MagicMock()
+        db.execute = AsyncMock(side_effect=[snapshot_result, existing_logs])
+        db.commit = AsyncMock()
+
+        with (
+            patch(
+                "app.scheduler.read_runtime_readiness",
+                new=AsyncMock(return_value=RuntimeReadiness(status=READINESS_UNKNOWN)),
+            ),
+            patch(
+                "app.scheduler.run_deterministic_kit_probe",
+                new=AsyncMock(
+                    return_value=RuntimeProbeOutcome(
+                        readiness=RuntimeReadiness(
+                            status=READINESS_READY,
+                            worker_kit_version="0.4.0",
+                        ),
+                        committed=True,
+                    )
+                ),
+            ),
+            patch.object(scheduler, "_emit_event") as emit_event,
+        ):
+            blocked = await scheduler._apply_runtime_readiness_gate(db, task)
+
+        self.assertFalse(blocked)
+        self.assertEqual(task.status, TaskStatus.QUEUED)
+        emit_event.assert_called_once()
+        self.assertEqual(
+            emit_event.call_args.args[0],
+            "worker_kit_runtime_drift_warning",
+        )
+        self.assertEqual(
+            emit_event.call_args.kwargs["reason"],
+            "worker_kit_version_drift_warning",
+        )
+        db.commit.assert_awaited_once()
 
     async def test_unknown_runtime_probe_unavailable_fails_task(self) -> None:
         from app.core.worker_runtime_readiness import (
@@ -1600,9 +1749,8 @@ class RuntimeReadinessGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("runtime_readiness_probe_transient", emitted)
         db.commit.assert_not_called()
 
-    async def test_unknown_runtime_probe_superseded_unavailable_parks_task(self) -> None:
-        """F2: a superseded probe whose re-read is unavailable must PARK the Task
-        (QUEUED → PENDING), never FAIL it (§13.3/§13.5/§24.13)."""
+    async def test_unknown_runtime_probe_not_found_parks_task(self) -> None:
+        """A confirmed missing Kit parks the Task whether this probe or another found it."""
         from app.core.worker_runtime_readiness import (
             FAILURE_WORKER_KIT_NOT_FOUND,
             READINESS_UNAVAILABLE,
@@ -1628,8 +1776,6 @@ class RuntimeReadinessGateTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "app.scheduler.run_deterministic_kit_probe",
-                # Our probe was superseded (committed=False) by a concurrent check
-                # that concluded unavailable; the re-read reflects that conclusion.
                 new=AsyncMock(
                     return_value=RuntimeProbeOutcome(
                         readiness=RuntimeReadiness(

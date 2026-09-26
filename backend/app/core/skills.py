@@ -341,7 +341,12 @@ def validate_runtime_supports_skills(runtime: Any, skills: Iterable[Any]) -> Non
             "and does not support skills"
         )
     version = _version_tuple(getattr(runtime, "worker_kit_version", None))
-    if version is None or version < SKILL_CAPABLE_WORKER_KIT_VERSION:
+    # A profile can be saved before its Kit is verified. The manifest version
+    # is authoritative and task/runtime execution still requires it to be
+    # present; there is nothing to compare until verification observes it.
+    if version is None:
+        return
+    if version < SKILL_CAPABLE_WORKER_KIT_VERSION:
         raise SkillValidationError(
             "Skills require worker-kit "
             f"{SKILL_CAPABLE_WORKER_KIT_VERSION_TEXT} or newer for mounted-kit profiles"

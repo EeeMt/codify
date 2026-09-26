@@ -138,6 +138,7 @@ const {
   mockDisableWorkerProfile: vi.fn(),
   mockMessage: {
     success: vi.fn(),
+    warning: vi.fn(),
     error: vi.fn()
   }
 }))
@@ -700,10 +701,21 @@ describe('WorkerSettingsPanel', () => {
     expect(status.text()).toContain('config.runtimeUnavailable')
     expect(status.text()).toContain('config.runtimeFailureDetailsUnavailable')
 
+    mockVerifyWorkerProfileRuntime.mockResolvedValueOnce({
+      ok: true,
+      runtime_readiness: { status: 'ready', checked_at: '2026-08-15T01:00:00Z', ready_until: null },
+      harness_results: {
+        claude: { status: 'verified', message: null, warnings: [] },
+        pi: { status: 'verification_failed', message: 'verification failed', warnings: [] }
+      }
+    })
     await (wrapper.vm as any).handleVerifyProfileRuntime()
     expect(mockVerifyWorkerProfileRuntime).toHaveBeenCalledWith(1)
     expect(mockGetAdminWorkerProfiles).toHaveBeenCalledTimes(2)
-    expect(mockMessage.success).toHaveBeenCalledWith('config.runtimeVerificationSucceeded')
+    expect(mockMessage.warning).toHaveBeenCalledWith('config.runtimeVerificationPartial')
+    const verifiedStatus = wrapper.find('[data-testid="worker-profile-runtime-status"]')
+    expect(verifiedStatus.text()).toContain('claude: config.harnessVerificationPassed')
+    expect(verifiedStatus.text()).toContain('pi: config.runtimeVerificationFailed')
   })
 
   it('does not show stale verification success while runtime verification is running', async () => {
@@ -1054,6 +1066,39 @@ describe('WorkerSettingsPanel', () => {
       })
     )
     expect(mockUpdateWorkerProfile.mock.calls[0][1]).not.toHaveProperty('worker_kit_version')
+  })
+
+  it('shows the verified manifest version in the runtime status only', async () => {
+    mockGetAdminWorkerProfiles.mockResolvedValueOnce([
+      createWorkerProfile({
+        runtime_mode: 'mounted_kit',
+        worker_kit_version: 'stale-profile-value',
+        worker_kit_path: '/opt/codify/worker-kits/current-kit',
+        runtime_readiness: {
+          status: 'ready',
+          checked_at: '2026-09-24T00:00:00Z',
+          ready_until: null,
+          kit_identity: {
+            schema: 'codify.worker.kit-identity/v1',
+            kit_version: '0.7.0',
+            platform: 'linux/arm64',
+            manifest_sha256: 'a'.repeat(64)
+          }
+        }
+      })
+    ])
+    const wrapper = mount(WorkerSettingsPanel, {
+      props: { isMobile: false, reloadKey: 0 }
+    })
+
+    await flushPromises()
+
+    const statusCodes = wrapper
+      .find('[data-testid="worker-profile-runtime-status"] .worker-runtime-status__details')
+      .findAll('code')
+      .map(node => node.text())
+    expect(statusCodes).toEqual(['0.7.0', '/opt/codify/worker-kits/current-kit'])
+    expect(wrapper.find('.inherited-value-card code').exists()).toBe(false)
   })
 
   it('loads and saves the enabled/default harness fields', async () => {

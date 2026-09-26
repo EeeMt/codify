@@ -2,8 +2,13 @@
 
 configure_codegraph() {
     if ! command -v codegraph >/dev/null 2>&1; then
-        echo "ERROR: CodeGraph is enabled but the codegraph CLI is not available"
-        return 1
+        local warning_file="${CODIFY_RUNTIME_DIR:-/tmp/codify-runtime}/runtime-warnings.jsonl"
+        mkdir -p "${CODIFY_RUNTIME_DIR:-/tmp/codify-runtime}" 2>/dev/null || true
+        jq -nc '{code:"optional_runtime_tool_missing",tool:"codegraph",message:"Optional CodeGraph CLI is unavailable; continuing without CodeGraph."}' \
+            >> "${warning_file}" 2>/dev/null || true
+        echo "Warning: optional CodeGraph CLI is unavailable; continuing without CodeGraph."
+        CODEGRAPH_STARTUP_STATUS="skipped"
+        return 0
     fi
 
     codify_run_shell 'cd /workspace && export PATH="${CODIFY_RUNTIME_PATH}" && codegraph install --target=claude --location=global --yes'
@@ -70,6 +75,9 @@ prepare_codegraph() {
     CODEGRAPH_STARTUP_STATUS="enabled"
     echo "CodeGraph enabled for this worker profile"
     configure_codegraph
+    if [ "${CODEGRAPH_STARTUP_STATUS}" = "skipped" ]; then
+        return 0
+    fi
 
     if [ -d /workspace/.git ]; then
         touch /workspace/.git/info/exclude

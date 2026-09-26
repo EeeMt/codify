@@ -31,7 +31,6 @@ from app.core.worker_kit import (
     WorkerKitValidationError,
     validate_worker_kit_mounts,
     validate_worker_kit_write_config,
-    worker_kit_version_from_path,
 )
 from app.core.worker_profiles import (
     WorkerProfileValidationError,
@@ -95,17 +94,14 @@ def serialize_shared_configuration_for_api(
     row: WorkerSharedConfiguration,
     environment_variables: list[WorkerSharedEnvironmentVariable],
 ) -> dict[str, Any]:
-    worker_kit_version = row.worker_kit_version
-    if row.runtime_mode == MOUNTED_KIT_MODE and row.worker_kit_path:
-        try:
-            worker_kit_version = worker_kit_version_from_path(row.worker_kit_path)
-        except WorkerKitValidationError:
-            pass
     return {
         "id": row.id,
         "revision": row.revision,
         "runtime_mode": row.runtime_mode,
-        "worker_kit_version": worker_kit_version,
+        # The shared path can resolve to different Kit contents on different
+        # Docker hosts/architectures. Only Profile verification can observe a
+        # meaningful version.
+        "worker_kit_version": None,
         "worker_kit_path": row.worker_kit_path,
         "volume_mounts": row.volume_mounts or [],
         "pre_script": row.pre_script,
@@ -423,6 +419,7 @@ async def update_shared_configuration(
                     worker_kit_identity_generation=(
                         WorkerProfile.worker_kit_identity_generation + 1
                     ),
+                    worker_kit_version=None,
                 )
             )
         await db.commit()

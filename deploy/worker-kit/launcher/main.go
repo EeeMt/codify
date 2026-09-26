@@ -19,15 +19,21 @@ type runtimeCompatibility struct {
 }
 
 type manifest struct {
-	SchemaVersion        int                  `json:"schema_version"`
-	ManifestKind         string               `json:"manifest_kind"`
-	KitVersion           string               `json:"kit_version"`
-	Platform             string               `json:"platform"`
-	RuntimeBin           string               `json:"runtime_bin"`
-	Bash                 string               `json:"bash"`
-	Entrypoint           string               `json:"entrypoint"`
-	RuntimeCompatibility runtimeCompatibility `json:"runtime_compatibility"`
-	ContentInventory    json.RawMessage       `json:"content_inventory"`
+	SchemaVersion        int                              `json:"schema_version"`
+	ManifestKind         string                           `json:"manifest_kind"`
+	KitVersion           string                           `json:"kit_version"`
+	Platform             string                           `json:"platform"`
+	RuntimeBin           string                           `json:"runtime_bin"`
+	Bash                 string                           `json:"bash"`
+	Entrypoint           string                           `json:"entrypoint"`
+	RuntimeCompatibility runtimeCompatibility             `json:"runtime_compatibility"`
+	HarnessInventory     map[string]harnessInventoryEntry `json:"harness_inventory"`
+	ContentInventory     json.RawMessage                  `json:"content_inventory"`
+}
+
+type harnessInventoryEntry struct {
+	Availability string `json:"availability"`
+	ReasonCode   string `json:"reason_code"`
 }
 
 type runtimeFile struct {
@@ -42,7 +48,7 @@ type runtimeAdapter struct {
 }
 
 type runtimeManifest struct {
-	Schema           string                    `json:"schema"`
+	Schema          string                    `json:"schema"`
 	ContractVersion string                    `json:"contract_version"`
 	EventSchema     string                    `json:"event_schema"`
 	BundleDigest    string                    `json:"bundle_digest"`
@@ -133,6 +139,52 @@ func verifySelectedCLI(kitHome string) {
 	actualDigest, _, err := fileDigest(path)
 	if err != nil || actualDigest != expectedDigest {
 		fail("selected Harness CLI digest mismatch")
+	}
+}
+
+func recordRuntimeWarning(payload map[string]any) {
+	runtimeDir := os.Getenv("CODIFY_RUNTIME_DIR")
+	if runtimeDir == "" {
+		runtimeDir = "/tmp/codify-runtime"
+	}
+	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "codify worker-kit launcher: warning could not be persisted: %v\n", err)
+		return
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "codify worker-kit launcher: warning could not be encoded: %v\n", err)
+		return
+	}
+	file, err := os.OpenFile(filepath.Join(runtimeDir, "runtime-warnings.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "codify worker-kit launcher: warning could not be persisted: %v\n", err)
+		return
+	}
+	defer file.Close()
+	if _, err := file.Write(append(encoded, '\n')); err != nil {
+		fmt.Fprintf(os.Stderr, "codify worker-kit launcher: warning could not be persisted: %v\n", err)
+	}
+}
+
+func recordOptionalHarnessWarnings(m manifest) {
+	selected := os.Getenv("CODIFY_HARNESS_KEY")
+	var enabled []string
+	if err := json.Unmarshal([]byte(os.Getenv("CODIFY_PROFILE_ENABLED_HARNESSES_JSON")), &enabled); err != nil {
+		return
+	}
+	for _, key := range enabled {
+		entry, ok := m.HarnessInventory[key]
+		if !ok || key == selected || entry.Availability != "absent" {
+			continue
+		}
+		message := fmt.Sprintf("Optional enabled Harness %s is unavailable in the mounted Worker Kit", key)
+		recordRuntimeWarning(map[string]any{
+			"code":        "optional_harness_unavailable",
+			"harness_key": key,
+			"reason_code": entry.ReasonCode,
+			"message":     message,
+		})
 	}
 }
 
@@ -229,9 +281,6 @@ func main() {
 		fail("unsupported or incomplete manifest")
 	}
 	requestedVersion := os.Getenv("CODIFY_KIT_VERSION")
-	if requestedVersion != "" && requestedVersion != m.KitVersion {
-		fail("version mismatch: requested %s, mounted %s", requestedVersion, m.KitVersion)
-	}
 	if m.Platform != runtime.GOOS+"/"+runtime.GOARCH {
 		fail("platform mismatch: Kit declares %s, launcher is %s/%s", m.Platform, runtime.GOOS, runtime.GOARCH)
 	}
@@ -264,11 +313,43 @@ func main() {
 
 	verifyOnly := len(os.Args) > 1 && os.Args[1] == "--verify"
 	expectedKitManifestDigest := os.Getenv("CODIFY_KIT_MANIFEST_SHA256")
-	if expectedKitManifestDigest != "" {
-		actualKitManifestDigest, _, err := fileDigest(filepath.Join(kitHome, "manifest.json"))
-		if err != nil || actualKitManifestDigest != expectedKitManifestDigest {
-			fail("Worker Kit manifest digest mismatch")
+	actualKitManifestDigest, _, err := fileDigest(filepath.Join(kitHome, "manifest.json"))
+	if err != nil {
+		fail("hash Worker Kit manifest: %v", err)
+	}
+	isV2Task := os.Getenv("CODIFY_RUNTIME_CONTRACT_VERSION") == "codify.worker.harness/v2"
+	if !verifyOnly && isV2Task && (requestedVersion == "" || expectedKitManifestDigest == "") {
+		fail("frozen V2 Worker Kit version or manifest identity is missing")
+	}
+	if !verifyOnly && !isV2Task && expectedKitManifestDigest != "" && requestedVersion == "" {
+		fail("frozen Worker Kit version is missing")
+	}
+	if !verifyOnly && (expectedKitManifestDigest != "" || requestedVersion != "") {
+		reasonCodes := []string{}
+		if requestedVersion != "" && requestedVersion != m.KitVersion {
+			reasonCodes = append(reasonCodes, "worker_kit_version_drift_warning")
 		}
+		if expectedKitManifestDigest != "" && expectedKitManifestDigest != actualKitManifestDigest {
+			reasonCodes = append(reasonCodes, "worker_kit_manifest_drift_warning")
+		}
+		if len(reasonCodes) > 0 {
+			recordRuntimeWarning(map[string]any{
+				"code":         "worker_kit_runtime_drift_warning",
+				"reason_codes": reasonCodes,
+				"message":      "Worker Kit differs from the verification baseline",
+				"baseline": map[string]string{
+					"kit_version":     requestedVersion,
+					"manifest_sha256": expectedKitManifestDigest,
+				},
+				"actual": map[string]string{
+					"kit_version":     m.KitVersion,
+					"manifest_sha256": actualKitManifestDigest,
+				},
+			})
+		}
+	}
+	if !verifyOnly {
+		recordOptionalHarnessWarnings(m)
 	}
 	if verifyOnly {
 		verifyKitContent(kitHome, m.RuntimeBin)

@@ -828,7 +828,7 @@ async def verify_task_worker_runtime(
             connection=connection,
             image=snapshot.image,
             runtime_mode=snapshot.runtime_mode,
-            worker_kit_version=snapshot.worker_kit_version or "",
+            worker_kit_version=None,
             worker_kit_path=snapshot.worker_kit_path or "",
             require_content_inventory=(
                 getattr(snapshot, "runtime_contract_version", None)
@@ -848,7 +848,7 @@ async def verify_task_worker_runtime(
         "task_id": task_id,
         "runtime_locator_fingerprint": fingerprint,
         "runtime_mode": snapshot.runtime_mode,
-        "worker_kit_version": snapshot.worker_kit_version,
+        "worker_kit_version": outcome.readiness.worker_kit_version,
         "docker_host": connection.host,
         "runtime_readiness": serialize_runtime_readiness(outcome.readiness),
     }

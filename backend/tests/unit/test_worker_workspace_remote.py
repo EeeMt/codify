@@ -1,13 +1,14 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.worker_shared_configuration import WorkerSharedConfigurationContext
 from app.core.worker_workspace_remote import (
     inspect_issue_workspace,
     remove_issue_workspace_remote,
 )
-from app.models import Issue, WorkerProfile
+from app.models import Issue, WorkerProfile, WorkerSharedConfiguration
 
 
 def _profile() -> WorkerProfile:
@@ -188,5 +189,53 @@ async def test_mounted_kit_workspace_maintenance_falls_back_when_image_has_no_sh
     }
     assert fallback.kwargs["volumes"][f"{profile.worker_kit_path}/nix/store"] == {
         "bind": "/nix/store",
+        "mode": "ro",
+    }
+
+
+@pytest.mark.asyncio
+async def test_inherited_mounted_kit_workspace_maintenance_uses_shared_path():
+    profile = _profile()
+    profile.worker_kit_source = "system"
+    profile.runtime_mode = "mounted_kit"
+    profile.worker_kit_version = "0.4.0"
+    profile.worker_kit_path = None
+    issue = _issue(profile)
+    docker = MagicMock()
+    docker.client.containers.run.side_effect = [
+        RuntimeError('exec: "/bin/sh": executable file not found'),
+        b'{"issue_exists":true,"repo_exists":true}\n',
+    ]
+    db = MagicMock()
+    db.get = AsyncMock(return_value=profile)
+    shared = WorkerSharedConfiguration(
+        id=1,
+        revision=1,
+        runtime_mode="mounted_kit",
+        worker_kit_path="/srv/codify/worker-kits/current",
+        volume_mounts=[],
+        pre_script="",
+        post_script="",
+        default_execute_run_instruction_template="execute {{user_prompt}}",
+        default_plan_run_instruction_template="plan {{user_prompt}}",
+        ci_auto_repair_run_instruction_template="repair {{issue_title}}",
+    )
+
+    with patch(
+        "app.core.worker_workspace_remote.load_shared_configuration",
+        new=AsyncMock(return_value=WorkerSharedConfigurationContext(row=shared)),
+    ):
+        status = await inspect_issue_workspace(
+            db,
+            _settings(),
+            issue,
+            get_client=AsyncMock(return_value=docker),
+        )
+
+    assert status.repo_exists is True
+    fallback = docker.client.containers.run.call_args
+    assert fallback.kwargs["environment"]["CODIFY_KIT_VERSION"] == "0.4.0"
+    assert fallback.kwargs["volumes"]["/srv/codify/worker-kits/current"] == {
+        "bind": "/opt/codify-kit",
         "mode": "ro",
     }

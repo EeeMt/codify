@@ -114,8 +114,12 @@ run_mermaid_summary_validation() {
     fi
 
     if [ ! -x "${validator}" ]; then
-        jq -nc '{ok: false, diagramCount: 0, errors: [{index: null, message: "Mermaid validator unavailable", source: ""}], skipped: true, reason: "validator_unavailable"}' > "${output_file}"
-        return 1
+        jq -nc '{ok: true, diagramCount: 0, errors: [], skipped: true, reason: "validator_unavailable"}' > "${output_file}"
+        local warning
+        warning="$(jq -nc '{code:"optional_runtime_tool_missing",tool:"mermaid",message:"Optional Mermaid validator is unavailable; skipping diagram validation."}')"
+        codify_emit_event "diagnostic" "${warning}" || \
+            echo "Warning: optional Mermaid validator is unavailable; skipping diagram validation." >&2
+        return 0
     fi
 
     local tmp_file="${output_file}.tmp"

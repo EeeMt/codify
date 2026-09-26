@@ -194,7 +194,13 @@ async def test_admin_list_includes_16_2_sections(db_factory):
         "verified_runtime_configuration_digest",
         "matches_current_input",
     }
-    assert set(payload["runtime_readiness"]) == {"status", "checked_at", "ready_until"}
+    assert set(payload["runtime_readiness"]) == {
+        "status",
+        "checked_at",
+        "ready_until",
+        "harness_inventory",
+        "kit_identity",
+    }
     assert payload["runtime_readiness"]["status"] == "unknown"
 
 
