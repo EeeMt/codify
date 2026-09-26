@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 ARG NIX_IMAGE=nixos/nix:2.24.11
-ARG WORKER_KIT_VERSION=0.6.17
+ARG WORKER_KIT_VERSION=0.6.23
 # Build selection: comma/plus-separated subset of pi,opencode,claude,codex.
 # An empty value builds a Kit with no Harness CLI payloads. The manifest
 # always records all four keys (availability=present|absent + reason_code).
@@ -71,7 +71,7 @@ RUN nix-build default.nix -o /tmp/codify-worker-kit-runtime \
        /src/verify-cli-payloads.sh
 
 FROM alpine:3.21 AS artifact
-ARG WORKER_KIT_VERSION=0.6.17
+ARG WORKER_KIT_VERSION=0.6.23
 ARG TARGETARCH
 ARG KIT_CLI_SELECTION
 RUN apk add --no-cache jq

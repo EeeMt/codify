@@ -72,16 +72,20 @@ Version `0.4.0` moves Harness CLI ownership into the Worker Kit: the Project Run
 ships project toolchains only, `harness_runtimes` sources become `worker_kit|host_mount`
 (`image` is removed), and the release overlay no longer mounts any CLI artifact lock.
 Versions `0.3.x` notes below describe the retired image-owned CLI era and are kept as
-historical reference only. The current build default is `0.6.17`, set by `WORKER_KIT_VERSION` in
+historical reference only. The current build default is `0.6.23`, set by `WORKER_KIT_VERSION` in
 `deploy/Dockerfile.worker-kit` and by the same variable's fallback in
 `deploy/worker-kit/export.sh`.
+
+Version `0.6.23` makes runtime Kit version/manifest drift an advisory warning and persists
+launcher warnings for Task diagnostics. Missing frozen V2 Kit identity and Runtime Bundle
+integrity failures remain fatal.
 
 ## Build and export
 
 On a connected build machine:
 
 ```bash
-make worker-kit-export WORKER_KIT_VERSION=0.6.17 WORKER_KIT_PLATFORM=linux/amd64
+make worker-kit-export WORKER_KIT_VERSION=0.6.23 WORKER_KIT_PLATFORM=linux/amd64
 ```
 
 This creates an archive and checksum under `deploy/offline-bundle/kits/`. Kit versions are

@@ -161,6 +161,6 @@ This command:
 - Copy `config/worker-images.txt.example` to `config/worker-images.txt` before export and list
   all project runtime images that must be available offline.
 - The Kit version defaulted by `make offline-bundle-export` follows `WORKER_KIT_VERSION` (currently
-  `0.6.17`); set it to the frozen release version so both architecture archives match the release
+  `0.6.23`); set it to the frozen release version so both architecture archives match the release
   candidate.
 - If your intranet environment has no outbound internet access, `ANTHROPIC_BASE_URL` must point to an internal Claude-compatible endpoint.

@@ -8,7 +8,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [[ -n "${WORKER_KIT_DOCKER_CONTEXT:-}" ]]; then
     export DOCKER_CONTEXT="${WORKER_KIT_DOCKER_CONTEXT}"
 fi
-VERSION="${WORKER_KIT_VERSION:-0.6.17}"   # keep in step with ARG WORKER_KIT_VERSION in deploy/Dockerfile.worker-kit
+VERSION="${WORKER_KIT_VERSION:-0.6.23}"   # keep in step with ARG WORKER_KIT_VERSION in deploy/Dockerfile.worker-kit
 PLATFORM="${WORKER_KIT_PLATFORM:-linux/amd64}"
 ARCH="${PLATFORM#linux/}"
 ARCH="${ARCH%%/*}"   # linux/arm64/v8 -> arm64 (payload directory + kit name)
