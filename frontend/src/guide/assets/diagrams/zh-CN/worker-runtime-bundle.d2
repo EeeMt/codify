@@ -1,0 +1,56 @@
+# 章节：92-worker-runtime · Worker image, Worker Kit, Runtime Bundle 协作
+# 显示容器如何组合基础镜像、Kit 与任务冻结的 Bundle，并由 Kit launcher 启动 Bundle 入口。
+# 渲染：python3 scripts/guide/render-diagrams.py（在仓库根目录执行）
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: down
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  runtime: {
+    style.fill: "#F0FDF4"
+    style.stroke: "#15803D"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+task: "创建任务\n冻结镜像、Kit、Bundle 身份" { class: accent }
+image: "Worker 镜像\n操作系统 + 项目工具链" { class: node }
+container: "Worker 容器\n基于镜像创建，挂载 Kit 与 Bundle" { class: node }
+kit: "Worker Kit\nlauncher + Nix 工具 + Kit 中可用的 Harness CLI" { class: runtime }
+bundle: "Runtime Bundle\n编排入口 + Adapter + Bridge" { class: runtime }
+launcher: "Kit launcher\n校验 Kit、Bundle 摘要和契约" { class: accent }
+entrypoint: "Bundle 编排入口\n准备仓库 + 调用 Harness Adapter" { class: accent }
+harness: "Harness CLI\n在 /workspace 执行；产生运行事件" { class: node }
+codify: "Codify\n接收事件、结果与交付状态" { class: node }
+
+task -> container: "启动任务"
+image -> container: "提供基础环境"
+container -> kit: "只读挂载"
+container -> bundle: "挂载冻结 Bundle"
+kit -> launcher: "启动"
+bundle -> launcher: "供其校验"
+launcher -> entrypoint: "校验通过后运行"
+entrypoint -> harness: "使用 Kit 工具与 CLI"
+harness -> codify: "回传事件和结果"

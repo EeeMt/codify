@@ -50,6 +50,22 @@ Only the Claude subdirectory is mounted directly under `/home/codify`. Other fil
 
 Mounted Worker Kits are read-only at `/opt/codify-kit`, with the Kit's Nix store at `/nix/store`. The container starts through `/opt/codify-kit/launcher`. Kits are installed on the Docker host under a content-addressed directory.
 
+### How the Worker image, Kit, and Runtime Bundle fit together
+
+These three artifacts make up a Task's execution environment, but they are separate:
+
+| Artifact | What it provides | Role in a Task |
+|---|---|---|
+| Worker image | Operating system and project toolchains such as Java, Maven, or Playwright | Base environment for the container |
+| Worker Kit | Launcher, Nix runtime tools, and Harness CLIs available in the Kit inventory | Validates execution identity and starts orchestration; provides tools to scripts and Harnesses |
+| Runtime Bundle | Codify's orchestration entrypoint, Harness Adapters, and Bridges | Defines Codify's repository preparation, Harness invocation, and event handling |
+
+At Task creation, Codify freezes a Task Snapshot and binds the Worker image, Kit, and Runtime Bundle identities. At execution, the Backend creates a container from the frozen Worker image and mounts the Kit and Bundle. The Kit launcher validates the Kit manifest, Bundle digest, and contract compatibility before running the Bundle entrypoint. That entrypoint uses the Kit's runtime tools and invokes the selected Harness Adapter and CLI; the CLI comes from the Kit inventory or a read-only mount configured in the Profile. The Harness works in `/workspace`, and runtime events flow back to Codify.
+
+![Roles and startup sequence for the Worker image, Kit, and Runtime Bundle](assets/diagrams/en/worker-runtime-bundle.svg)
+
+As a result, changing orchestration scripts in a Bundle normally requires building and binding a new Bundle; changing the launcher, Nix tools, or a Kit-provided CLI requires a new Worker Kit release. The frozen identities and contracts connect the two, while existing Tasks keep their original bindings.
+
 Profile volume mounts cannot hide the workspace, Harness-state, metadata, scratch, Kit, or Nix-store mounts. These guards prevent a profile from replacing the runtime or another Issue's state.
 
 ### Per-run scratch

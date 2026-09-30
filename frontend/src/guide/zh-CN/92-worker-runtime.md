@@ -50,6 +50,22 @@ tier: deep
 
 挂载模式的 Worker Kit 以只读方式放在 `/opt/codify-kit`，其中的 Nix store 放在 `/nix/store`，容器通过 `/opt/codify-kit/launcher` 启动。Kit 安装在 Docker 主机的内容寻址目录中。
 
+### Worker 镜像、Kit 与 Runtime Bundle 如何配合
+
+三者共同组成任务的执行环境，但不是同一个制品：
+
+| 制品 | 提供什么 | 任务中的作用 |
+|---|---|---|
+| Worker 镜像 | 操作系统和项目工具链，例如 Java、Maven 或 Playwright | 作为容器的基础环境 |
+| Worker Kit | launcher、Nix 运行时工具，以及 Kit inventory 中可用的 Harness CLI | 校验运行身份并启动编排入口；为编排脚本和 Harness 提供工具 |
+| Runtime Bundle | Codify 的编排入口、Harness Adapter 和 Bridge | 决定仓库准备、Harness 调用及事件处理等 Codify 流程 |
+
+创建任务时，Codify 冻结 Task Snapshot，并绑定 Worker 镜像、Kit 和 Runtime Bundle 的身份。执行时，Backend 基于冻结的 Worker 镜像创建容器，把 Kit 和 Bundle 挂载进去。Kit launcher 校验 Kit manifest、Bundle digest 及契约兼容性，然后运行 Bundle 的入口脚本。入口脚本使用 Kit 的运行时工具，并调用选定 Harness 的 Adapter 和 CLI；CLI 来自 Kit inventory 或 Profile 配置的只读挂载。Harness 在 `/workspace` 中完成任务，运行事件再写回 Codify。
+
+![Worker 镜像、Kit 与 Runtime Bundle 在一次任务中的分工和启动顺序](assets/diagrams/zh-CN/worker-runtime-bundle.svg)
+
+因此，只修改 Bundle 中的编排脚本通常只需生成并绑定新 Bundle；修改 launcher、Nix 工具或 Kit 中的 CLI 才需要发布新 Worker Kit。两者由冻结身份和契约关联，已有任务继续使用创建时绑定的身份。
+
 Profile 的自定义挂载不能覆盖工作区、Harness 状态、元数据、临时目录、Kit 或 Nix store 挂载。这些保护避免 Profile 替换运行时或覆盖其他需求的状态。
 
 ### 任务临时目录

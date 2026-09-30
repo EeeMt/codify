@@ -1,0 +1,56 @@
+# Chapter: 92-worker-runtime · Worker image, Worker Kit, and Runtime Bundle
+# Show how the base image, Kit, and Task-bound Bundle compose and launch.
+# Render: python3 scripts/guide/render-diagrams.py from the repository root.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: down
+
+classes: {
+  node: {
+    style.fill: "#FFFFFF"
+    style.stroke: "#334155"
+    style.stroke-width: 1
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  accent: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#1D4ED8"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+  runtime: {
+    style.fill: "#F0FDF4"
+    style.stroke: "#15803D"
+    style.font-color: "#0F172A"
+    style.font-size: 14
+    style.border-radius: 8
+  }
+}
+
+task: "Task creation\nFreeze image + Kit + Bundle identities" { class: accent }
+image: "Worker image\nOS + project toolchain" { class: node }
+container: "Worker container\nImage is the base; Kit and Bundle are mounted" { class: node }
+kit: "Worker Kit\nlauncher + Nix tools + selected Harness CLI" { class: runtime }
+bundle: "Runtime Bundle\norchestration entrypoint + Adapter + Bridge" { class: runtime }
+launcher: "Kit launcher\nvalidate Kit, Bundle digest, and contracts" { class: accent }
+entrypoint: "Bundle entrypoint\nprepare repository + invoke Harness Adapter" { class: accent }
+harness: "Harness CLI\nwork in /workspace; emit runtime events" { class: node }
+codify: "Codify\nreceive events, results, and delivery state" { class: node }
+
+task -> container: "start from"
+image -> container: "base environment"
+container -> kit: "mount read-only"
+container -> bundle: "mount frozen Bundle"
+kit -> launcher: "starts"
+bundle -> launcher: "validated by"
+launcher -> entrypoint: "runs"
+entrypoint -> harness: "uses Kit runtime + CLI"
+harness -> codify: "events and result"

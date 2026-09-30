@@ -66,9 +66,13 @@ An appended Task therefore starts from the previous Task's code and conversation
 
 ## Task snapshot and runtime bundle {deep}
 
-Creating a Task does not bind it to the Worker Profile as it stands at execution time. Codify resolves the profile at creation instead and freezes an immutable **Task snapshot** that records the execution identity: the Worker Profile it resolved, the Harness and its constraints, the enabled skills, and the run-instruction defaults.
+Creating a Task does not bind it to the Worker Profile as it stands at execution time. Codify resolves the profile at creation instead and freezes an immutable **Task snapshot** that records the execution identity: the Worker Profile, Worker image, Worker Kit, Harness, enabled Skills, Provider references, and run-instruction defaults.
 
-Alongside the snapshot, the Task is bound to a content-addressed **Runtime Bundle**, an immutable artifact identified by digest. The run loads the frozen bundle and the snapshot, so nothing changes underneath a Task that is already running.
+A **Runtime Bundle** is an immutable, content-addressed execution artifact built from its contents and frozen runtime identity. It contains Codify's orchestration entrypoint, Harness Adapters, and Bridges. The Task binds to a Bundle and keeps that identity; a change to orchestration source produces a new Bundle, while existing Tasks continue to use their bound one. A Bundle does not contain the full Worker Kit or Worker image.
+
+Tasks use the model-service configuration from their snapshot; credential values are resolved at runtime as sensitive values.
+
+The Worker image, Worker Kit, and Runtime Bundle have separate roles: the image supplies the operating system and project toolchain; the Kit supplies the launcher, Nix runtime tools, and Harness CLIs; the Bundle supplies Codify's orchestration code. At container startup, the Kit launcher validates the Task-bound Bundle and Kit identity, then starts the Bundle entrypoint. See [Worker Runtime](/guide/92-worker-runtime) for the launch sequence.
 
 This has several consequences:
 

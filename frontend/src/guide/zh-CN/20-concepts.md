@@ -70,9 +70,13 @@ Harness 决定了模型协议（Claude 使用 Anthropic 协议，Codex 使用 Op
 
 创建任务时会冻结两份内容，之后的配置变更不会影响这个任务。
 
-**任务快照（Task Snapshot）** 记录这次执行使用的 Worker 与模型服务身份：Worker 配置、Worker Kit 版本、Harness 版本、模型端点、凭据引用、预置脚本，以及实施模式与分析模式的默认运行指令模板。任务详情页的「任务快照」区块展示这些信息，其中敏感项只显示键名、类型与是否已配置，不会返回值。
+**任务快照（Task Snapshot）** 记录这次执行使用的 Worker 与模型服务身份：Worker 配置、Worker 镜像、Worker Kit、Harness、模型端点、凭据引用、预置脚本，以及实施模式与分析模式的默认运行指令模板。任务详情页的「任务快照」区块展示这些信息，其中敏感项只显示键名、类型与是否已配置，不会返回值。
 
-**运行时包（Runtime Bundle）** 是按冻结身份计算摘要的内容寻址执行工件。任务只使用快照中的模型配置，凭据是运行时读取的唯一敏感值。
+**运行时包（Runtime Bundle）** 是按内容和冻结身份计算摘要的不可变执行工件，包含 Codify 的编排入口、Harness Adapter 与 Bridge。它与 Task Snapshot 关联，由任务固定使用；修改编排代码会生成新的 Bundle，已有任务仍使用原来的身份。Bundle 不包含完整 Worker Kit 或 Worker 镜像。
+
+任务使用快照中的模型服务配置；凭据值是在运行时读取的敏感值。
+
+Worker 镜像、Worker Kit 和 Runtime Bundle 分工不同：镜像提供操作系统及项目工具链；Kit 提供 launcher、Nix 运行时工具和 Harness CLI；Bundle 提供 Codify 的任务编排代码。容器启动时，Kit 的 launcher 校验任务绑定的 Bundle 与 Kit 身份，再启动 Bundle 的编排入口。详见[《Worker 运行时》](/guide/92-worker-runtime)。
 
 任务详情页会显示模型服务的执行快照（「执行快照」标记）或当前配置（「当前配置」标记），并给出快照时间。如果关联的模型服务配置已被删除，页面只能展示任务保留的实际模型信息。重试会克隆源任务的快照并重新绑定运行时包，因此重试不会受后来配置改动的影响。
 
